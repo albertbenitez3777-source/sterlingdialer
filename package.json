@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:call-flow": "npx vitest run test/call-flow-lifecycle.test.ts"
+    "test:call-flow": "node test/call-flow-regression.node.mjs",
+    "test:call-flow:helpers": "npx vitest run test/call-flow-lifecycle.test.ts test/v279-call-evidence.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

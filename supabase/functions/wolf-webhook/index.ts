@@ -307,6 +307,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // Create new inbound call record
+      const inboundNow = new Date().toISOString();
       const fromNumber = String(body.from || body.caller_number || body.caller || "");
       const toNumber = String(body.to || body.called_number || body.inbound_number || "");
       const startedAt = body.started_at || body.start_time || (body.created_at ? String(body.created_at) : null);
@@ -351,7 +352,7 @@ Deno.serve(async (req: Request) => {
         RETURNING id, queue, agent_id
       `;
       if (insertRows.length > 0) {
-        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, lead_id: null, created: true, created_at: now };
+        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, lead_id: null, created: true, created_at: inboundNow };
         console.log(`[webhook] Created inbound call record ${callInfo.id} for bland_call_id=${blandCallId}`);
       }
     }

@@ -138,13 +138,13 @@ Deno.serve(async (req: Request) => {
         const updateData: Record<string, unknown> = {
           is_live_human: isLiveHuman,
         };
+        const wasAutoKilled = String(call.agent_notes || "").includes("Auto-killed");
         // Only mark completed when we have actual end-of-call evidence from Bland
         const hasEvidence = Boolean(transcript || (durationSeconds > 0 && !wasAutoKilled) || recordingUrl);
         if (hasEvidence) updateData.is_completed = true;
         if (transcript) updateData.transcript = transcript;
         if (summary && summary !== "Not enough information to generate summary.") updateData.ai_summary = summary;
         if (recordingUrl) updateData.recording_url = recordingUrl;
-        const wasAutoKilled = String(call.agent_notes || "").includes("Auto-killed");
         if (durationSeconds > 0 && !wasAutoKilled) updateData.duration_seconds = durationSeconds;
         if (newQueue !== call.queue) updateData.queue = newQueue;
         if (shouldSuppress) updateData.is_dnc = true;
