@@ -140,6 +140,36 @@ Deno.serve(async (req: Request) => {
 
     const isReadAdmin = (role: string) => role === "owner" || role === "administrator" || role === "supervisor";
 
+    // Read-only provider diagnostics, protected by the existing owner session.
+    // Return counts and account status without caller details or API keys.
+    if (action === "provider_queue_health") {
+      const agent = await verifySession(body.session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!["owner", "administrator"].includes(agent.role)) return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!blandApiKey) return new Response(JSON.stringify({ error: "Provider API key is not configured" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const readProvider = async (path: string) => {
+        try {
+          const response = await fetch(`https://api.bland.ai/v1/${path}`, {
+            method: "GET", headers: { authorization: blandApiKey }, signal: AbortSignal.timeout(12000),
+          });
+          return { status: response.status, data: await response.json() };
+        } catch { return { status: 0, data: null }; }
+      };
+      const [account, active] = await Promise.all([readProvider("me"), readProvider("calls/active")]);
+      const calls = active.status === 200 && Array.isArray(active.data?.data) ? active.data.data as Array<Record<string, unknown>> : null;
+      const queued = calls?.filter(c => String(c.status).toUpperCase() === "QUEUED");
+      const times = (queued || []).map(c => Number(c.timestamp)).filter(n => Number.isFinite(n) && n > 0 && n < 8.64e15);
+      return new Response(JSON.stringify({
+        checked_at: new Date().toISOString(), account_http_status: account.status,
+        account_status: account.status === 200 ? account.data?.status ?? null : null,
+        balance: account.status === 200 ? account.data?.billing?.current_balance ?? null : null,
+        total_calls: account.status === 200 ? account.data?.total_calls ?? null : null,
+        queue_http_status: active.status, queued: queued?.length ?? null,
+        in_progress: calls?.filter(c => String(c.status).toUpperCase() === "IN_PROGRESS").length ?? null,
+        oldest_queued_at: times.length ? new Date(Math.min(...times)).toISOString() : null,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // GET_AGENT_READINESS_TABLE: admin-only — returns all four agents with readiness details
     if (action === "get_readiness_table") {
       const { session_token } = body;
