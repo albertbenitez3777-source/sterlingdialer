@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import {
   flattenTranscript, blandDurationToSeconds, isBridgeConfirmed,
   detectLiveHuman, isOriginalVoicemail, classifyQueue,
-  evaluateTransferState, getBlandCallCompletion,
+  evaluateTransferState, getBlandCallCompletion, validBlandTimestamp,
 } from "../_shared/call-evidence.ts";
 
 const corsHeaders = {
@@ -143,12 +143,15 @@ Deno.serve(async (req: Request) => {
         const DECLINE_MARKERS = ["not interested", "stop calling", "remove me", "take me off", "do not call", "not interested in", "remove my number", "take my number off", "add this number to your do not call list"];
         const hasDeclineMarker = DECLINE_MARKERS.some(m => transcriptLower.includes(m));
         const hasNoSolicitations = transcriptLower.includes("does not accept solicitations");
-        const shouldSuppress = hasDeclineMarker || hasNoSolicitations;
+        const shouldSuppress = d.is_dnc === true || hasDeclineMarker || hasNoSolicitations;
 
         const updateData: Record<string, unknown> = {
           is_live_human: isLiveHuman,
           is_completed: true,
         };
+        const providerStartedAt = validBlandTimestamp(d.started_at) || validBlandTimestamp(d.start_time);
+        if (providerStartedAt) updateData.started_at = providerStartedAt;
+        const providerTransferredAt = validBlandTimestamp(d.transferred_at) || new Date().toISOString();
         if (transcript) updateData.transcript = transcript;
         if (summary && summary !== "Not enough information to generate summary.") updateData.ai_summary = summary;
         if (recordingUrl) updateData.recording_url = recordingUrl;
@@ -170,13 +173,13 @@ Deno.serve(async (req: Request) => {
           updateData.bridge_confirmed = true;
           updateData.bridge_confirmed_at = new Date().toISOString();
           updateData.talkroute_answered = true;
-          updateData.talkroute_answered_at = d.transferred_at || new Date().toISOString();
+          updateData.talkroute_answered_at = providerTransferredAt;
           // Do NOT set ai_terminated on bridge — bridge is not AI termination
-          updateData.transfer_requested_at = d.transferred_at || new Date().toISOString();
+          updateData.transfer_requested_at = providerTransferredAt;
         }
         if (transferRequested && !bridgeConfirmed) {
           updateData.transfer_status = "requested";
-          updateData.transfer_requested_at = d.transferred_at || new Date().toISOString();
+          updateData.transfer_requested_at = providerTransferredAt;
           updateData.talkroute_leg_created = true;
         }
         if (transferFailed) {

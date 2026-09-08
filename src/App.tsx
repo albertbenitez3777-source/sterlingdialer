@@ -10,6 +10,7 @@ import { useHeartbeat, type HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
 import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/utils/funnel';
 import { authFetch } from '@/utils/auth-fetch';
+import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -328,7 +329,7 @@ export default function App() {
 
   // Agent availability state
   const [agentAvailable, setAgentAvailable] = useState(false);
-  const [agentTodayStats, setAgentTodayStats] = useState<Record<string, number> | null>(null);
+  const [agentTodayStats, setAgentTodayStats] = useState<AgentTodayStats | null>(null);
   const [, setTodayActivity] = useState<QueueRecord[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [togglingAvail, setTogglingAvail] = useState(false);
@@ -701,7 +702,7 @@ export default function App() {
           fire_transfers: ((q.fire_transfers as QueueRecord[]) || []) as QueueRecord[],
         });
         if (raw.stats && typeof raw.stats === 'object') {
-          setAgentTodayStats(raw.stats as Record<string, number>);
+          setAgentTodayStats(raw.stats as AgentTodayStats);
         }
         if (Array.isArray(raw.today_activity)) {
           setTodayActivity(raw.today_activity as QueueRecord[]);
@@ -960,6 +961,8 @@ export default function App() {
       if (result.ok && result.data) {
         setActiveTransfers(((result.data as Record<string, unknown>).transfers || []) as ActiveTransfer[]);
         setActiveTransfersError(null);
+      } else if (!result.loggedOut) {
+        setActiveTransfersError(result.error || 'Could not load transfers');
       }
     } catch {
       setActiveTransfersError('Could not load transfers');
@@ -2187,7 +2190,7 @@ export default function App() {
                                 <div className="agent-name">
                                   <strong>{agent.full_name}</strong>
                                   <span style={{ fontSize: '10px', color: '#ef4444' }}>
-                                    {agent.status === 'archived' ? 'ARCHIVED' : 'INACTIVE'} — {(agent as Record<string, unknown>).outbound_attempts_all ?? 0} total calls, {(agent as Record<string, unknown>).bridge_confirmed_all ?? 0} bridges
+                                    {agent.status === 'archived' ? 'ARCHIVED' : 'INACTIVE'} — {agent.outbound_attempts_all ?? 0} total calls, {agent.bridge_confirmed_all ?? 0} bridges
                                   </span>
                                 </div>
                               </div>
@@ -2950,7 +2953,7 @@ export default function App() {
               onToggleAvail={handleToggleAvailability}
               fireTransfers={(queues?.fire_transfers ?? []) as QueueRecord[]}
               humanDrops={(queues?.human_drop ?? []) as QueueRecord[]}
-              todayStats={agentTodayStats as Record<string, number>}
+              todayStats={agentTodayStats}
               onNavTo={setActiveNav}
               activeNav={activeNav}
             />
@@ -2986,7 +2989,7 @@ export default function App() {
               onRedial={handleAgentRedial}
               redialing={agentRedialing}
               redialBatchId={agentRedialBatchId}
-              redialTranscripts={redialTranscripts}
+              redialTranscripts={redialTranscripts.map(call => ({ consumer_name: call.name, transcript: call.transcript, status: call.status }))}
               onCloseRedialPanel={() => { if (redialPollTimer) { clearInterval(redialPollTimer); setRedialPollTimer(null); } setAgentRedialBatchId(null); setRedialTranscripts([]); }}
             />
           )}
@@ -3093,11 +3096,12 @@ function DataHealthBanner({ health }: { health: DataHealth }) {
 }
 
 // ── Call List Component ──────────────────────────────────────────────────
-function CallList({ records, loading, expandedCall, setExpandedCall, onPhoneClick, emptyText, selectable, selectedIds, onToggleSelect, onSaveTransfer, savingTransferIds }: {
+function CallList({ records, loading, expandedCall, setExpandedCall, onPhoneClick, emptyText, selectable, selectedIds, onToggleSelect, onSaveTransfer, savingTransferIds, sessionToken, onUnauthorized }: {
   records: QueueRecord[]; loading: boolean; expandedCall: string | null;
   setExpandedCall: (id: string | null) => void; onPhoneClick: (name: string, phone: string) => void; emptyText: string;
   selectable?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void;
   onSaveTransfer?: (callId: string) => void; savingTransferIds?: Set<string>;
+  sessionToken: string; onUnauthorized: () => void;
 }) {
   if (loading && records.length === 0) {
     return <div className="panel"><div className="empty-state">Loading calls...</div></div>;
@@ -3191,7 +3195,7 @@ function CallList({ records, loading, expandedCall, setExpandedCall, onPhoneClic
                   <div className="transcript-text">{call.transcript}</div>
                 </div>
               )}
-              <RecordingPlayer url={call.recording_url} callId={call.id} sessionToken={sessionToken} onUnauthorized={atomicLogout} />
+              <RecordingPlayer url={call.recording_url} callId={call.id} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
             </div>
           )}
         </div>
@@ -3478,6 +3482,7 @@ function CallLogView({ expandedCall, setExpandedCall, sessionToken, onUnauthoriz
         </div>
       )}
       <CallList records={allCalls} loading={loadingAll}
+        sessionToken={sessionToken} onUnauthorized={onUnauthorized}
         expandedCall={expandedCall} setExpandedCall={setExpandedCall} onPhoneClick={() => {}}
         emptyText={callLogError ? 'Could not load calls — see error above.' : 'No calls match this filter.'} />
       {hasMore && (
@@ -3622,7 +3627,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                     <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone); }}>
                       <Phone size={11} /> {formatPhone(contact.phone)}
                     </button>
-                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && contact.custom_fields.email && (
+                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && Boolean(contact.custom_fields.email) && (
                       <span className="card-address" style={{ color: '#6db8d4' }}> · {String(contact.custom_fields.email)}</span>
                     )}
                     {contact.address && <span className="card-address"> · {contact.address}</span>}
@@ -3665,7 +3670,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                     <div className="detail-row"><span>Lead Status:</span><strong>{contact.lead_status ? contact.lead_status.toUpperCase() : 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Priority Lead:</span><strong>{contact.is_priority ? 'Yes' : 'No'}</strong></div>
                     {contact.original_agent_information && <div className="detail-row"><span>Original Agent Info:</span><strong>{contact.original_agent_information}</strong></div>}
-                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && contact.custom_fields.email && (
+                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && Boolean(contact.custom_fields.email) && (
                       <div className="detail-row"><span>Email:</span><strong>{String(contact.custom_fields.email)}</strong></div>
                     )}
                   </div>
@@ -3708,7 +3713,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                       <div className="transcript-text">{contact.transcript}</div>
                     </div>
                   )}
-                  <RecordingPlayer url={contact.recording_url} callId={contact.call_id || contact.id} sessionToken={sessionToken} onUnauthorized={atomicLogout} />
+                  <RecordingPlayer url={contact.recording_url} callId={contact.source === 'call' ? contact.id : undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
                 </div>
               )}
             </div>
@@ -3962,7 +3967,8 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
                         <div className="transcript-text">{call.transcript}</div>
                       </div>
                     )}
-                    <RecordingPlayer url={call.recording_url} callId={call.id} sessionToken={sessionToken} onUnauthorized={atomicLogout} />
+                    {/* Recording recovery accepts calls-table IDs, not secretary_calls IDs. */}
+                    <RecordingPlayer url={call.recording_url} />
                   </div>
                 )}
               </div>

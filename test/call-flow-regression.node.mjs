@@ -151,6 +151,155 @@ for (const payload of [
   });
 }
 
+for (const payload of [
+  {},
+  { event_type: 'citations', citations: [] },
+  { summary: 'An incomplete callback', call_length: 1 },
+  { event_type: 'post_transfer_transcript', post_transfer_transcript: [] },
+  { event_type: 'post_transfer_transcript', post_transfer_transcript: [{ speaker: 1, text: 'Hello?' }] },
+]) {
+  test(`incomplete webhook preserves existing call outcomes: ${JSON.stringify(payload)}`, async () => {
+    const result = await webhookCase(payload);
+    assert.equal(result.status, 200);
+    assert.equal(result.queries.length, 0);
+  });
+}
+
+test('webhook never clears a prior DNC flag and honors explicit provider DNC', async () => {
+  for (const payload of [{ completed: true }, { completed: true, is_dnc: true }]) {
+    const result = await webhookCase(payload);
+    assert.equal(result.status, 200);
+    assert.ok(result.queries.every(q => !/is_dnc\s*=\s*false/i.test(q.query)));
+    assert.equal(result.queries.some(q => q.query.startsWith('UPDATE calls SET is_dnc = true')), payload.is_dnc === true);
+  }
+});
+
+test('provider connection time is persisted without substituting request creation time', async () => {
+  for (const startedAt of ['2026-09-08T12:00:00Z', '9.544', 'invalid', undefined]) {
+    const payload = { completed: true, started_at: startedAt, created_at: '2026-09-08T11:59:00Z' };
+    const result = await webhookCase(payload);
+    assert.equal(result.status, 200);
+    const match = result.outcome.query.match(/started_at = COALESCE\(\$(\d+)::timestamptz/);
+    assert.ok(match);
+    const expected = startedAt === '2026-09-08T12:00:00Z' ? startedAt : null;
+    assert.equal(result.outcome.values[Number(match[1]) - 1], expected);
+    const backfill = await backfillCase(payload);
+    assert.equal(backfill.writes[0].patch.started_at ?? null, expected);
+  }
+});
+
+test('backfill honors explicit provider DNC even when transcript is absent', async () => {
+  const result = await backfillCase({ completed: true, is_dnc: true });
+  assert.equal(result.writes[0].patch.is_dnc, true);
+});
+
+test('malformed transfer timestamps cannot reject a confirmed bridge update', async () => {
+  const payload = { completed: true, transferred_at: '9.544', warm_transfer_call: { state: 'MERGED' } };
+  const result = await webhookCase(payload);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.detected.transfer_state, 'bridge_confirmed');
+  const backfill = await backfillCase(payload);
+  assert.ok(Number.isFinite(Date.parse(backfill.writes[0].patch.talkroute_answered_at)));
+});
+
+function dialerCase({ available = 0, running = true, stale = false, providerStatus = 200, providerResponse = {}, continuationFailures = 0 } = {}) {
+  const timers = [];
+  const retained = [];
+  const requests = [];
+  const queries = [];
+  let continuationAttempts = 0;
+  const sql = async (strings) => {
+    const query = strings.join('$').replace(/\s+/g, ' ').trim();
+    queries.push(query);
+    if (query.startsWith('SELECT id, provider_call_id, created_at')) return stale ? [{ id: 'stale-call', provider_call_id: providerId }] : [];
+    if (query.startsWith('SELECT state, provider_call_limit')) return [{ state: running ? 'running' : 'stopped' }];
+    if (query.includes('count_available_agents()')) return [{ cnt: available }];
+    if (query.includes('dialer_next_batch()')) return [{ dialer_next_batch: { success: true, calls: [] } }];
+    return [];
+  };
+  sql.end = async () => {};
+  const handler = loadHandler('supabase/functions/wolf-dialer-loop/index.ts', {
+    postgres: () => sql,
+    Date: class extends Date { static now() { return 46000; } },
+    setTimeout(fn, delay) { timers.push({ fn, delay }); return timers.length; },
+    EdgeRuntime: { waitUntil(promise) { retained.push(promise); } },
+    fetch: async (url, options = {}) => {
+      requests.push({ url, method: options.method ?? 'GET' });
+      if (url === `https://api.bland.ai/v1/calls/${providerId}`) {
+        return new Response(JSON.stringify(providerResponse), { status: providerStatus });
+      }
+      assert.equal(url, 'https://offline.invalid/functions/v1/wolf-dialer-loop', 'No customer call or stop request is allowed');
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body), { continue: true });
+      continuationAttempts++;
+      return new Response('{}', { status: continuationAttempts <= continuationFailures ? 503 : 200 });
+    },
+  }, { SUPABASE_URL: 'https://offline.invalid', BLAND_API_KEY: 'synthetic-not-a-provider-credential' });
+  return { handler, timers, retained, requests, queries };
+}
+
+for (const available of [0, 1]) {
+  test(`dialer retains its delayed continuation after responding (${available} available agents)`, async () => {
+    const fixture = dialerCase({ available });
+    const response = await fixture.handler(new Request('https://offline.invalid/dialer', { method: 'POST' }));
+    assert.equal(response.status, 200);
+    assert.equal(fixture.retained.length, 1);
+    assert.equal(typeof fixture.retained[0].then, 'function');
+    assert.equal(fixture.timers[0].delay, 20000);
+    assert.equal(fixture.requests.length, 0);
+    let settled = false;
+    fixture.retained[0].then(() => { settled = true; });
+    await Promise.resolve();
+    assert.equal(settled, false);
+    fixture.timers[0].fn();
+    await fixture.retained[0];
+    assert.equal(fixture.requests.length, 1);
+  });
+}
+
+test('dialer retains one delayed retry after a failed continuation response', async () => {
+  const fixture = dialerCase({ continuationFailures: 2 });
+  await fixture.handler(new Request('https://offline.invalid/dialer', { method: 'POST' }));
+  fixture.timers[0].fn();
+  await new Promise(setImmediate);
+  assert.equal(fixture.timers[1].delay, 10000);
+  fixture.timers[1].fn();
+  await fixture.retained[0];
+  assert.equal(fixture.requests.length, 2);
+  assert.equal(fixture.timers.length, 2);
+});
+
+for (const [providerStatus, providerResponse] of [
+  [503, {}], [200, {}], [200, { completed: false }], [200, { queue_status: 'started' }],
+]) {
+  test(`watchdog never stops calls with unconfirmed completion: ${providerStatus} ${JSON.stringify(providerResponse)}`, async () => {
+    const fixture = dialerCase({ running: false, stale: true, providerStatus, providerResponse });
+    const response = await fixture.handler(new Request('https://offline.invalid/dialer', { method: 'POST' }));
+    assert.equal(response.status, 200);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].method, 'GET');
+    assert.equal(fixture.retained.length, 0);
+  });
+}
+
+test('watchdog reconciles a completed no-answer without hanging up or inventing duration', async () => {
+  const fixture = dialerCase({ running: false, stale: true, providerResponse: { completed: true, status: 'no-answer' } });
+  await fixture.handler(new Request('https://offline.invalid/dialer', { method: 'POST' }));
+  assert.equal(fixture.requests.length, 1);
+  assert.equal(fixture.requests[0].method, 'GET');
+  const update = fixture.queries.find(q => q.startsWith('UPDATE calls'));
+  assert.ok(update);
+  assert.ok(!update.includes('duration_seconds'));
+  assert.ok(!update.includes('agent_notes'));
+});
+
+test('watchdog leaves ended human calls for evidence-preserving backfill', async () => {
+  const fixture = dialerCase({ running: false, stale: true, providerResponse: { completed: true, answered_by: 'human' } });
+  await fixture.handler(new Request('https://offline.invalid/dialer', { method: 'POST' }));
+  assert.equal(fixture.requests.length, 1);
+  assert.ok(!fixture.queries.some(q => q.startsWith('UPDATE calls')));
+});
+
 test('webhook authenticates live log entries before acknowledging them', async () => {
   const result = await webhookCase({ category: 'call', message: 'Call connected' }, { validSignature: false });
   assert.equal(result.status, 401);
