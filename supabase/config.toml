@@ -1,0 +1,29 @@
+[functions.wolf-auth]
+verify_jwt = false
+
+[functions.wolf-backfill]
+verify_jwt = false
+
+[functions.wolf-configure-inbound]
+verify_jwt = false
+
+[functions.wolf-dialer-loop]
+verify_jwt = false
+
+[functions.wolf-dialer-report]
+verify_jwt = false
+
+[functions.wolf-export-humans]
+verify_jwt = false
+
+[functions.wolf-import-leads]
+verify_jwt = false
+
+[functions.wolf-provider]
+verify_jwt = false
+
+[functions.wolf-probe-call]
+verify_jwt = false
+
+[functions.wolf-webhook]
+verify_jwt = false
