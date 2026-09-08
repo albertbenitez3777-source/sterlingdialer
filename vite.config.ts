@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
       exclude: ['lucide-react'],
     },
     server: {
+      host: "0.0.0.0",
+      allowedHosts: ["terminal.local"],
       proxy: {
         '/functions': {
           target: supabaseUrl,

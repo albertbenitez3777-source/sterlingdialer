@@ -96,7 +96,7 @@ Deno.serve(async (req: Request) => {
       const spec = RPC_ALLOWLIST.login;
       const result = await callRpc(spec, { p_pin: pin, p_ip: ip }, correlationId, action);
 
-      if (result.status === 0) {
+      if (!result.ok) {
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
       const data = result.data as Record<string, unknown> | null;
@@ -113,7 +113,7 @@ Deno.serve(async (req: Request) => {
       }
       const spec = RPC_ALLOWLIST.logout;
       const result = await callRpc(spec, { p_session_token: sessionToken }, correlationId, action);
-      if (result.status === 0) {
+      if (!result.ok) {
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
       return jsonResponse({ success: true }, 200);
@@ -126,11 +126,14 @@ Deno.serve(async (req: Request) => {
       }
       const spec = RPC_ALLOWLIST.verify;
       const result = await callRpc(spec, { p_session_token: sessionToken }, correlationId, action);
-      if (result.status === 0) {
-        return jsonResponse({ valid: false }, 200);
+      if (!result.ok) {
+        return jsonResponse({ error: "Session verification temporarily unavailable. Please try again." }, 503);
       }
       const data = result.data as Record<string, unknown> | null;
-      if (!data || !data.valid) {
+      if (!data || typeof data.valid !== "boolean") {
+        return jsonResponse({ error: "Session verification temporarily unavailable. Please try again." }, 503);
+      }
+      if (!data.valid) {
         return jsonResponse({ valid: false }, 200);
       }
       return jsonResponse(data, 200);

@@ -60,7 +60,7 @@ async function webhookCase(payload, { validSignature = true, secretary = false, 
         if (query.startsWith('SELECT id, queue, ai_terminated FROM calls')) {
           return [{ id: 'synthetic-call', queue: 'pending', ai_terminated: false }];
         }
-        if (query.startsWith('SELECT id, agent_id FROM secretary_calls')) {
+        if (query.startsWith('SELECT id, agent_id FROM secretary_calls') || query.startsWith('SELECT id FROM secretary_calls')) {
           return secretary ? [{ id: 'synthetic-secretary', agent_id: null }] : [];
         }
         if (query.startsWith('SELECT agent_notes, duration_seconds, ai_terminated')) {
@@ -353,6 +353,20 @@ test('completed secretary call still saves its outcome', async () => {
   assert.equal(result.status, 200);
   assert.equal(result.body.status, 'completed');
   assert.ok(result.queries.some(q => q.query.startsWith('UPDATE secretary_calls')));
+});
+
+test('secretary transfer progress uses valid database states and cannot overwrite a bridged call', async () => {
+  const result = await webhookCase({ type: 'transfer', status: 'transferring', completed: false }, { secretary: true });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.action, 'secretary_transfer_requested');
+  const update = result.queries.find(q => q.query.startsWith('UPDATE secretary_calls'));
+  assert.ok(update);
+  const status = update.query.match(/SET status = '([^']+)'/)[1];
+  const transferStatus = update.query.match(/transfer_status = '([^']+)'/)[1];
+  // These are the existing production CHECK constraints, not new state names.
+  assert.ok(['pending', 'dialing', 'ringing', 'answered', 'transferred', 'voicemail_left', 'no_answer', 'failed', 'dnc_blocked', 'completed'].includes(status));
+  assert.ok(['pending', 'bridged', 'failed'].includes(transferStatus));
+  assert.match(update.query, /AND transfer_status IS DISTINCT FROM 'bridged'/);
 });
 
 test('new completed inbound call records its creation time without a runtime error', async () => {

@@ -253,6 +253,10 @@ async function fetchWithRetry(url: string, body: Record<string, unknown>, maxRet
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      if ([502, 503, 504].includes(res.status) && attempt < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
       return res;
     } catch (err) {
       clearTimeout(timeout);
@@ -307,6 +311,7 @@ export default function App() {
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
+  const loginInFlight = useRef(false);
   const [sessionToken, setSessionToken] = useState('');
   const [activeNav, setActiveNav] = useState('dashboard');
   const [notice, setNotice] = useState('');
@@ -606,8 +611,13 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem('sterling_session_token');
     if (!token) return;
+    let cancelled = false;
     fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token })
-      .then(r => r.json()).then(d => {
+      .then(async r => {
+        if (!r.ok) throw new Error('Session verification unavailable');
+        return r.json();
+      }).then(d => {
+        if (cancelled || loginInFlight.current || localStorage.getItem('sterling_session_token') !== token) return;
         if (d.valid && d.agent) {
           setSession(d);
           setSessionToken(token);
@@ -617,10 +627,11 @@ export default function App() {
             setActiveNav('dashboard');
             if (!d.agent.available_for_transfer) setShowOfflineModal(true);
           }
-        } else {
+        } else if (d.valid === false) {
           localStorage.removeItem('sterling_session_token');
         }
       }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   // Restore active redials from localStorage on page load (survives refresh)
@@ -740,7 +751,7 @@ export default function App() {
       });
       const data = await res.json();
       setPhoneAction(null);
-      setNotice(data.success ? `Elizabeth is calling ${name || 'the contact'}...` : (data.error || 'Could not place secretary call'));
+      setNotice(data.success ? `Elizabeth's call to ${name || 'the contact'} is queued.` : (data.error || 'Could not place secretary call'));
       setTimeout(() => setNotice(''), 4000);
       if (data.success) loadSecretaryCalls(sessionToken);
     } catch {
@@ -1028,13 +1039,15 @@ export default function App() {
     finally { setLoadingAllSaved(false); }
   }, []);
 
-  const handleLogin = async () => {
-    if (!pin || !/^\d{4}$/.test(pin)) { setLoginError('PIN must be 4 digits'); return; }
+  const handleLogin = async (completedPin = pin) => {
+    if (loginInFlight.current) return;
+    if (!/^\d{4}$/.test(completedPin)) { setLoginError('PIN must be 4 digits'); return; }
+    loginInFlight.current = true;
     setLoggingIn(true); setLoginError('');
     try {
-      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin });
+      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin: completedPin });
       const data = await res.json();
-      if (data.success && data.session_token) {
+      if (res.ok && data.success && data.session_token && data.agent) {
         localStorage.setItem('sterling_session_token', data.session_token);
         setSessionToken(data.session_token);
         setSession({ valid: true, agent: data.agent });
@@ -1050,7 +1063,7 @@ export default function App() {
       const kind = classifyFetchError(err);
       setLoginError(loginErrorMessage(kind));
     }
-    finally { setLoggingIn(false); }
+    finally { loginInFlight.current = false; setLoggingIn(false); }
   };
 
   const handleLogout = async () => {
@@ -1549,9 +1562,9 @@ export default function App() {
             </div>
             <div className="login-form">
               <label>ENTER PIN TO LOG IN</label>
-              <PinInput length={4} value={pin} onChange={setPin} onComplete={handleLogin} hasError={!!loginError} />
+              <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
               {loginError && <div className="notice"><span>{loginError}</span></div>}
-              <GlowButton fullWidth onClick={handleLogin} disabled={loggingIn}>
+              <GlowButton fullWidth onClick={() => handleLogin()} disabled={loggingIn}>
                 {loggingIn ? 'Connecting — please wait...' : 'Enter Dashboard'}
               </GlowButton>
               <div className="login-foot"><CircleHelp size={12} /> <span>4-digit PIN access only</span></div>
@@ -3730,7 +3743,7 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
       });
       const data = await res.json();
       if (data.success) {
-        setNotice(`Elizabeth is calling ${secClientName}...`);
+        setNotice(`Elizabeth's call to ${secClientName} is queued.`);
         setTimeout(() => setNotice(''), 4000);
         setSecClientName(''); setSecClientPhone(''); setSecCustomMsg('');
         const listRes = await providerFetch(PROVIDER_URL, {
@@ -3788,12 +3801,13 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
 
   return (
     <>
-      <SectionHero image={CINEMATIC_HERO.agentMomentum} eyebrow="YOUR SECRETARY" title="Elizabeth Sterling" subtitle="Send Elizabeth to call a contact and transfer the live human to your line — or leave a reminder message." />
+      <SectionHero image={CINEMATIC_HERO.agentMomentum} eyebrow="YOUR SECRETARY" title="Elizabeth Sterling" subtitle="Have Elizabeth connect a live caller to your line or deliver a reminder when they answer." />
       <div className="hero-row">
         <div>
           <div className="eyebrow"><Send size={12} /> SECRETARY</div>
           <h2>Elizabeth Will Call for You</h2>
           <p>Give Elizabeth a name and number. She'll call on your behalf, introduce you, and transfer the prospect straight to your Talkroute line.</p>
+          <p>Elizabeth also answers callbacks to your assigned inbound number. Keep your Talkroute line ready to answer transfers.</p>
         </div>
         <button className="secondary-button" onClick={refresh}>
           <RefreshCw size={14} /> Refresh

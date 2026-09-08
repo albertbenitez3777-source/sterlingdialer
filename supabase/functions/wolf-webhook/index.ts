@@ -170,7 +170,7 @@ Deno.serve(async (req: Request) => {
         const secRows = await sql`SELECT id FROM secretary_calls WHERE provider_call_id = ${eventCallId} LIMIT 1`;
         if (secRows.length > 0) {
           const now = new Date().toISOString();
-          await sql`UPDATE secretary_calls SET status = 'transferring', transfer_status = 'requested', updated_at = ${now} WHERE id = ${secRows[0].id}`;
+          await sql`UPDATE secretary_calls SET status = 'ringing', transfer_status = 'pending', updated_at = ${now} WHERE id = ${secRows[0].id} AND transfer_status IS DISTINCT FROM 'bridged'`;
           return new Response(JSON.stringify({ success: true, action: "secretary_transfer_requested" }), {
             status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -239,7 +239,7 @@ Deno.serve(async (req: Request) => {
         const secRows = await sql`SELECT id FROM secretary_calls WHERE provider_call_id = ${toolCallId} LIMIT 1`;
         if (secRows.length > 0) {
           const now = new Date().toISOString();
-          await sql`UPDATE secretary_calls SET status = ${transferAccepted ? "transferring" : "failed"}, transfer_status = ${transferAccepted ? "requested" : "failed"}, updated_at = ${now} WHERE id = ${secRows[0].id}`;
+          await sql`UPDATE secretary_calls SET status = ${transferAccepted ? "ringing" : "failed"}, transfer_status = ${transferAccepted ? "pending" : "failed"}, updated_at = ${now} WHERE id = ${secRows[0].id} AND transfer_status IS DISTINCT FROM 'bridged'`;
         }
       }
 

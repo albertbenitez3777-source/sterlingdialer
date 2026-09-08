@@ -11,7 +11,8 @@
     "test:call-flow": "node --test test/call-flow-regression.node.mjs",
     "test:call-flow:helpers": "vitest run test/call-flow-lifecycle.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:contact-search": "node --test test/contact-search-regression.node.mjs test/contact-search-state.node.mjs"
+    "test:contact-search": "node --test test/contact-search-regression.node.mjs test/contact-search-state.node.mjs",
+    "test:login-secretary": "node --test test/login-secretary-regression.node.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

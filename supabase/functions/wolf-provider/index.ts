@@ -11,6 +11,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? "";
 const blandApiKey = Deno.env.get("BLAND_API_KEY") ?? "";
+class SessionVerificationUnavailable extends Error {}
 
 // Inbound configuration is handled by the canonical wolf-configure-inbound edge function.
 // This helper calls it via HTTP so there is exactly one implementation of the inbound config.
@@ -127,12 +128,14 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const action = body.action;
 
+    // Infrastructure failures must not masquerade as expired credentials.
     // Verify the caller's session and check admin role
     const verifySession = async (token: string) => {
+      if (!token) return null;
       const { data, error } = await supabase.rpc("verify_session", { p_session_token: token });
       if (error) {
         console.error("[verifySession] RPC error:", error.message);
-        return null;
+        throw new SessionVerificationUnavailable();
       }
       if (!data?.valid) return null;
       return data.agent;
@@ -1054,13 +1057,16 @@ Deno.serve(async (req: Request) => {
       if (agent.role === "owner" || agent.role === "administrator") {
         return new Response(JSON.stringify({ error: "Secretary is available to agents only." }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      if (mode !== undefined && mode !== "transfer" && mode !== "reminder") {
+        return new Response(JSON.stringify({ error: "Choose transfer or reminder mode." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       if (!blandApiKey) {
         return new Response(JSON.stringify({ error: "Bland.ai API key is not configured." }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const phoneNumber = normalizeToE164(client_phone);
-      if (!phoneNumber) {
+      const phoneNumber = normalizeToE164(String(client_phone || ""));
+      if (!/^\+[1-9]\d{7,14}$/.test(phoneNumber)) {
         return new Response(JSON.stringify({ error: "Invalid phone number" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -1088,6 +1094,9 @@ Deno.serve(async (req: Request) => {
 
       if (!agentRow || !agentRow.bland_number) {
         return new Response(JSON.stringify({ error: "Your Bland number is not configured." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (agentRow.status !== "active" || (mode === "transfer" && !agentRow.available_for_transfer)) {
+        return new Response(JSON.stringify({ error: "Go available before asking Elizabeth to transfer a call to you." }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Transfer mode requires a valid, unique Talkroute number on this agent
@@ -1155,25 +1164,30 @@ Deno.serve(async (req: Request) => {
       const useTransfer = mode === "transfer" && transferNumber;
       const customMsg = agentRow.custom_message_privilege && custom_message ? custom_message.trim() : "";
 
-      const elizabethFirstSentence = customMsg
+      const elizabethFirstSentence = useTransfer && customMsg
         ? `Hi, this is Elizabeth calling on behalf of ${agentName} at Sterling Collections. ${customMsg}`
         : `Hi, may I speak with ${client_name}? This is Elizabeth calling on behalf of ${agentName} at Sterling Collections.`;
 
-      const elizabethTask = `You are Elizabeth, a professional assistant at Sterling Collections calling ${client_name} on behalf of ${agentName}.
+      const elizabethTask = useTransfer ? `You are Elizabeth, a professional assistant at Sterling Collections calling ${client_name} on behalf of ${agentName}.
 
 RULES — follow exactly, no exceptions:
 1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail greeting, or automated system — HANG UP immediately. Say nothing.
 2. WRONG PERSON: If the person says they are not ${client_name}, or ${client_name} is not available — say "I apologize for the inconvenience" and HANG UP.
 3. LIVE PERSON — TRANSFER FAST: After your first_sentence, WAIT up to 5 seconds for any reply. The INSTANT you hear ANY engagement — "Hello?", "Yes?", "Speaking", "Who is this?", "What is this about?", "Okay", or any live human voice — proceed immediately to the transfer line.
-4. TRANSFER LINE: Say EXACTLY: "Thank you. A representative is available regarding a private account matter. Please hold for a moment while I connect you. Connecting you now." Then say NOTHING else.
+4. TRANSFER LINE: Say EXACTLY: "Thank you. A representative is available regarding a private account matter. Please hold for a moment while I connect you. Connecting you now." Immediately use the transfer tool to connect the call to the configured transfer number. Remain silent after invoking the transfer.
 5. IF ASKED "what is this about?" or "who are you?": Say "A representative needs to speak with you regarding a private account matter. Please hold while I connect you. Connecting you now." Then say NOTHING.
 6. DECLINE / DNC: ONLY explicit refusal — "no", "not interested", "stop calling", "remove me", "do not call". Say "I understand, thank you for your time" and HANG UP.
 7. SILENCE: If there is no reply within 5 seconds, HANG UP.
 8. IF ASKED "Are you a robot/AI?": Say "I'm an automated assistant for ${agentName} at Sterling Collections. A representative is available now. Connecting you now." Then say NOTHING.
 9. NEVER claim an urgent legal matter, lawsuit, deadline, or case-agent status. NEVER say ${agentName} is already on the line. NEVER disclose debt amounts or account details.
 10. NEVER repeat your first_sentence. NEVER argue. NEVER say anything after "Connecting you now." After the transfer trigger, remain completely silent.
-${customMsg ? `11. If not transferring, read this message from ${agentName}: "${customMsg}" Then ask if they'd like to speak with ${agentName}.` : ``}
-${useTransfer ? `` : `11. If they want to speak with ${agentName}, tell them ${agentName} will call them back shortly. Thank them and end the call.`}`;
+` : `You are Elizabeth, an automated assistant at Sterling Collections calling ${client_name} on behalf of ${agentName} with a reminder.
+1. If you hear voicemail or an automated system, hang up without leaving a message.
+2. Confirm you are speaking with ${client_name}. If this is the wrong person or they are unavailable, apologize and hang up without sharing the message.
+3. ${customMsg ? `After confirming the intended person, deliver this message once: "${customMsg}".` : `After confirming the intended person, ask them to return ${agentName}'s call at the number you are calling from.`}
+4. This call is a reminder. Do not announce a transfer or say "Connecting you now." No transfer tool is configured. If they ask to speak with ${agentName}, ask them to call back on this number.
+5. If they refuse or request no more calls, acknowledge the request and end the call.
+6. If asked whether you are AI, truthfully identify yourself as an automated assistant. Never claim legal urgency or disclose account details. End politely after the reminder.`;
 
       try {
         const blandResponse = await fetch("https://api.bland.ai/v1/calls", {
@@ -1189,6 +1203,7 @@ ${useTransfer ? `` : `11. If they want to speak with ${agentName}, tell them ${a
             record: true,
             voicemail: { action: "hangup", timeout: 0, sensitive: false },
             webhook: `${supabaseUrl}/functions/v1/wolf-webhook`,
+            webhook_events: ["call", "tool", "post_transfer_transcript"],
             max_duration: 8,
             interruptibility: 0,
             temperature: 0.1,
@@ -1197,7 +1212,9 @@ ${useTransfer ? `` : `11. If they want to speak with ${agentName}, tell them ${a
               transfer_phone_number: transferNumber,
               block_dtmf: false,
             } : {}),
-            summary_prompt: `Summarize this secretary call in 2-3 sentences. Did ${client_name} agree to speak with ${agentName}? Was the transfer successful? What was their reaction?`,
+            summary_prompt: useTransfer
+              ? `Summarize this secretary call in 2-3 sentences. Did ${client_name} agree to speak with ${agentName}? Was the transfer successful?`
+              : `Summarize this reminder call in 2-3 sentences. Was the intended person reached and the reminder delivered? Did they request a callback or no more calls?`,
           }),
         });
 
@@ -1206,7 +1223,7 @@ ${useTransfer ? `` : `11. If they want to speak with ${agentName}, tell them ${a
         if (blandResponse.ok && blandData.status === "success") {
           await supabase.from("secretary_calls").update({
             provider_call_id: blandData.call_id,
-            status: "ringing",
+            status: "pending",
           }).eq("id", secCall.id);
 
           return new Response(JSON.stringify({ success: true, secretary_call_id: secCall.id, provider_call_id: blandData.call_id }), {
@@ -3058,7 +3075,12 @@ RULES — follow exactly, no exceptions:
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SessionVerificationUnavailable) {
+      return new Response(JSON.stringify({ error: "Session verification temporarily unavailable. Please try again." }), {
+        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
