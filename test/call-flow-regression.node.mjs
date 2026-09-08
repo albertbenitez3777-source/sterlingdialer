@@ -36,7 +36,7 @@ function loadHandler(file, overrides = {}, env = {}) {
   return handler;
 }
 
-async function webhookCase(payload, { validSignature = true, secretary = false } = {}) {
+async function webhookCase(payload, { validSignature = true, secretary = false, inbound = false } = {}) {
   const queries = [];
   function sql(strings, ...values) {
     const query = strings.reduce((out, part, i) => out + (i ? '$' + i : '') + part, '')
@@ -51,8 +51,11 @@ async function webhookCase(payload, { validSignature = true, secretary = false }
             throw new Error('Invalid timestamptz parameter');
           }
         }
-        if (query.startsWith('SELECT id, queue, agent_id FROM calls')) {
-          return secretary ? [] : [{ id: 'synthetic-call', queue: 'pending', agent_id: null }];
+        if (query.startsWith('SELECT id, queue, agent_id') && query.includes(' FROM calls WHERE provider_call_id')) {
+          return secretary || inbound ? [] : [{ id: 'synthetic-call', queue: 'pending', agent_id: null, lead_id: null, created_at: '2026-09-08T12:00:00Z' }];
+        }
+        if (query.startsWith('INSERT INTO calls')) {
+          return [{ id: 'synthetic-inbound-call', queue: 'pending', agent_id: null, created_at: '2026-09-08T12:00:00Z' }];
         }
         if (query.startsWith('SELECT id, queue, ai_terminated FROM calls')) {
           return [{ id: 'synthetic-call', queue: 'pending', ai_terminated: false }];
@@ -189,6 +192,13 @@ test('completed secretary call still saves its outcome', async () => {
   assert.ok(result.queries.some(q => q.query.startsWith('UPDATE secretary_calls')));
 });
 
+test('new completed inbound call records its creation time without a runtime error', async () => {
+  const result = await webhookCase({ completed: true, status: 'completed', answered_by: 'human', inbound: true }, { inbound: true });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.created, true);
+  assert.equal(result.body.call_id, 'synthetic-inbound-call');
+});
+
 const repSegments = [{ start: 9.544, end: 17.804, speaker: 2, speaker_label: 'representative', text: 'Hello, this is the representative.' }];
 for (const [timing, expected] of [
   [{ started_at: '2026-09-08T12:00:00Z', transfer_offset_seconds: 9.573 }, '2026-09-08T12:00:19.117Z'],
@@ -218,6 +228,7 @@ test('representative speech accepts zero offsets and validates missing or malfor
 
 for (const payload of [
   { status: 'in-progress', completed: false, call_length: 0, transcripts: [] },
+  { status: 'in-progress', completed: false, call_length: 1, transcripts: [{ user: 'user', text: 'Hello' }] },
   { status: 'queued' },
   { queue_status: 'allocated' },
   { completed: false, queue_status: 'complete' },
@@ -236,6 +247,7 @@ for (const payload of [
 
 for (const payload of [
   { completed: true, queue_status: 'started' },
+  { completed: true, status: 'completed', call_length: 1, transcripts: [] },
   { status: 'completed' },
   { status: 'no-answer' },
   { queue_status: 'complete' },

@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:call-flow": "node --test test/call-flow-regression.node.mjs",
+    "test:call-flow:helpers": "vitest run test/call-flow-lifecycle.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {

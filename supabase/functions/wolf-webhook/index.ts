@@ -271,11 +271,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // Find existing call record
-    const callRows = await sql`SELECT id, queue, agent_id FROM calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
-    let callInfo: { id: string; queue: string; agent_id: string | null; created: boolean } | null = null;
+    const callRows = await sql`SELECT id, queue, agent_id, lead_id, created_at FROM calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
+    let callInfo: { id: string; queue: string; agent_id: string | null; lead_id: string | null; created: boolean; created_at: string } | null = null;
 
     if (callRows.length > 0) {
-      callInfo = { id: callRows[0].id, queue: callRows[0].queue, agent_id: callRows[0].agent_id, created: false };
+      callInfo = { id: callRows[0].id, queue: callRows[0].queue, agent_id: callRows[0].agent_id, lead_id: callRows[0].lead_id || null, created: false, created_at: String(callRows[0].created_at || "") };
     } else {
       // Check secretary_calls
       const secRows = await sql`SELECT id, agent_id FROM secretary_calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
@@ -360,10 +360,10 @@ Deno.serve(async (req: Request) => {
       const insertRows = await sql`
         INSERT INTO calls (provider_call_id, call_direction, queue, from_number, to_number, consumer_phone, is_live_human, agent_id${startedAt ? sql`, started_at` : sql``})
         VALUES (${blandCallId}, 'inbound', 'pending', ${fromNumber}, ${toNumber}, ${fromNumber}, true, ${resolvedAgentId}${startedAt ? sql`, ${startedAt}` : sql``})
-        RETURNING id, queue, agent_id
+        RETURNING id, queue, agent_id, created_at
       `;
       if (insertRows.length > 0) {
-        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, created: true };
+        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, lead_id: null, created: true, created_at: String(insertRows[0].created_at || new Date().toISOString()) };
         console.log(`[webhook] Created inbound call record ${callInfo.id} for bland_call_id=${blandCallId}`);
       }
     }
