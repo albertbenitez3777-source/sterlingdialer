@@ -10,6 +10,8 @@ import { useHeartbeat, type HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
 import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/utils/funnel';
 import { authFetch } from '@/utils/auth-fetch';
+import { contactEmails, contactFieldText } from '@/utils/contact-search';
+import { useContactSearch } from '@/utils/useContactSearch';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
@@ -131,6 +133,7 @@ type SecretaryCall = {
 };
 
 type ContactResult = {
+  email?: string; emails?: string[]; contact_key?: string;
   source: string; id: string; consumer_name: string; phone: string;
   phone_normalized: string; address: string; income_range: string;
   home_value: string; property_information: string; notes: string;
@@ -474,11 +477,8 @@ export default function App() {
   const [redialStatsFilter, setRedialStatsFilter] = useState<'all' | 'active' | 'completed'>('all');
 
   // Contact search
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ContactResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const contactSearch = useContactSearch<ContactResult>(PROVIDER_URL, sessionToken, () => atomicLogoutRef.current?.());
   const [expandedContact, setExpandedContact] = useState<string | null>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Active incoming transfers (agent view)
   const [activeTransfers, setActiveTransfers] = useState<ActiveTransfer[]>([]);
@@ -575,7 +575,7 @@ export default function App() {
     setRedialStats(null);
     setSavedTransfers([]);
     setAllSavedTransfers([]);
-    setSearchResults([]);
+    contactSearch.onSearchChange('');
     setSecretaryCalls([]);
     setAgentAvailable(false);
     setShowOfflineModal(false);
@@ -2776,11 +2776,9 @@ export default function App() {
 
           {/* ── CONTACTS: Universal Search (admin) ─────────────────────────── */}
           {isOwner && activeNav === 'contacts' && (
-            <ContactsView searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-              searchResults={searchResults} setSearchResults={setSearchResults}
-              searching={searching} setSearching={setSearching}
+            <ContactsView {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
-              searchTimerRef={searchTimerRef} sessionToken={sessionToken}
+              sessionToken={sessionToken}
               onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
             />
@@ -2788,11 +2786,9 @@ export default function App() {
 
           {/* ── CONTACTS: Universal Search (agent) ─────────────────────────── */}
           {!isOwner && activeNav === 'contacts' && (
-            <ContactsView searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-              searchResults={searchResults} setSearchResults={setSearchResults}
-              searching={searching} setSearching={setSearching}
+            <ContactsView {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
-              searchTimerRef={searchTimerRef} sessionToken={sessionToken}
+              sessionToken={sessionToken}
               onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
             />
@@ -3502,90 +3498,21 @@ function CallLogView({ expandedCall, setExpandedCall, sessionToken, onUnauthoriz
 }
 
 // ── Contacts Search View ─────────────────────────────────────────────────
-function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchResults,
-  searching, setSearching, expandedContact, setExpandedContact, searchTimerRef, sessionToken, onPhoneClick, onUnauthorized,
-}: {
-  searchQuery: string; setSearchQuery: (v: string) => void;
-  searchResults: ContactResult[]; setSearchResults: (v: ContactResult[]) => void;
-  searching: boolean; setSearching: (v: boolean) => void;
+function ContactsView({ searchQuery, searchResults, searching, searchError, searchTotal, hasMore,
+  onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized,
+}: ReturnType<typeof useContactSearch<ContactResult>> & {
   expandedContact: string | null; setExpandedContact: (v: string | null) => void;
-  searchTimerRef: ReturnType<typeof useRef<ReturnType<typeof setTimeout> | null>>;
   sessionToken: string; onPhoneClick: (name: string, phone: string) => void;
   onUnauthorized: () => void;
 }) {
-  const searchInFlightRef = useRef(false);
-  const [searchError, setSearchError] = useState(false);
-  const searchOffsetRef = useRef(0);
-  const [hasMore, setHasMore] = useState(false);
-  const currentQueryRef = useRef('');
-  const requestTokenRef = useRef(0);
-
-  const doSearch = async (query: string, offset: number = 0) => {
-    if (!query.trim()) { setSearchResults([]); setHasMore(false); setSearchError(false); return; }
-    // Stale guard: each request gets a token; only the latest token's response is applied
-    const token = ++requestTokenRef.current;
-    currentQueryRef.current = query;
-    searchOffsetRef.current = offset;
-    // Reset results immediately on a new query (offset 0) so old results don't linger
-    if (offset === 0) { setSearchResults([]); setHasMore(false); }
-    setSearchError(false);
-    setSearching(true);
-    searchInFlightRef.current = true;
-    try {
-      const result = await authFetch(PROVIDER_URL, {
-        body: { action: 'search_contacts', session_token: sessionToken, search_text: query, offset },
-        onUnauthorized,
-      });
-      // Drop stale responses — a newer query or Load More superseded this one
-      if (token !== requestTokenRef.current) return;
-      if (result.ok && result.data) {
-        const newResults = ((result.data as Record<string, unknown>).results || []) as ContactResult[];
-        if (offset === 0) {
-          setSearchResults(newResults);
-        } else {
-          const existingIds = new Set(searchResults.map(r => r.id));
-          setSearchResults([...searchResults, ...newResults.filter(r => !existingIds.has(r.id))]);
-        }
-        setHasMore(newResults.length >= 50);
-      } else {
-        if (offset === 0) setSearchResults([]);
-        setSearchError(true);
-      }
-    } catch {
-      if (token !== requestTokenRef.current) return;
-      if (offset === 0) setSearchResults([]);
-      setSearchError(true);
-    } finally {
-      if (token === requestTokenRef.current) { setSearching(false); searchInFlightRef.current = false; }
-    }
-  };
-
-  const loadMore = () => {
-    if (searchInFlightRef.current || !hasMore) return;
-    doSearch(currentQueryRef.current, searchOffsetRef.current + 50);
-  };
-
-  const onSearchChange = (val: string) => {
-    setSearchQuery(val);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => doSearch(val), 350);
-  };
-
-  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-      doSearch(searchQuery);
-    }
-  };
-
   return (
     <>
-      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CONTACT DIRECTORY" title="Search Contacts" subtitle="Search every contact by name, phone number, or address. Covers both leads and call records across all campaigns." />
+      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CONTACT DIRECTORY" title="Search Contacts" subtitle="Find contacts from every campaign by name, phone, email, address, or other saved details." />
       <div className="hero-row">
         <div>
           <div className="eyebrow"><Search size={12} /> CONTACT DIRECTORY</div>
           <h2>Search Contacts</h2>
-          <p>Search every contact we've ever had — by name, phone number, or address. Covers both leads and call records across all campaigns.</p>
+          <p>Search all historical contacts, including leads, calls, retries, secretary calls, and saved transfers.</p>
         </div>
       </div>
 
@@ -3603,14 +3530,14 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
           />
           {searching && <RefreshCw size={18} className="search-spinner" />}
           {searchQuery && !searching && (
-            <button className="search-clear" onClick={() => { setSearchQuery(''); setSearchResults([]); }}>
+            <button className="search-clear" onClick={() => onSearchChange('')} aria-label="Clear contact search">
               <X size={16} />
             </button>
           )}
         </div>
         {searchQuery && (
           <div className="search-meta">
-            {searching ? 'Searching...' : searchError ? 'Search failed — try again' : `${searchResults.length} contact${searchResults.length !== 1 ? 's' : ''} found`}
+            {searching ? 'Searching...' : searchError ? 'Search failed — try again' : `${searchResults.length} of ${searchTotal} contact${searchTotal !== 1 ? 's' : ''}`}
           </div>
         )}
       </div>
@@ -3624,11 +3551,13 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                   <div className="avatar green">{initials(contact.consumer_name || '?')}</div>
                   <div>
                     <strong>{contact.consumer_name || 'Unknown'}</strong>
-                    <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone); }}>
-                      <Phone size={11} /> {formatPhone(contact.phone)}
-                    </button>
-                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && Boolean(contact.custom_fields.email) && (
-                      <span className="card-address" style={{ color: '#6db8d4' }}> · {String(contact.custom_fields.email)}</span>
+                    {(contact.phone_normalized || contact.phone) ? (
+                      <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone); }}>
+                        <Phone size={11} /> {formatPhone(contact.phone || contact.phone_normalized)}
+                      </button>
+                    ) : <span className="card-address">No phone on file</span>}
+                    {contactEmails(contact).length > 0 && (
+                      <span className="card-address" style={{ color: '#6db8d4' }}> · {contactEmails(contact).join(', ')}</span>
                     )}
                     {contact.address && <span className="card-address"> · {contact.address}</span>}
                   </div>
@@ -3661,7 +3590,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                 <div className="queue-card-detail">
                   <div className="contact-detail-grid">
                     <div className="detail-row"><span>Name:</span><strong>{contact.consumer_name || 'Unknown'}</strong></div>
-                    <div className="detail-row"><span>Phone:</span><strong>{formatPhone(contact.phone)}</strong></div>
+                    <div className="detail-row"><span>Phone:</span><strong>{(contact.phone || contact.phone_normalized) ? formatPhone(contact.phone || contact.phone_normalized) : 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Address:</span><strong>{contact.address || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Income Range:</span><strong>{contact.income_range || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Home Value:</span><strong>{contact.home_value || 'Not on file'}</strong></div>
@@ -3670,10 +3599,20 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
                     <div className="detail-row"><span>Lead Status:</span><strong>{contact.lead_status ? contact.lead_status.toUpperCase() : 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Priority Lead:</span><strong>{contact.is_priority ? 'Yes' : 'No'}</strong></div>
                     {contact.original_agent_information && <div className="detail-row"><span>Original Agent Info:</span><strong>{contact.original_agent_information}</strong></div>}
-                    {contact.custom_fields && typeof contact.custom_fields === 'object' && 'email' in contact.custom_fields && Boolean(contact.custom_fields.email) && (
-                      <div className="detail-row"><span>Email:</span><strong>{String(contact.custom_fields.email)}</strong></div>
+                    {contactEmails(contact).length > 0 && (
+                      <div className="detail-row"><span>Email:</span><strong>{contactEmails(contact).join(', ')}</strong></div>
                     )}
                   </div>
+                  {contact.custom_fields && Object.keys(contact.custom_fields).length > 0 && (
+                    <div className="detail-section">
+                      <div className="detail-label">ADDITIONAL CONTACT INFORMATION</div>
+                      <div className="contact-detail-grid">
+                        {Object.entries(contact.custom_fields).filter(([, value]) => value != null && value !== '').map(([key, value]) => (
+                          <div className="detail-row" key={key}><span>{key.replace(/_/g, ' ')}:</span><strong style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{contactFieldText(value)}</strong></div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="contact-detail-grid" style={{ marginTop: 12 }}>
                     <div className="detail-row"><span>Total Calls Made:</span><strong>{contact.total_call_count}</strong></div>
                     {contact.agent_name && <div className="detail-row"><span>Last Agent:</span><strong>{contact.agent_name}</strong></div>}
@@ -3731,7 +3670,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
 
       {searchQuery && !searching && searchResults.length === 0 && !searchError && (
         <div className="panel">
-          <div className="empty-state">No contacts found matching "{searchQuery}". Try a different name, phone number, or address.</div>
+          <div className="empty-state">No contacts found matching "{searchQuery}". Try a different name, phone number, email, or address.</div>
         </div>
       )}
 
@@ -3743,7 +3682,7 @@ function ContactsView({ searchQuery, setSearchQuery, searchResults, setSearchRes
 
       {!searchQuery && (
         <div className="panel">
-          <div className="empty-state">Start typing a name, phone number, or address to search all contacts.</div>
+          <div className="empty-state">Start typing a name, phone number, email, address, or another saved detail to search all contacts.</div>
         </div>
       )}
     </>

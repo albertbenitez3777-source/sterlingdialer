@@ -997,11 +997,13 @@ Deno.serve(async (req: Request) => {
     // SEARCH_CONTACTS: universal search across leads AND calls tables — all active agents see full directory
     if (action === "search_contacts") {
       const { session_token, search_text, offset } = body;
-      const safeOffset = Math.max(0, Math.min(Number(offset) || 0, 950));
+      const safeOffset = Math.max(0, Math.min(Math.floor(Number(offset) || 0), 1_000_000));
       const agent = await verifySession(session_token);
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      const escapedSearch = (search_text || "").replace(/[%_\\]/g, (m: string) => "\\" + m);
-      const { data, error } = await supabase.rpc("search_contacts", { p_search: escapedSearch, p_limit: 50, p_offset: safeOffset });
+      // The database uses literal substring matching, so pass the original text
+      // without LIKE escaping (which corrupted emails containing underscores).
+      const searchText = typeof search_text === "string" ? search_text.trim().slice(0, 250) : "";
+      const { data, error } = await supabase.rpc("search_contacts", { p_search: searchText, p_limit: 50, p_offset: safeOffset });
       if (error) return new Response(JSON.stringify({ error: "Search failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const results = data && Array.isArray(data.results) ? data.results : [];
       const total = data?.total ?? results.length;

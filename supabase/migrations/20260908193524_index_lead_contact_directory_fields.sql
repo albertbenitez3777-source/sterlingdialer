@@ -1,0 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
+
+CREATE INDEX IF NOT EXISTS leads_directory_text_idx ON public.leads USING gin ((regexp_replace(lower(coalesce(name,'')||' '||coalesce(address,'')||' '||coalesce(income_range,'')||' '||coalesce(home_value,'')||' '||coalesce(property_information,'')||' '||coalesce(notes,'')||' '||coalesce(original_agent_information,'')||' '||coalesce(source,'')||' '||coalesce(custom_fields::text,'')||' '||public.phone_last10(coalesce(nullif(telephone_normalized,''),telephone_original))),'[[:space:],.]+',' ','g')) extensions.gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS leads_directory_key_idx ON public.leads ((CASE WHEN length(public.phone_last10(coalesce(nullif(telephone_normalized,''),telephone_original)))>=7 THEN 'phone:'||public.phone_last10(coalesce(nullif(telephone_normalized,''),telephone_original)) ELSE 'lead:'||id::text END));

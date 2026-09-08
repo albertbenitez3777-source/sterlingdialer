@@ -59,7 +59,17 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const [recRes, durRes] = await Promise.all([
+    // Reserve a separate scan for pending calls. Historical no-answer calls
+    // legitimately have zero duration forever and must not consume every slot.
+    const [pendingRes, recRes, durRes] = await Promise.all([
+      supabase.from("calls")
+        .select("id, provider_call_id, queue, agent_id, is_completed, recording_url, duration_seconds, agent_notes")
+        .not("provider_call_id", "is", null)
+        .neq("provider_call_id", "")
+        .eq("is_completed", false)
+        .in("queue", ["pending"])
+        .order("created_at", { ascending: true })
+        .limit(50),
       supabase.from("calls")
         .select("id, provider_call_id, queue, agent_id, is_completed, recording_url, duration_seconds, agent_notes")
         .not("provider_call_id", "is", null)
@@ -72,16 +82,16 @@ Deno.serve(async (req: Request) => {
         .not("provider_call_id", "is", null)
         .neq("provider_call_id", "")
         .eq("duration_seconds", 0)
-        .in("queue", ["fire_transfer", "human_drop", "voice_message", "no_answer", "pending"])
+        .in("queue", ["fire_transfer", "human_drop", "voice_message", "no_answer"])
         .limit(50),
     ]);
 
     const seen = new Set<string>();
     const calls: Array<{ id: string; provider_call_id: string; queue: string; agent_id: string; is_completed: boolean; recording_url: string | null; duration_seconds: number; agent_notes: string | null }> = [];
-    for (const c of [...(recRes.data || []), ...(durRes.data || [])]) {
+    for (const c of [...(pendingRes.data || []), ...(recRes.data || []), ...(durRes.data || [])]) {
       if (!seen.has(c.id)) { seen.add(c.id); calls.push(c); }
     }
-    const fetchErr = recRes.error || durRes.error;
+    const fetchErr = pendingRes.error || recRes.error || durRes.error;
 
     if (fetchErr || !calls) {
       return new Response(JSON.stringify({ error: "Failed to fetch calls" }), {

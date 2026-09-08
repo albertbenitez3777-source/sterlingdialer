@@ -89,8 +89,9 @@ async function webhookCase(payload, { validSignature = true, secretary = false, 
   };
 }
 
-async function backfillCase(providerResponse) {
+async function backfillCase(providerResponse, { historicalFull = false } = {}) {
   const writes = [];
+  const providerIds = [];
   const pendingCall = {
     id: 'synthetic-call', provider_call_id: providerId, queue: 'pending',
     agent_id: null, is_completed: false, recording_url: '', duration_seconds: 0, agent_notes: '',
@@ -99,7 +100,7 @@ async function backfillCase(providerResponse) {
     const filters = [];
     let patch;
     const q = {};
-    for (const op of ['select', 'not', 'neq', 'eq', 'in', 'limit', 'maybeSingle']) {
+    for (const op of ['select', 'not', 'neq', 'eq', 'in', 'limit', 'maybeSingle', 'order']) {
       q[op] = (...args) => { filters.push([op, ...args]); return q; };
     }
     q.update = value => { patch = value; return q; };
@@ -111,7 +112,10 @@ async function backfillCase(providerResponse) {
       }
       const includesPending = filters.some(f => f[0] === 'in' && f[1] === 'queue' && f[2].includes('pending'));
       const single = filters.some(f => f[0] === 'maybeSingle');
-      return Promise.resolve({ data: includesPending ? [pendingCall] : single ? null : [], error: null })
+      const historical = historicalFull ? Array.from({ length: 50 }, (_, i) => ({ ...pendingCall,
+        id: `historical-${i}`, provider_call_id: `synthetic-history-${i}`, queue: 'no_answer', is_completed: true,
+      })) : [];
+      return Promise.resolve({ data: includesPending ? [pendingCall] : single ? null : historical, error: null })
         .then(onSuccess, onError);
     };
     return q;
@@ -119,16 +123,26 @@ async function backfillCase(providerResponse) {
   const handler = loadHandler('supabase/functions/wolf-backfill/index.ts', {
     createClient: () => supabase,
     fetch: async (url, options) => {
-      assert.equal(url, `https://api.bland.ai/v1/calls/${providerId}`);
+      const id = String(url).split('/').at(-1);
+      assert.ok(id === providerId || /^synthetic-history-\d+$/.test(id));
+      providerIds.push(id);
       assert.equal(options.method ?? 'GET', 'GET');
-      return new Response(JSON.stringify(providerResponse), { status: 200 });
+      return new Response(JSON.stringify(id === providerId ? providerResponse : { completed: false }), { status: 200 });
     },
   }, { BLAND_API_KEY: 'synthetic-not-a-provider-credential' });
   const response = await handler(new Request('https://offline.invalid/wolf-backfill', {
     method: 'POST', body: JSON.stringify({ action: 'backfill_transcripts' }),
   }));
-  return { status: response.status, body: await response.json(), writes };
+  return { status: response.status, body: await response.json(), writes, providerIds };
 }
+
+test('pending calls are recovered before a full historical zero-duration backlog', async () => {
+  const result = await backfillCase({ completed: true, status: 'no_answer' }, { historicalFull: true });
+  assert.equal(result.status, 200);
+  assert.equal(result.providerIds[0], providerId);
+  assert.equal(result.providerIds.length, 51);
+  assert.equal(result.writes.length > 0, true);
+});
 
 for (const category of ['queue', 'call', 'tool', 'latency', 'webhook', 'dynamic_data']) {
   test(`webhook ignores live ${category} log without finalizing or requesting a transfer`, async () => {

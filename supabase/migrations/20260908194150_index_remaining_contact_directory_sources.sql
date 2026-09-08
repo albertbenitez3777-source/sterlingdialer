@@ -1,0 +1,14 @@
+CREATE INDEX IF NOT EXISTS retry_leads_directory_text_idx ON public.retry_leads USING gin ((regexp_replace(lower(coalesce(consumer_name,'')||' '||coalesce(address,'')||' '||coalesce(income_range,'')||' '||coalesce(home_value,'')||' '||coalesce(property_information,'')||' '||coalesce(custom_fields::text,'')||' '||public.phone_last10(phone_normalized)),'[[:space:],.]+',' ','g')) extensions.gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS retry_leads_directory_key_idx ON public.retry_leads ((CASE WHEN length(public.phone_last10(phone_normalized))>=7 THEN 'phone:'||public.phone_last10(phone_normalized) ELSE 'retry:'||id::text END));
+CREATE INDEX IF NOT EXISTS transfer_context_directory_text_idx ON public.transfer_context USING gin ((regexp_replace(lower(coalesce(consumer_name,'')||' '||coalesce(consumer_address,'')||' '||coalesce(consumer_income_range,'')||' '||coalesce(consumer_home_value,'')||' '||coalesce(consumer_property_info,'')||' '||coalesce(notes,'')||' '||coalesce(consumer_custom_fields::text,'')||' '||public.phone_last10(phone_normalized)),'[[:space:],.]+',' ','g')) extensions.gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS transfer_context_directory_key_idx ON public.transfer_context ((CASE WHEN length(public.phone_last10(phone_normalized))>=7 THEN 'phone:'||public.phone_last10(phone_normalized) ELSE 'transfer:'||id::text END));
+CREATE INDEX IF NOT EXISTS secretary_calls_directory_text_idx ON public.secretary_calls USING gin ((regexp_replace(lower(coalesce(client_name,'')||' '||coalesce(custom_message,'')||' '||public.phone_last10(client_phone)),'[[:space:],.]+',' ','g')) extensions.gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS secretary_calls_directory_key_idx ON public.secretary_calls ((CASE WHEN length(public.phone_last10(client_phone))>=7 THEN 'phone:'||public.phone_last10(client_phone) ELSE 'secretary:'||id::text END));
+CREATE INDEX IF NOT EXISTS saved_transfers_directory_text_idx ON public.saved_transfers USING gin ((regexp_replace(lower(coalesce(consumer_name,'')||' '||coalesce(consumer_address,'')||' '||coalesce(consumer_income_range,'')||' '||coalesce(consumer_home_value,'')||' '||coalesce(consumer_property_info,'')||' '||coalesce(notes,'')||' '||public.phone_last10(consumer_phone)),'[[:space:],.]+',' ','g')) extensions.gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS saved_transfers_directory_key_idx ON public.saved_transfers ((CASE WHEN length(public.phone_last10(consumer_phone))>=7 THEN 'phone:'||public.phone_last10(consumer_phone) ELSE 'saved_transfer:'||id::text END));
+ANALYZE public.leads;
+ANALYZE public.calls;
+ANALYZE public.retry_leads;
+ANALYZE public.transfer_context;
+ANALYZE public.secretary_calls;
+ANALYZE public.saved_transfers;
