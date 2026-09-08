@@ -5,7 +5,7 @@ import {
   flattenTranscript, blandDurationToSeconds, hasRepresentativeSpeech,
   extractRepFirstSpeechAt, hasMergedState, isBridgeConfirmed, detectLiveHuman,
   isOriginalVoicemail, evaluateTransferState, classifyQueue, classifyDropReason,
-  verifyWebhookHmac, getBlandCallCompletion, type TransferState,
+  verifyWebhookHmac, getBlandCallCompletion, validBlandTimestamp, type TransferState,
 } from "../_shared/call-evidence.ts";
 
 const corsHeaders = {
@@ -262,6 +262,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Standalone post-transfer enrichment omits completion fields. Only its
+    // positive bridge evidence can update outcomes without a terminal status.
+    // Citations, empty callbacks, and caller-only fragments must not erase an
+    // already confirmed human or transfer, or create a false no-answer retry.
+    const enrichmentType = String(body.event_type || "").toLowerCase();
+    const isPostTransferEnrichment = enrichmentType === "post_transfer_transcript" ||
+      (enrichmentType === "multiple" && Array.isArray(body.contents) && body.contents.includes("post_transfer_transcript"));
+    if (callCompletion !== true && !(isPostTransferEnrichment && isBridgeConfirmed(body))) {
+      return new Response(JSON.stringify({ success: true, action: "awaiting_call_outcome" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Main webhook processing ──────────────────────────────────────────
     const blandCallId = String(body.call_id || body.id || "");
     if (!blandCallId) {
@@ -321,7 +334,7 @@ Deno.serve(async (req: Request) => {
       // Create new inbound call record
       const fromNumber = String(body.from || body.caller_number || body.caller || "");
       const toNumber = String(body.to || body.called_number || body.inbound_number || "");
-      const startedAt = body.started_at || body.start_time || (body.created_at ? String(body.created_at) : null);
+      const startedAt = validBlandTimestamp(body.started_at) || validBlandTimestamp(body.start_time);
 
       // Skip transfer-leg calls
       const fromDigits = digitsOnly(fromNumber);
@@ -410,6 +423,8 @@ Deno.serve(async (req: Request) => {
 
     // Build update — use a single UPDATE with all fields
     const now = new Date().toISOString();
+    const providerStartedAt = validBlandTimestamp(body.started_at) || validBlandTimestamp(body.start_time);
+    const providerTransferredAt = validBlandTimestamp(body.transferred_at);
     const finalDuration = (durationSeconds > 0 && !wasAutoKilled) ? durationSeconds : existingCall?.duration_seconds ?? 0;
 
     let transferStatusVal = null as string | null;
@@ -424,7 +439,7 @@ Deno.serve(async (req: Request) => {
     let transferFailureReason = null as string | null;
 
     if (transferState !== "none") {
-      transferRequestedAt = String(body.transferred_at || now);
+      transferRequestedAt = providerTransferredAt || now;
     }
 
     if (transferState === "transfer_api_accepted") {
@@ -446,7 +461,7 @@ Deno.serve(async (req: Request) => {
       transferStatusVal = "successful";
       talkrouteLegCreated = true;
       talkrouteAnswered = true;
-      talkrouteAnsweredAt = String(body.transferred_at || now);
+      talkrouteAnsweredAt = providerTransferredAt || now;
       bridgeConfirmed = true;
       bridgeConfirmedAt = now;
       console.log(`[webhook] bridge_confirmed call_id=${callInfo.id} evidence: rep_speech=${hasRepresentativeSpeech(body.post_transfer_transcript)} merged=${hasMergedState(body)}`);
@@ -465,7 +480,7 @@ Deno.serve(async (req: Request) => {
     // v262 evidence fields
     const providerTransferId = String(body.transfer_call_id || body.transfer_id || body.transferred_call_id || "");
     const destinationDialedAt = (transferState !== "none" && transferState !== "transfer_api_accepted")
-      ? String(body.transferred_at || body.transfer_started_at || now) : null;
+      ? providerTransferredAt || validBlandTimestamp(body.transfer_started_at) || now : null;
     const repFirstSpeechAt = extractRepFirstSpeechAt(body.post_transfer_transcript, body);
     const postTransferTranscriptText = flattenTranscript(body.post_transfer_transcript, null);
 
@@ -502,6 +517,7 @@ Deno.serve(async (req: Request) => {
       UPDATE calls SET
         is_live_human = ${effectiveIsLiveHuman},
         is_completed = true,
+        started_at = COALESCE(${providerStartedAt}::timestamptz, started_at),
         transfer_state = ${transferState},
         queue = ${newQueue},
         transcript = COALESCE(${finalTranscript}, transcript),
@@ -528,8 +544,7 @@ Deno.serve(async (req: Request) => {
         post_transfer_duration_seconds = ${postTransferDuration},
         drop_reason = ${dropReason},
         talkroute_voicemail = CASE WHEN ${talkrouteVoicemail} THEN true ELSE talkroute_voicemail END,
-        is_dnc = false,
-        webhook_raw_payload = CASE WHEN ${talkrouteLegCreated} THEN ${JSON.stringify(body)}::jsonb ELSE webhook_raw_payload END
+        webhook_raw_payload = ${JSON.stringify(body)}::jsonb
       WHERE id = ${callInfo.id}
     `;
 
@@ -565,7 +580,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Auto-suppress: DNC + close lead for declines and no-solicitation voicemails ──
-    const shouldSuppress = hasDeclineMarker ||
+    const shouldSuppress = body.is_dnc === true || hasDeclineMarker ||
       (hasVoicemailMarker && transcriptLower.includes("does not accept solicitations"));
     if (shouldSuppress) {
       await sql`UPDATE calls SET is_dnc = true WHERE id = ${callInfo.id}`;

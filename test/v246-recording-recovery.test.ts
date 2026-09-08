@@ -71,17 +71,19 @@ describe('v246 Recording Recovery', () => {
   });
 
   describe('App.tsx call sites updated', () => {
-    it('all 3 RecordingPlayer calls pass callId', () => {
+    // Only calls-table records support recover_recording. Secretary recordings
+    // play their existing URL and must not send secretary_calls IDs to that API.
+    it('call history and call contacts pass callId', () => {
       const playerCalls = APP.match(/RecordingPlayer[^/]*callId=/g) || [];
-      expect(playerCalls.length).toBeGreaterThanOrEqual(3);
+      expect(playerCalls.length).toBe(2);
     });
-    it('all 3 RecordingPlayer calls pass sessionToken', () => {
+    it('both recovery-capable players pass sessionToken', () => {
       const sessionCalls = APP.match(/RecordingPlayer[^/]*sessionToken=/g) || [];
-      expect(sessionCalls.length).toBeGreaterThanOrEqual(3);
+      expect(sessionCalls.length).toBe(2);
     });
-    it('all 3 RecordingPlayer calls pass onUnauthorized', () => {
+    it('both recovery-capable players pass onUnauthorized', () => {
       const logoutCalls = APP.match(/RecordingPlayer[^/]*onUnauthorized=/g) || [];
-      expect(logoutCalls.length).toBeGreaterThanOrEqual(3);
+      expect(logoutCalls.length).toBe(2);
     });
   });
 

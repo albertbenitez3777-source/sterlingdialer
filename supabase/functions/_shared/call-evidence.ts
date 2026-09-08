@@ -106,6 +106,12 @@ export function hasRepresentativeSpeech(raw: unknown): boolean {
   });
 }
 
+/** Accept absolute provider timestamps, excluding relative offsets and invalid dates. */
+export function validBlandTimestamp(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) return null;
+  return Number.isFinite(Date.parse(value)) ? value : null;
+}
+
 /**
  * Extract an absolute timestamp for the first representative speech turn.
  * Bland's segment.start is seconds from the transferred conversation, so use
@@ -114,10 +120,6 @@ export function hasRepresentativeSpeech(raw: unknown): boolean {
  * timestamptz value or discard the independent evidence of representative speech.
  */
 export function extractRepFirstSpeechAt(raw: unknown, timing: Record<string, unknown> = {}): string | null {
-  const absoluteTimestamp = (value: unknown): string | null => {
-    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) return null;
-    return Number.isFinite(Date.parse(value)) ? value : null;
-  };
   const seconds = (value: unknown): number | null => {
     if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
     const number = Number(value);
@@ -134,14 +136,14 @@ export function extractRepFirstSpeechAt(raw: unknown, timing: Record<string, unk
     const speaker = t.speaker;
     if (speakerLabel === "representative" || speaker === 2 || speaker === "2") {
       for (const value of [t.timestamp, t.time, t.started_at, t.created_at, t.start]) {
-        const timestamp = absoluteTimestamp(value);
+        const timestamp = validBlandTimestamp(value);
         if (timestamp) return timestamp;
       }
 
       const start = seconds(t.start);
-      const callStartedAt = absoluteTimestamp(timing.started_at);
+      const callStartedAt = validBlandTimestamp(timing.started_at);
       const transferOffset = seconds(timing.transfer_offset_seconds);
-      const transferredAt = absoluteTimestamp(timing.transferred_at);
+      const transferredAt = validBlandTimestamp(timing.transferred_at);
       const anchor = callStartedAt !== null && transferOffset !== null
         ? Date.parse(callStartedAt) + transferOffset * 1000
         : transferredAt !== null ? Date.parse(transferredAt) : null;

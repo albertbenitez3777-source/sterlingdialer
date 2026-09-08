@@ -140,7 +140,7 @@ function CallRow({ call, expanded, onToggle, onPhoneClick, onSave, saving, selec
       </div>
       {expanded && (
         <div className="ws-call-detail">
-          {call.consumer_custom_fields && typeof call.consumer_custom_fields === 'object' && 'email' in call.consumer_custom_fields && call.consumer_custom_fields.email && (
+          {call.consumer_custom_fields && typeof call.consumer_custom_fields === 'object' && 'email' in call.consumer_custom_fields && Boolean(call.consumer_custom_fields.email) && (
             <div className="ws-detail-row ws-detail-email"><Mail size={12} /><span>Email</span><strong>{String(call.consumer_custom_fields.email)}</strong></div>
           )}
           {call.consumer_address && <div className="ws-detail-row"><span>Address</span><strong>{call.consumer_address}</strong></div>}

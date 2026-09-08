@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import postgres from "npm:postgres@3.4.4";
+import { getBlandCallCompletion, detectLiveHuman, flattenTranscript, blandDurationToSeconds } from "../_shared/call-evidence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,35 +91,27 @@ async function killStaleCalls(sql: Sql) {
     if (!staleCalls || staleCalls.length === 0) return;
 
     for (const call of staleCalls) {
-      // Ask the provider whether this call is genuinely dead before ending it.
-      // Never hang up on a call that is still connected or mid-transfer —
-      // that is what produced 135 "Auto-killed" transfers with 0 answers.
+      // Reconcile only provider-confirmed terminal no-answer calls. Connected
+      // calls are reconciled by backfill, which preserves their full evidence.
+      // Local row age is never permission to stop a call or invent talk time.
       try {
         const statusRes = await fetch(`https://api.bland.ai/v1/calls/${call.provider_call_id}`, {
           headers: { "authorization": blandApiKey },
         });
-        if (statusRes.ok) {
-          const info = await statusRes.json() as Record<string, unknown>;
-          const status = String(info.status || info.call_status || "").toLowerCase();
-          const stillLive = ["in-progress", "in_progress", "active", "ringing", "queued", "transferring"].includes(status);
-          const transferring = Boolean(info.transferred_to || info.transfer_phone_number || info.warm_transfer_call);
-          if (stillLive || transferring) continue; // leave it alone
-        }
+        if (!statusRes.ok) continue; // HTTP errors are not proof the call ended.
+        const info = await statusRes.json() as Record<string, unknown>;
+        if (getBlandCallCompletion(info) !== true) continue;
+        const terminalStatus = String(info.status || "").toLowerCase().replace(/[\s-]+/g, "_");
+        const failedWithoutAnswer = ["no_answer", "busy", "failed", "error", "cancelled", "canceled", "timeout", "timed_out"].includes(terminalStatus);
+        if (!failedWithoutAnswer) continue;
+        const transcript = flattenTranscript(info.transcripts, info.concatenated_transcript);
+        const transferring = Boolean(info.transferred_to || info.transfer_phone_number || info.warm_transfer_call);
+        const durationSeconds = blandDurationToSeconds(info.call_length ?? info.duration);
+        if (transferring || transcript || detectLiveHuman(info, transcript) || info.recording_url ||
+            durationSeconds > 0 || (call.duration_seconds ?? 0) > 0) continue;
       } catch { continue; } // provider unreachable — do not kill blind
 
-      let stopSucceeded = false;
-      try {
-        const stopRes = await fetch(`https://api.bland.ai/v1/calls/${call.provider_call_id}/stop`, {
-          method: "POST",
-          headers: { "authorization": blandApiKey, "Content-Type": "application/json" },
-        });
-        stopSucceeded = stopRes.ok;
-      } catch { /* network error — don't mark completed */ }
-      if (!stopSucceeded) continue;
-      const elapsedSeconds = call.duration_seconds && call.duration_seconds > 0
-        ? call.duration_seconds
-        : Math.round((Date.now() - new Date(call.created_at).getTime()) / 1000);
-      await sql`UPDATE calls SET queue = 'no_answer', is_completed = true, agent_notes = ${` [Auto-killed: exceeded ${STALE_CALL_TIMEOUT_SECONDS} seconds]`}, duration_seconds = ${elapsedSeconds} WHERE id = ${call.id}`;
+      await sql`UPDATE calls SET queue = 'no_answer', is_completed = true WHERE id = ${call.id} AND queue = 'pending' AND is_completed = false`;
     }
   } catch { /* ignore */ }
 }
@@ -190,6 +183,33 @@ RULES — follow exactly, no exceptions:
   }
 }
 
+// Keep the delay, request, and retry alive after this invocation responds.
+// waitUntil requires a Promise; a setTimeout handle does not retain the worker.
+function scheduleNextCycle(): void {
+  const continuation = (async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, 20000));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(DIALER_FUNCTION_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ continue: true }),
+        });
+        if (!response.ok) throw new Error(`Self-chain HTTP ${response.status}`);
+        return;
+      } catch (error) {
+        if (attempt === 1) {
+          console.error("[dialer] Self-chain retry failed", String(error));
+          return;
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 10000));
+      }
+    }
+  })();
+  try { EdgeRuntime.waitUntil(continuation); }
+  catch { console.warn("[dialer] Background task retention is unavailable in this runtime"); }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -229,24 +249,7 @@ Deno.serve(async (req: Request) => {
       console.log("[dialer] GATE: 0 agents available — skipping calls this cycle, keeping loop alive");
       // Close DB before chaining
       if (sql) { await sql.end(); sql = null; }
-      const gateTimer = setTimeout(() => {
-        fetch(DIALER_FUNCTION_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continue: true }),
-        }).catch(() => {
-          setTimeout(() => {
-            fetch(DIALER_FUNCTION_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ continue: true }),
-            }).catch(() => {
-              console.error("[dialer] Self-chain retry failed — loop will need manual restart");
-            });
-          }, 10000);
-        });
-      }, 20000);
-      try { (EdgeRuntime as never as { waitUntil: (p: Promise<unknown>) => void }).waitUntil(gateTimer); } catch { /* not available */ }
+      scheduleNextCycle();
       return new Response(JSON.stringify({ success: true, gated: true, reason: "waiting_for_agents", continued: true }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -377,25 +380,7 @@ Deno.serve(async (req: Request) => {
     // Close DB connection BEFORE chaining — prevents connection pool exhaustion
     if (sql) { await sql.end(); sql = null; }
 
-    const chainTimer = setTimeout(() => {
-      fetch(DIALER_FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ continue: true }),
-      }).catch(() => {
-        setTimeout(() => {
-          fetch(DIALER_FUNCTION_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ continue: true }),
-          }).catch(() => {
-            console.error("[dialer] Self-chain retry failed — loop will need manual restart");
-          });
-        }, 10000);
-      });
-    }, 20000);
-
-    try { (EdgeRuntime as never as { waitUntil: (p: Promise<unknown>) => void }).waitUntil(chainTimer); } catch { /* not available */ }
+    scheduleNextCycle();
 
     return new Response(JSON.stringify({ success: true, continued: true }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
