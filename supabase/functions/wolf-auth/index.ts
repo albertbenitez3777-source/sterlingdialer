@@ -58,7 +58,13 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
       return { ok: false, status: res.status, data: null };
     }
 
-    const data = await res.json();
+    const responseBody = await res.text();
+    if (!responseBody.trim()) {
+      // agent_logout returns void: PostgREST may send HTTP 204 with no JSON.
+      // All other RPCs still require a response body.
+      return { ok: spec.rpc === "agent_logout", status: res.status, data: null };
+    }
+    const data = JSON.parse(responseBody);
     return { ok: true, status: res.status, data };
   } catch (err) {
     const elapsed = Date.now() - start;
