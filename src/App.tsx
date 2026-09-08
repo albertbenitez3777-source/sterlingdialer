@@ -12,6 +12,7 @@ import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/util
 import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
+import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
@@ -1745,6 +1746,9 @@ export default function App() {
           )}
 
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
+          {isOwner && activeNav === 'dashboard' && (
+            <ProviderQueuePanel providerUrl={PROVIDER_URL} sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
+          )}
           {isOwner && activeNav === 'dashboard' && !adminStats && (
             <div className="stats-grid">
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
