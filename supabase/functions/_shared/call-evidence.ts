@@ -64,6 +64,28 @@ export function blandDurationToSeconds(raw: unknown): number {
   return Math.round(minutes * 60);
 }
 
+// ── Call lifecycle ──────────────────────────────────────────────────
+
+/**
+ * A call detail response is not necessarily a completed call. Bland's completed
+ * flag is authoritative over queue_status; unknown payloads stay unknown.
+ * Do not use end_at as completion evidence: it can be the max-duration deadline.
+ */
+export function getBlandCallCompletion(body: Record<string, unknown>): boolean | null {
+  if (typeof body.completed === "boolean") return body.completed;
+
+  const status = String(body.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["completed", "complete", "ended", "failed", "error", "busy", "no_answer",
+    "cancelled", "canceled", "timeout", "timed_out"].includes(status)) return true;
+  if (["new", "queued", "allocated", "started", "pending", "ringing", "connected",
+    "in_progress", "transferring", "transfer_requested", "transfer_initiated"].includes(status)) return false;
+
+  const queueStatus = String(body.queue_status || "").trim().toLowerCase();
+  if (["complete", "pre_queue_error", "queue_error", "call_error", "complete_error"].includes(queueStatus)) return true;
+  if (["new", "queued", "allocated", "started"].includes(queueStatus)) return false;
+  return null;
+}
+
 // ── Representative speech detection ─────────────────────────────────
 
 /**
@@ -85,24 +107,48 @@ export function hasRepresentativeSpeech(raw: unknown): boolean {
 }
 
 /**
- * Extract the timestamp of the first representative speech turn.
+ * Extract an absolute timestamp for the first representative speech turn.
+ * Bland's segment.start is seconds from the transferred conversation, so use
+ * started_at + transfer_offset_seconds + segment.start (or transferred_at as
+ * the transfer anchor). Missing timing must not turn a relative number into a
+ * timestamptz value or discard the independent evidence of representative speech.
  */
-export function extractRepFirstSpeechAt(raw: unknown): string | null {
+export function extractRepFirstSpeechAt(raw: unknown, timing: Record<string, unknown> = {}): string | null {
+  const absoluteTimestamp = (value: unknown): string | null => {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) return null;
+    return Number.isFinite(Date.parse(value)) ? value : null;
+  };
+  const seconds = (value: unknown): number | null => {
+    if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : null;
+  };
+
   if (!Array.isArray(raw)) return null;
   for (const turn of raw) {
+    if (!turn || typeof turn !== "object") continue;
     const t = turn as Record<string, unknown>;
     const text = String(t.text || t.content || t.message || "").trim();
     if (!text) continue;
     const speakerLabel = String(t.speaker_label || "").toLowerCase();
     const speaker = t.speaker;
     if (speakerLabel === "representative" || speaker === 2 || speaker === "2") {
-      const ts = t.timestamp || t.time || t.started_at || t.start || t.created_at;
-      if (ts == null) return null;
-      // If timestamp is a number (relative seconds), it's not an absolute time
-      if (typeof ts === "number") return null;
-      const tsStr = String(ts);
-      // Validate it looks like an ISO timestamp before returning
-      if (/^\d{4}-\d{2}-\d{2}/.test(tsStr)) return tsStr;
+      for (const value of [t.timestamp, t.time, t.started_at, t.created_at, t.start]) {
+        const timestamp = absoluteTimestamp(value);
+        if (timestamp) return timestamp;
+      }
+
+      const start = seconds(t.start);
+      const callStartedAt = absoluteTimestamp(timing.started_at);
+      const transferOffset = seconds(timing.transfer_offset_seconds);
+      const transferredAt = absoluteTimestamp(timing.transferred_at);
+      const anchor = callStartedAt !== null && transferOffset !== null
+        ? Date.parse(callStartedAt) + transferOffset * 1000
+        : transferredAt !== null ? Date.parse(transferredAt) : null;
+      if (start !== null && anchor !== null) {
+        const timestamp = new Date(anchor + start * 1000);
+        if (Number.isFinite(timestamp.getTime())) return timestamp.toISOString();
+      }
       return null;
     }
   }

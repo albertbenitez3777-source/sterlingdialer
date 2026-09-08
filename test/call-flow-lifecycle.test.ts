@@ -9,35 +9,32 @@ import {
   isBridgeConfirmed, detectLiveHuman, isOriginalVoicemail,
   evaluateTransferState, classifyQueue, classifyDropReason,
   flattenTranscript, blandDurationToSeconds,
+  getBlandCallCompletion,
 } from '../supabase/functions/_shared/call-evidence';
 
 // ── 1-4: Premature completion guards ───────────────────────────────
 describe('premature completion guards', () => {
   it('1: mid-call transfer event should not be treated as end-of-call', () => {
-    // A transfer_api_accepted state with no transcript is mid-call
-    const state = evaluateTransferState({ transfer_status: 'requested' });
+    const payload = { completed: false, status: 'transferring', transfer_status: 'requested' };
+    const state = evaluateTransferState(payload);
     expect(state).toBe('transfer_api_accepted');
-    // No transcript + no duration = call not finished
-    const hasEvidence = Boolean('' || 0 > 0 || '');
-    expect(hasEvidence).toBe(false);
+    expect(getBlandCallCompletion(payload)).toBe(false);
   });
 
   it('2: in_progress status has no terminal evidence', () => {
-    const status = 'in_progress';
-    const isTerminal = ['completed', 'failed', 'no-answer', 'no_answer', 'busy', 'error'].includes(status);
-    expect(isTerminal).toBe(false);
+    expect(getBlandCallCompletion({
+      completed: false, status: 'in_progress', call_length: 1,
+      transcripts: [{ user: 'user', text: 'Hello' }],
+    })).toBe(false);
   });
 
   it('3: completed status IS terminal evidence', () => {
-    const status = 'completed';
-    const isTerminal = ['completed', 'failed', 'no-answer', 'no_answer', 'busy', 'error'].includes(status);
-    expect(isTerminal).toBe(true);
+    expect(getBlandCallCompletion({ completed: true, queue_status: 'started' })).toBe(true);
   });
 
-  it('4: call with transcript has end-of-call evidence', () => {
+  it('4: a transcript alone does not establish completion', () => {
     const transcript = 'USER: Hello\nASSISTANT: Hi there';
-    const hasEvidence = Boolean(transcript);
-    expect(hasEvidence).toBe(true);
+    expect(getBlandCallCompletion({ concatenated_transcript: transcript })).toBe(null);
   });
 });
 

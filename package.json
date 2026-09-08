@@ -8,9 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:call-flow": "node test/call-flow-regression.node.mjs",
-    "test:call-flow:helpers": "npx vitest run test/call-flow-lifecycle.test.ts test/v279-call-evidence.test.ts"
+    "test:call-flow": "node --test test/call-flow-regression.node.mjs",
+    "test:call-flow:helpers": "vitest run test/call-flow-lifecycle.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

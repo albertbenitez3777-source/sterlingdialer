@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import {
   flattenTranscript, blandDurationToSeconds, isBridgeConfirmed,
   detectLiveHuman, isOriginalVoicemail, classifyQueue,
-  evaluateTransferState,
+  evaluateTransferState, getBlandCallCompletion,
 } from "../_shared/call-evidence.ts";
 
 const corsHeaders = {
@@ -91,6 +91,7 @@ Deno.serve(async (req: Request) => {
 
     let updated = 0;
     let failed = 0;
+    let skipped = 0;
     let humansFound = 0;
     let transfersFound = 0;
     const results: Array<Record<string, unknown>> = [];
@@ -108,6 +109,15 @@ Deno.serve(async (req: Request) => {
         }
 
         const d = await blandRes.json() as Record<string, unknown>;
+
+        // A successful GET can describe a queued or live call. Only finalize a
+        // record when Bland supplies completion evidence; leave unknown results
+        // for a later pass, without reclassifying the call or notifying an agent.
+        if (getBlandCallCompletion(d) !== true) {
+          skipped++;
+          results.push({ call_id: call.id, skipped: "provider_call_not_completed" });
+          continue;
+        }
 
         const transcript = flattenTranscript(d.transcripts, d.concatenated_transcript);
         const summary = String(d.summary || "");
@@ -137,14 +147,12 @@ Deno.serve(async (req: Request) => {
 
         const updateData: Record<string, unknown> = {
           is_live_human: isLiveHuman,
+          is_completed: true,
         };
-        const wasAutoKilled = String(call.agent_notes || "").includes("Auto-killed");
-        // Only mark completed when we have actual end-of-call evidence from Bland
-        const hasEvidence = Boolean(transcript || (durationSeconds > 0 && !wasAutoKilled) || recordingUrl);
-        if (hasEvidence) updateData.is_completed = true;
         if (transcript) updateData.transcript = transcript;
         if (summary && summary !== "Not enough information to generate summary.") updateData.ai_summary = summary;
         if (recordingUrl) updateData.recording_url = recordingUrl;
+        const wasAutoKilled = String(call.agent_notes || "").includes("Auto-killed");
         if (durationSeconds > 0 && !wasAutoKilled) updateData.duration_seconds = durationSeconds;
         if (newQueue !== call.queue) updateData.queue = newQueue;
         if (shouldSuppress) updateData.is_dnc = true;
@@ -252,6 +260,7 @@ Deno.serve(async (req: Request) => {
       total: calls.length,
       updated,
       failed,
+      skipped,
       humans_found: humansFound,
       transfers_found: transfersFound,
       results: results.slice(0, 20),
