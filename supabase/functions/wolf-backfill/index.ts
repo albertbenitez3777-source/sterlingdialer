@@ -137,8 +137,10 @@ Deno.serve(async (req: Request) => {
 
         const updateData: Record<string, unknown> = {
           is_live_human: isLiveHuman,
-          is_completed: true,
         };
+        // Only mark completed when we have actual end-of-call evidence from Bland
+        const hasEvidence = Boolean(transcript || (durationSeconds > 0 && !wasAutoKilled) || recordingUrl);
+        if (hasEvidence) updateData.is_completed = true;
         if (transcript) updateData.transcript = transcript;
         if (summary && summary !== "Not enough information to generate summary.") updateData.ai_summary = summary;
         if (recordingUrl) updateData.recording_url = recordingUrl;

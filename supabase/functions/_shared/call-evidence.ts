@@ -96,8 +96,13 @@ export function extractRepFirstSpeechAt(raw: unknown): string | null {
     const speakerLabel = String(t.speaker_label || "").toLowerCase();
     const speaker = t.speaker;
     if (speakerLabel === "representative" || speaker === 2 || speaker === "2") {
-      const ts = t.timestamp || t.time || t.started_at || t.start;
-      if (ts) return String(ts);
+      const ts = t.timestamp || t.time || t.started_at || t.start || t.created_at;
+      if (ts == null) return null;
+      // If timestamp is a number (relative seconds), it's not an absolute time
+      if (typeof ts === "number") return null;
+      const tsStr = String(ts);
+      // Validate it looks like an ISO timestamp before returning
+      if (/^\d{4}-\d{2}-\d{2}/.test(tsStr)) return tsStr;
       return null;
     }
   }
