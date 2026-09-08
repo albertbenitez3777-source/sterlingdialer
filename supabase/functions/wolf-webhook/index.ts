@@ -5,7 +5,7 @@ import {
   flattenTranscript, blandDurationToSeconds, hasRepresentativeSpeech,
   extractRepFirstSpeechAt, hasMergedState, isBridgeConfirmed, detectLiveHuman,
   isOriginalVoicemail, evaluateTransferState, classifyQueue, classifyDropReason,
-  verifyWebhookHmac, type TransferState,
+  verifyWebhookHmac, getBlandCallCompletion, type TransferState,
 } from "../_shared/call-evidence.ts";
 
 const corsHeaders = {
@@ -148,12 +148,23 @@ Deno.serve(async (req: Request) => {
     const eventType = String(body.type || body.event || "").toLowerCase();
     const eventStatus = String(body.status || "").toLowerCase();
     const eventCallId = String(body.call_id || body.id || "");
+    const callCompletion = getBlandCallCompletion(body);
+
+    // Bland streams category/message log entries during the call. They are not
+    // post-call outcomes, and a tool log does not prove a transfer occurred.
+    // Keep the legacy transfer_call callback available for configured tools.
+    if (typeof body.category === "string" && body.category.trim() &&
+        typeof body.message === "string" && url.searchParams.get("action") !== "transfer_call") {
+      return new Response(JSON.stringify({ success: true, action: "live_event_logged" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // ── Real-time transfer event handler ──────────────────────────────
     // A tool or transfer event means transfer was REQUESTED, not that the agent answered.
     // Do NOT set queue='fire_transfer', talkroute_answered, or bridge_confirmed here.
-    if (eventType === "tool" || eventType === "transfer" ||
-        (eventStatus === "transferring" || eventStatus === "transfer_requested" || eventStatus === "transfer_initiated")) {
+    if (callCompletion !== true && (eventType === "tool" || eventType === "transfer" ||
+        (eventStatus === "transferring" || eventStatus === "transfer_requested" || eventStatus === "transfer_initiated"))) {
       console.log(`[webhook] REAL-TIME transfer event call_id=${eventCallId}`);
       if (eventCallId) {
         const secRows = await sql`SELECT id FROM secretary_calls WHERE provider_call_id = ${eventCallId} LIMIT 1`;
@@ -174,13 +185,6 @@ Deno.serve(async (req: Request) => {
         }
       }
       return new Response(JSON.stringify({ success: true, action: "transfer_event_logged" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ── Real-time call status events ──────────────────────────────────
-    if (eventType === "call" && eventStatus === "in_progress" && !body.transcripts && !body.summary) {
-      return new Response(JSON.stringify({ success: true, action: "logged" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -246,6 +250,14 @@ Deno.serve(async (req: Request) => {
 
     if (url.searchParams.get("action") === "stop_ai" || body.action === "stop_ai") {
       return new Response(JSON.stringify({ success: true, message: "Acknowledged." }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Active calls may already contain transcripts or a transfer result. Wait
+    // for the final webhook before writing a completed outcome or an inbox item.
+    if (callCompletion === false) {
+      return new Response(JSON.stringify({ success: true, action: "call_in_progress" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -386,8 +398,9 @@ Deno.serve(async (req: Request) => {
 
     const newQueue = classifyQueue(transferState, isLiveHuman, voicemail, hasVoicemailMarker);
 
-    // is_live_human must NOT be inferred solely from a transfer attempt.
-    const effectiveIsLiveHuman = isLiveHuman && transferState !== "transfer_api_accepted";
+    // Human detection is independent of the transfer outcome. A transfer attempt
+    // alone is not human evidence, and must not erase an explicit human answer.
+    const effectiveIsLiveHuman = isLiveHuman;
 
     // Fetch existing call details
     const existingRows = await sql`SELECT agent_notes, duration_seconds, ai_terminated FROM calls WHERE id = ${callInfo.id} LIMIT 1`;
@@ -453,7 +466,7 @@ Deno.serve(async (req: Request) => {
     const providerTransferId = String(body.transfer_call_id || body.transfer_id || body.transferred_call_id || "");
     const destinationDialedAt = (transferState !== "none" && transferState !== "transfer_api_accepted")
       ? String(body.transferred_at || body.transfer_started_at || now) : null;
-    const repFirstSpeechAt = extractRepFirstSpeechAt(body.post_transfer_transcript);
+    const repFirstSpeechAt = extractRepFirstSpeechAt(body.post_transfer_transcript, body);
     const postTransferTranscriptText = flattenTranscript(body.post_transfer_transcript, null);
 
     let postTransferDuration = 0;
