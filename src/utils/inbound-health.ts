@@ -4,6 +4,7 @@ export type InboundRoute = {
   transfer_matches?: boolean; callback_authenticated?: boolean; presence_lookup?: boolean;
   prompt_has_transfer_tool?: boolean; prompt_blocks_transfer?: boolean; events_verified?: boolean;
   recording_enabled?: boolean; pathway_clear?: boolean;
+  transfer_list_matches?: boolean; model_supports_transfer?: boolean;
 };
 
 export type InboundHealth = {
@@ -36,6 +37,8 @@ export function inboundRouteProblems(route: InboundRoute): string[] {
   if (route.http_status !== 200) return ['Provider readback unavailable'];
   const problems: string[] = [];
   if (!route.transfer_matches) problems.push('Transfer destination mismatch');
+  if (route.transfer_list_matches === false) problems.push('An alternate transfer list overrides this agent\u2019s route');
+  if (route.model_supports_transfer === false) problems.push('The selected voice model cannot transfer calls');
   if (!route.callback_authenticated) problems.push('Callback mismatch');
   if (!route.presence_lookup) problems.push('Availability lookup mismatch');
   if (!route.prompt_has_transfer_tool || route.prompt_blocks_transfer !== false) problems.push('Transfer instructions need repair');
