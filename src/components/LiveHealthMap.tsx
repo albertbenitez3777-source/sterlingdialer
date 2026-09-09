@@ -42,10 +42,13 @@ export interface HealthMapProps {
   liveHumansAll: number;
   transfersRequestedToday: number;
   transfersRequestedWeek: number;
+  transfersRequestedAll: number;
   talkrouteDialedToday: number;
   talkrouteDialedWeek: number;
+  talkrouteDialedAll: number;
   agentAnsweredToday: number;
   agentAnsweredWeek: number;
+  agentAnsweredAll: number;
   bridgeConfirmedToday: number;
   bridgeConfirmedWeek: number;
   bridgeConfirmedAll: number;
@@ -106,11 +109,11 @@ function buildNodes(props: HealthMapProps, filter: TimeFilter): HealthNode[] {
   const live = filter === 'today' ? props.liveHumansToday
     : filter === 'week' ? props.liveHumansWeek : props.liveHumansAll;
   const txReq = filter === 'today' ? props.transfersRequestedToday
-    : props.transfersRequestedWeek;
+    : filter === 'week' ? props.transfersRequestedWeek : props.transfersRequestedAll;
   const trDialed = filter === 'today' ? props.talkrouteDialedToday
-    : props.talkrouteDialedWeek;
+    : filter === 'week' ? props.talkrouteDialedWeek : props.talkrouteDialedAll;
   const agentAns = filter === 'today' ? props.agentAnsweredToday
-    : props.agentAnsweredWeek;
+    : filter === 'week' ? props.agentAnsweredWeek : props.agentAnsweredAll;
   const bridged = filter === 'today' ? props.bridgeConfirmedToday
     : filter === 'week' ? props.bridgeConfirmedWeek : props.bridgeConfirmedAll;
   const failed = filter === 'today' ? props.failedToday
@@ -183,7 +186,7 @@ function buildNodes(props: HealthMapProps, filter: TimeFilter): HealthNode[] {
         failed < FAILURE_THRESHOLD ? 'yellow' :
           (!stopped ? 'red' : 'yellow'),
       value: maskValue(failed),
-      detail: `${maskValue(failed)} transfers failed or unverified.`,
+      detail: `${maskValue(failed)} transfers have an explicit failure result. Transfers awaiting answer evidence are listed separately as unverified.`,
       recommendation: failed > 0 ? 'Review failure reasons in the Transfer Verification Timeline.' : undefined,
     },
   ];
@@ -191,11 +194,12 @@ function buildNodes(props: HealthMapProps, filter: TimeFilter): HealthNode[] {
 
 // ── Build per-agent rows ─────────────────────────────────────────────────
 
-function agentRowState(attempts: number, bridged: number, failed: number, stopped: boolean): NodeState {
+function agentRowState(attempts: number, bridged: number, failed: number, unverified: number, stopped: boolean): NodeState {
   if (stopped && attempts === 0) return 'gray';
-  if (bridged > 0 && failed === 0) return 'green';
   if (failed > 0) return stopped ? 'yellow' : 'red';
-  if (attempts > 0) return 'green';
+  if (unverified > 0) return 'yellow';
+  if (bridged > 0) return 'green';
+  if (attempts > 0) return 'yellow';
   return 'gray';
 }
 
@@ -209,6 +213,7 @@ function pickAgent(row: AgentHealthRow, f: 'today' | 'week' | 'all') {
     agent_answered: row[`agent_answered${s}`] as number,
     bridge_confirmed: row[`bridge_confirmed${s}`] as number,
     failed: row[`failed${s}`] as number,
+    unverified: Math.max(0, row[`transfers_requested${s}`] - row[`bridge_confirmed${s}`] - row[`failed${s}`]),
   };
 }
 
@@ -379,13 +384,14 @@ export function LiveHealthMap(props: HealthMapProps) {
                     <th>Answered</th>
                     <th>Bridged</th>
                     <th>Failed</th>
+                    <th>Unverified</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {props.agents.map(row => {
                     const v = pickAgent(row, filter);
-                    const state = agentRowState(v.attempts, v.bridge_confirmed, v.failed, stopped);
+                    const state = agentRowState(v.attempts, v.bridge_confirmed, v.failed, v.unverified, stopped);
                     return (
                       <tr key={row.id} className={`healthmap-agent-row ${state}`}>
                         <td className="healthmap-agent-name">{row.full_name}</td>
@@ -396,6 +402,7 @@ export function LiveHealthMap(props: HealthMapProps) {
                         <td>{maskValue(v.agent_answered)}</td>
                         <td className="healthmap-bridged-cell">{maskValue(v.bridge_confirmed)}</td>
                         <td className={v.failed > 0 ? 'healthmap-failed-cell' : ''}>{maskValue(v.failed)}</td>
+                        <td>{maskValue(v.unverified)}</td>
                         <td><span className={`healthmap-state-badge ${state}`}>{stateLabel[state]}</span></td>
                       </tr>
                     );

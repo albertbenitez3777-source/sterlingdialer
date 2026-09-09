@@ -1864,10 +1864,13 @@ export default function App() {
                     liveHumansAll={adminStats.summary.live_humans_all ?? 0}
                     transfersRequestedToday={adminStats.summary.transfers_requested_today ?? 0}
                     transfersRequestedWeek={adminStats.summary.transfers_requested_week ?? 0}
+                    transfersRequestedAll={Number((adminStats.summary as Record<string, unknown>).transfers_requested_all ?? 0)}
                     talkrouteDialedToday={adminStats.summary.talkroute_dialed_today ?? 0}
                     talkrouteDialedWeek={adminStats.summary.talkroute_dialed_week ?? 0}
+                    talkrouteDialedAll={Number((adminStats.summary as Record<string, unknown>).talkroute_dialed_all ?? 0)}
                     agentAnsweredToday={adminStats.summary.agent_answered_today ?? 0}
                     agentAnsweredWeek={adminStats.summary.agent_answered_week ?? 0}
+                    agentAnsweredAll={Number((adminStats.summary as Record<string, unknown>).agent_answered_all ?? 0)}
                     bridgeConfirmedToday={(adminStats.summary as Record<string, unknown>).bridge_confirmed_today as number ?? 0}
                     bridgeConfirmedWeek={(adminStats.summary as Record<string, unknown>).bridge_confirmed_week as number ?? 0}
                     bridgeConfirmedAll={adminStats.agents.reduce((sum, a) => sum + (a.bridge_confirmed_all ?? 0), 0)}
@@ -1878,9 +1881,9 @@ export default function App() {
                     totalAgentCount={adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).length}
                     blockingReason={adminStats.summary.blocking_reason ?? ''}
                     lastRefreshed={dataHealth.lastSuccess}
-                    failedToday={adminStats.summary.transfer_failed_unverified_today ?? 0}
-                    failedWeek={adminStats.summary.transfer_failed_unverified_week ?? 0}
-                    failedAll={(adminStats.summary.funnel_all as Record<string, unknown>)?.transfer_failed_unverified as number ?? 0}
+                    failedToday={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_today ?? 0)}
+                    failedWeek={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_week ?? 0)}
+                    failedAll={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_all ?? 0)}
                     agents={adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).map(a => ({
                       id: a.id,
                       full_name: a.full_name,
@@ -1902,9 +1905,9 @@ export default function App() {
                       bridge_confirmed_today: a.bridge_confirmed_today ?? 0,
                       bridge_confirmed_week: a.bridge_confirmed_week ?? 0,
                       bridge_confirmed_all: a.bridge_confirmed_all ?? 0,
-                      failed_today: Math.max(0, (a.transfers_requested_today ?? 0) - (a.bridge_confirmed_today ?? 0)),
-                      failed_week: Math.max(0, (a.transfers_requested_week ?? 0) - (a.bridge_confirmed_week ?? 0)),
-                      failed_all: Math.max(0, (a.transfers_requested_all ?? 0) - (a.bridge_confirmed_all ?? 0)),
+                      failed_today: Number((a as unknown as Record<string, unknown>).failed_transfers_today ?? 0),
+                      failed_week: Number((a as unknown as Record<string, unknown>).failed_transfers_week ?? 0),
+                      failed_all: Number((a as unknown as Record<string, unknown>).failed_transfers_all ?? 0),
                     }))}
                   />
 
@@ -2266,7 +2269,7 @@ export default function App() {
                             const d = perfView === 'today';
                             const rawCalls = d ? agent.outbound_attempts_today : agent.outbound_attempts_week;
                             const rawLive = d ? agent.live_humans : agent.live_humans_week;
-                            const rawTransfers = d ? agent.fire_transfers : agent.fire_transfers_week;
+                            const rawTransfers = (d ? agent.transfers_requested_today : agent.transfers_requested_week) ?? 0;
                             const rawBridged = d ? (agent.bridge_confirmed_today ?? 0) : (agent.bridge_confirmed_week ?? 0);
                             const capped = capAgentMonotonic({ calls_attempted: rawCalls, live_humans: rawLive, transfers_requested: rawTransfers, bridge_confirmed: rawBridged });
                             const drops = d ? agent.human_drops : agent.human_drops_week;
@@ -2303,7 +2306,7 @@ export default function App() {
                       </table>
                     </div>
                     <div className="perf-note">
-                      {perfView === 'today' ? 'Daily counts reset automatically at midnight ET.' : 'Weekly totals cover Monday through Sunday of the current week.'}
+                      {perfView === 'today' ? 'Daily counts reset automatically at midnight ET.' : 'Weekly totals cover the preceding seven days.'}
                     </div>
                   </div>
 
