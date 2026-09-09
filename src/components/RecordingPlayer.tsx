@@ -8,19 +8,40 @@ const PROVIDER_URL = `${SUPABASE_URL}/functions/v1/wolf-provider`;
 interface RecordingPlayerProps {
   url: string | null | undefined;
   callId?: string;
+  recordingSource?: 'calls' | 'secretary_calls';
   sessionToken?: string;
   onUnauthorized?: () => void;
 }
 
-export function RecordingPlayer({ url, callId, sessionToken, onUnauthorized }: RecordingPlayerProps) {
+export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessionToken, onUnauthorized }: RecordingPlayerProps) {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recovering, setRecovering] = useState(false);
   const [recoveredUrl, setRecoveredUrl] = useState<string | null>(null);
+  const [recoveredKey, setRecoveredKey] = useState<string | null>(null);
   const [recoveryFailed, setRecoveryFailed] = useState(false);
   const attemptedRecovery = useRef(false);
+  const recoveryRequest = useRef<AbortController | null>(null);
+  const sourceKey = `${recordingSource}:${callId || ''}:${sessionToken || ''}:${url || ''}`;
+  const activeKey = useRef<string | null>(sourceKey);
+  activeKey.current = sourceKey;
 
-  const activeUrl = recoveredUrl || url;
+  // Provider URLs require a server credential; the browser uses a short-lived
+  // playback grant instead. Never send provider keys to the client.
+  const directUrl = /^https:\/\/api\.bland\.ai(?:\/|$)/i.test(url || '') ? null : url;
+  const activeUrl = (recoveredKey === sourceKey ? recoveredUrl : null) || directUrl;
+
+  useEffect(() => {
+    activeKey.current = sourceKey;
+    attemptedRecovery.current = false;
+    setRecoveredUrl(null);
+    setRecoveredKey(null);
+    setRecoveryFailed(false);
+    setError(false);
+    setRecovering(false);
+    setLoading(true);
+    return () => { activeKey.current = null; recoveryRequest.current?.abort(); };
+  }, [sourceKey]);
 
   const attemptRecovery = useCallback(async () => {
     if (attemptedRecovery.current || !callId || !sessionToken || recovering) return;
@@ -28,28 +49,34 @@ export function RecordingPlayer({ url, callId, sessionToken, onUnauthorized }: R
     setRecovering(true);
     setError(false);
     setLoading(true);
+    const controller = new AbortController();
+    recoveryRequest.current = controller;
 
     try {
       const result = await authFetch<{ recording_url: string }>(PROVIDER_URL, {
-        onUnauthorized: onUnauthorized || (() => {}),
-        body: { action: 'recover_recording', session_token: sessionToken, call_id: callId },
+        onUnauthorized: () => { if (activeKey.current === sourceKey) onUnauthorized?.(); },
+        signal: controller.signal,
+        body: { action: 'recover_recording', session_token: sessionToken, call_id: callId, recording_source: recordingSource },
       });
+      if (controller.signal.aborted || activeKey.current !== sourceKey) return;
 
       if (result.ok && result.data?.recording_url) {
-        setRecoveredUrl(result.data.recording_url + '?t=' + Date.now());
+        setRecoveredKey(sourceKey);
+        setRecoveredUrl(result.data.recording_url);
       } else {
         setRecoveryFailed(true);
         setError(true);
         setLoading(false);
       }
     } catch {
+      if (controller.signal.aborted || activeKey.current !== sourceKey) return;
       setRecoveryFailed(true);
       setError(true);
       setLoading(false);
     } finally {
-      setRecovering(false);
+      if (activeKey.current === sourceKey) setRecovering(false);
     }
-  }, [callId, sessionToken, recovering, onUnauthorized]);
+  }, [callId, sessionToken, recordingSource, sourceKey, recovering, onUnauthorized]);
 
   useEffect(() => {
     if (!activeUrl && callId && sessionToken && !recoveryFailed && !attemptedRecovery.current && !recovering) {
@@ -95,7 +122,7 @@ export function RecordingPlayer({ url, callId, sessionToken, onUnauthorized }: R
         <div className="detail-label">RECORDING</div>
         <div className="recording-unavailable">
           <VolumeX size={14} />
-          <span>Recording unavailable</span>
+          <span>Recording not ready or unavailable. Retry after the call finishes.</span>
           {callId && sessionToken && (
             <button className="recording-retry-btn" onClick={handleManualRetry} disabled={recovering}>
               <RefreshCw size={12} className={recovering ? 'animate-spin' : ''} />
@@ -120,10 +147,13 @@ export function RecordingPlayer({ url, callId, sessionToken, onUnauthorized }: R
           </div>
         )}
         <audio
+          key={activeUrl}
           controls
+          preload="metadata"
           src={activeUrl}
           className="recording-audio"
-          onLoadedData={() => setLoading(false)}
+          onLoadedMetadata={() => setLoading(false)}
+          onCanPlay={() => setLoading(false)}
           onError={handleAudioError}
           style={{ width: '100%', display: loading || recovering ? 'none' : 'block' }}
         />

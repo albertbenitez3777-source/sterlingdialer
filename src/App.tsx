@@ -13,6 +13,7 @@ import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
+import { currentInboundHealth } from '@/utils/inbound-health';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
@@ -1123,8 +1124,13 @@ export default function App() {
   const [settingConcurrency, setSettingConcurrency] = useState<string | null>(null);
 
   const runPreflight = useCallback(async (): Promise<PreflightCheck[]> => {
+    const result = await authFetch(PROVIDER_URL, {
+      body: { action: 'inbound_health', session_token: sessionTokenRef.current },
+      onUnauthorized: () => atomicLogoutRef.current?.(),
+    });
+    const health = result.ok ? currentInboundHealth(result.data) : null;
     const stats = adminStatsRef.current;
-    if (!stats) return [];
+    if (!stats) return [{ key: 'data_health', label: 'Current data', value: 'Unavailable', passed: false }];
     const s = stats.summary;
     const activeAgents = stats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner'));
     const campaignStopped = s.campaign_state === 'stopped';
@@ -1149,7 +1155,7 @@ export default function App() {
       const tr = a.talkroute_number || '';
       return !a.active_for_dialer || !a.transfer_certified || !tr || tr.length < 10;
     });
-    const validSessions = activeAgents.filter(a => a.currently_receiving || a.active_for_dialer).length;
+    const configuredRoutes = health?.ready_agent_count ?? 0;
     const hasDuplicates = activeAgents.length > talkrouteNumbers.size + excludedAgents.length;
     const dashboardEligibleCount = activeAgents.filter(a => a.active_for_dialer && a.transfer_certified && a.talkroute_number && a.talkroute_number.length >= 10).length;
     const countsAgree = eligibleCount === dashboardEligibleCount;
@@ -1157,7 +1163,8 @@ export default function App() {
     return [
       { key: 'campaign_stopped', label: 'Campaign Status', value: campaignStopped ? 'Stopped — ready to start' : `Active (${s.campaign_state})`, passed: campaignStopped, detail: campaignStopped ? undefined : 'Campaign must be stopped before starting' },
       { key: 'eligible_agents', label: 'Eligible Agents', value: `${eligibleCount} eligible`, passed: eligibleCount > 0, detail: eligibleCount === 0 ? 'No eligible agents (must be active, certified, valid Talkroute)' : `Matches dashboard readiness: ${countsAgree ? 'yes' : 'NO — mismatch'}` },
-      { key: 'valid_sessions', label: 'Valid Current Sessions', value: `${validSessions} active sessions`, passed: validSessions > 0, detail: validSessions === 0 ? 'No agents with valid sessions' : undefined },
+      { key: 'campaign_routes', label: 'Campaign Phone Routes', value: health ? `${configuredRoutes} configured routes` : 'Not verified', passed: configuredRoutes > 0, detail: configuredRoutes === 0 ? 'Select an active agent with complete, certified Talkroute routing' : 'Active campaigns deliver to selected Talkroute lines regardless of browser login or temporary availability' },
+      { key: 'provider_routes', label: 'Current Inbound Routes', value: health?.configuration_ready ? 'Provider verified' : health ? 'Route repair required' : 'Not verified', passed: health?.configuration_ready === true, detail: health ? health.results.filter(r => r.selected && !r.configuration_ready).map(r => r.name).join(', ') || 'Destination, callback, transfer instructions and availability lookup checked' : 'Could not verify current provider settings; retry the check' },
       { key: 'talkroute_destinations', label: 'Talkroute Destinations', value: `${talkrouteNumbers.size} unique valid`, passed: talkrouteNumbers.size > 0 && !hasDuplicates, detail: hasDuplicates ? 'Duplicate destinations detected' : talkrouteNumbers.size === 0 ? 'No valid Talkroute numbers' : undefined },
       { key: 'concurrency', label: 'Concurrency Limit', value: `${activeAgents.reduce((sum, a) => sum + (a.dialer_concurrency ?? 2), 0)} max parallel`, passed: activeAgents.length > 0, detail: activeAgents.length === 0 ? 'No agents configured' : undefined },
       { key: 'lead_pool', label: 'Eligible Leads', value: `${s.leads_remaining} leads`, passed: hasLeads, detail: hasLeads ? undefined : 'No leads remaining to dial' },
@@ -1189,6 +1196,13 @@ export default function App() {
     setStartingCampaign(true);
     setPreflightError(null);
     try {
+      await loadAdminStats(sessionToken);
+      const freshChecks = await runPreflight();
+      setPreflightChecks(freshChecks);
+      if (!freshChecks.length || freshChecks.some(check => !check.passed)) {
+        setPreflightError('Readiness changed or a check failed. Resolve the checks below before starting.');
+        return;
+      }
       const res = await providerFetch(PROVIDER_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start_campaign', session_token: sessionToken, call_limit: callLimit }),
@@ -1971,14 +1985,15 @@ export default function App() {
                   {/* Inbound Verification Panel */}
                   <Reveal delay={225}>
                     <InboundVerificationPanel
-                      agents={adminStats.agents.filter(a => a.status === 'active').map(a => ({
+                      agents={adminStats.agents.filter(a => a.status === 'active' && a.bland_number).map(a => ({
+                        id: a.id,
                         full_name: a.full_name,
                         bland_number: a.bland_number || '',
                         talkroute_number: a.talkroute_number || '',
-                        inbound_configured: a.inbound_configured ?? false,
-                        transfer_certified: a.transfer_certified ?? false,
                       }))}
-                      webhookEventsSubscribed={['call', 'tool', 'post_transfer_transcript']}
+                      providerUrl={PROVIDER_URL}
+                      sessionToken={sessionToken}
+                      onUnauthorized={atomicLogout}
                     />
                   </Reveal>
 
@@ -2953,6 +2968,8 @@ export default function App() {
               transfers={activeTransfers}
               loading={activeTransfersLoading}
               error={activeTransfersError}
+              sessionToken={sessionToken}
+              onUnauthorized={handleLogout}
               onDismiss={(id) => setDismissedTransferIds(prev => new Set(prev).add(id))}
             />
           )}
@@ -3925,7 +3942,7 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
                       </div>
                     )}
                     {/* Recording recovery accepts calls-table IDs, not secretary_calls IDs. */}
-                    <RecordingPlayer url={call.recording_url} />
+                    <RecordingPlayer url={call.recording_url} callId={call.id} recordingSource="secretary_calls" sessionToken={sessionToken} />
                   </div>
                 )}
               </div>

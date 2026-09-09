@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Copy, Clock, ArrowDownRight, X, AlertTriangle, ChevronDown, ChevronUp, MapPin, DollarSign, Home, FileText } from 'lucide-react';
+import { RecordingPlayer } from './RecordingPlayer';
 
 export type ActiveTransfer = {
   id: string;
@@ -22,6 +23,8 @@ export interface IncomingTransferPanelProps {
   loading: boolean;
   error: string | null;
   onDismiss: (id: string) => void;
+  sessionToken: string;
+  onUnauthorized: () => void;
 }
 
 function fmtPhone(phone: string): string {
@@ -55,7 +58,7 @@ function CustomFields({ fields }: { fields: Record<string, unknown> | null }) {
   );
 }
 
-function TransferCard({ transfer, onDismiss }: { transfer: ActiveTransfer; onDismiss: (id: string) => void }) {
+function TransferCard({ transfer, onDismiss, sessionToken, onUnauthorized }: { transfer: ActiveTransfer; onDismiss: (id: string) => void; sessionToken: string; onUnauthorized: () => void }) {
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(timeAgo(transfer.created_at));
@@ -132,11 +135,17 @@ function TransferCard({ transfer, onDismiss }: { transfer: ActiveTransfer; onDis
           <CustomFields fields={transfer.consumer_custom_fields} />
         </div>
       )}
+      {expanded && transfer.call_id && (
+        <div className="itp-details">
+          <p className="itp-detail-row">Full call recording includes the AI conversation before transfer. Available after the call finishes and the recording is processed.</p>
+          <RecordingPlayer url={null} callId={transfer.call_id} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
+        </div>
+      )}
     </div>
   );
 }
 
-export function IncomingTransferPanel({ transfers, loading, error, onDismiss }: IncomingTransferPanelProps) {
+export function IncomingTransferPanel({ transfers, loading, error, onDismiss, sessionToken, onUnauthorized }: IncomingTransferPanelProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const handleDismiss = (id: string) => { setDismissed(prev => new Set(prev).add(id)); onDismiss(id); };
   const visible = transfers.filter(t => !dismissed.has(t.id));
@@ -154,7 +163,7 @@ export function IncomingTransferPanel({ transfers, loading, error, onDismiss }: 
       </div>
       {error && <div className="itp-error"><AlertTriangle size={13} /> {error}</div>}
       <div className="itp-cards">
-        {visible.map(t => <TransferCard key={t.id} transfer={t} onDismiss={handleDismiss} />)}
+        {visible.map(t => <TransferCard key={t.id} transfer={t} onDismiss={handleDismiss} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />)}
       </div>
     </div>
   );

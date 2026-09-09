@@ -5263,3 +5263,9 @@ img {
   .qa-card { padding: 10px; gap: 8px; }
   .qa-card-value { font-size: 14px; }
 }
+
+/* Live provider evidence must remain readable when a route fails. */
+.live-route-row { flex-wrap: wrap; align-items: flex-start; }
+.live-route-row.not-configured { opacity: 1; border-left-color: var(--gold-400); }
+.live-route-row .inbound-agent-route { min-width: 160px; line-height: 1.6; }
+.live-route-row .inbound-agent-badge.not-configured { color: var(--gold-400); }

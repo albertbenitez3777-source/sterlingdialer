@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { authFetch } from '@/utils/auth-fetch';
 import type { PresenceState } from '@/utils/attendance';
 
-export interface HeartbeatAttendance {
+export interface AttendanceInfo {
   presence: PresenceState;
   lastConfirmedAt: string | null;
   currentSessionSeconds: number;
@@ -17,97 +17,59 @@ interface UseHeartbeatOptions {
   providerUrl: string;
   sessionToken: string;
   onUnauthorized: () => void;
-  onAttendance: (data: HeartbeatAttendance) => void;
+  onAttendance: (info: AttendanceInfo) => void;
   onError: (msg: string) => void;
   enabled: boolean;
   intervalMs?: number;
 }
 
-/**
- * Client heartbeat with:
- * - 30-second polling interval (configurable)
- * - Page visibility awareness (pause when hidden, resume when visible)
- * - Stale request cancellation on logout/account change
- * - Safe overlap prevention (single in-flight request)
- * - Reconnect on regaining network/focus
- */
-export function useHeartbeat({
-  providerUrl, sessionToken, onUnauthorized, onAttendance, onError,
-  enabled, intervalMs = 30_000,
-}: UseHeartbeatOptions) {
-  const inFlightRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
-  const tokenRef = useRef(sessionToken);
-  tokenRef.current = sessionToken;
-
-  const sendHeartbeat = useCallback(async () => {
-    if (inFlightRef.current || !tokenRef.current) return;
-    inFlightRef.current = true;
-    try {
-      const result = await authFetch(providerUrl, {
-        body: { action: 'heartbeat', session_token: tokenRef.current },
-        onUnauthorized,
-      });
-      if (!mountedRef.current) return;
-      if (result.ok && result.data) {
-        const raw = (result.data as Record<string, unknown>).attendance as Record<string, unknown> | undefined;
-        if (raw && raw.valid) {
-          onAttendance({
-            presence: (raw.presence as PresenceState) || 'unknown',
-            lastConfirmedAt: raw.last_confirmed_at as string | null,
-            currentSessionSeconds: (raw.current_session_seconds as number) || 0,
-            todayTotalSeconds: (raw.today_total_seconds as number) || 0,
-            weekTotalSeconds: (raw.week_total_seconds as number) || 0,
-            isLegacyEstimate: (raw.is_legacy_estimate as boolean) || false,
-            timezone: (raw.timezone as string) || 'America/New_York',
-            serverNow: (raw.server_now as string) || new Date().toISOString(),
+/** Keep presence fresh in background tabs; cancel old-account requests on change. */
+export function useHeartbeat({providerUrl,sessionToken,onUnauthorized,onAttendance,onError,
+  enabled,intervalMs=30_000}: UseHeartbeatOptions) {
+  const callbacks=useRef({onUnauthorized,onAttendance,onError});
+  callbacks.current={onUnauthorized,onAttendance,onError};
+  useEffect(()=>{
+    if (!enabled || !sessionToken) return;
+    let active=true;
+    let pending: AbortController | null=null;
+    const send=async()=>{
+      if (!active || pending) return;
+      const controller=new AbortController();
+      pending=controller;
+      try {
+        const result=await authFetch(providerUrl,{
+          body:{action:'heartbeat',session_token:sessionToken},signal:controller.signal,
+          onUnauthorized:()=>{if(active) callbacks.current.onUnauthorized();},
+        });
+        if(!active || controller.signal.aborted) return;
+        const raw=(result.data as Record<string,unknown> | null)?.attendance as Record<string,unknown> | undefined;
+        if(result.ok && raw?.valid) {
+          callbacks.current.onAttendance({
+            presence:(raw.presence as PresenceState)||'unknown',
+            lastConfirmedAt:raw.last_confirmed_at as string|null,
+            currentSessionSeconds:Number(raw.current_session_seconds)||0,
+            todayTotalSeconds:Number(raw.today_total_seconds)||0,
+            weekTotalSeconds:Number(raw.week_total_seconds)||0,
+            isLegacyEstimate:raw.is_legacy_estimate===true,
+            timezone:(raw.timezone as string)||'America/New_York',
+            serverNow:(raw.server_now as string)||new Date().toISOString(),
           });
-        }
-      } else if (!result.loggedOut) {
-        onError(result.error || 'Heartbeat failed');
-      }
-    } catch {
-      if (mountedRef.current) onError('Heartbeat network error');
-    } finally {
-      inFlightRef.current = false;
-    }
-  }, [providerUrl, onUnauthorized, onAttendance, onError]);
-
-  // Start/stop polling
-  useEffect(() => {
-    mountedRef.current = true;
-    if (!enabled || !sessionToken) {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-      return;
-    }
-
-    sendHeartbeat();
-    timerRef.current = setInterval(sendHeartbeat, intervalMs);
-
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+        } else if(!result.loggedOut) callbacks.current.onError(result.error||'Attendance sync unavailable');
+      } finally { if(pending===controller) pending=null; }
     };
-  }, [enabled, sessionToken, intervalMs, sendHeartbeat]);
-
-  // Page visibility: pause when hidden, immediate heartbeat when visible
-  useEffect(() => {
-    if (!enabled) return;
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        sendHeartbeat();
-      }
+    const visible=()=>{if(document.visibilityState==='visible') void send();};
+    void send();
+    const timer=setInterval(send,intervalMs);
+    document.addEventListener('visibilitychange',visible);
+    window.addEventListener('online',send);
+    window.addEventListener('focus',send);
+    return()=>{
+      active=false;
+      pending?.abort();
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange',visible);
+      window.removeEventListener('online',send);
+      window.removeEventListener('focus',send);
     };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [enabled, sendHeartbeat]);
-
-  // Network reconnect: immediate heartbeat
-  useEffect(() => {
-    if (!enabled) return;
-    const handleOnline = () => sendHeartbeat();
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [enabled, sendHeartbeat]);
+  },[providerUrl,sessionToken,enabled,intervalMs]);
 }
