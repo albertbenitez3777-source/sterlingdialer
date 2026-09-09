@@ -34,7 +34,8 @@ export function TalkrouteDeliveryTimeline({
 
   const hasFailures = failedCount > 0;
   const hasUnverified = unverifiedCount > 0;
-  const allVerified = !hasFailures && !hasUnverified && bridgeConfirmed > 0;
+  const allVerified = !hasFailures && !hasUnverified && transferRequested > 0 &&
+    bridgeConfirmed === transferRequested;
 
   return (
     <div className="panel delivery-timeline-panel">
@@ -71,7 +72,7 @@ export function TalkrouteDeliveryTimeline({
           <div className="delivery-failures">
             <div className="delivery-failures-header">
               <PhoneOff size={14} />
-              <span>{failedCount} transfer failure{failedCount !== 1 ? 's' : ''}</span>
+              <span>{failedCount} confirmed transfer failure{failedCount !== 1 ? 's' : ''}</span>
             </div>
             {failedReasons.length > 0 && (
               <div className="delivery-failure-reasons">
@@ -85,13 +86,13 @@ export function TalkrouteDeliveryTimeline({
         {hasUnverified && (
           <div className="delivery-unverified">
             <Clock size={14} />
-            <span>{unverifiedCount} attempted but unverified — transferred_to recorded, strict bridge predicate not met</span>
+            <span>{unverifiedCount} transfer request{unverifiedCount !== 1 ? 's' : ''} awaiting answer confirmation</span>
           </div>
         )}
         {allVerified && (
           <div className="delivery-all-verified">
             <Check size={14} />
-            <span>All transfers software-verified via strict representative-speech / MERGED bridge predicate</span>
+            <span>All requested transfers have provider-confirmed agent connections</span>
           </div>
         )}
       </div>
@@ -99,7 +100,7 @@ export function TalkrouteDeliveryTimeline({
       <div className="delivery-evidence-notice">
         <div className="delivery-evidence-icon"><Check size={12} /></div>
         <div className="delivery-evidence-text">
-          <strong>Software verified</strong> — bridge confirmation uses post-transfer transcript analysis (representative speech detection or MERGED warm-transfer state). transferred_to proves attempt/destination only, not delivery.
+          <strong>{bridgeConfirmed > 0 ? 'Agent connection evidence received' : 'Agent connection evidence pending'}</strong> — a transfer request or dialed destination alone does not confirm that an agent answered.
           <span className="delivery-live-test-pending">
             <Clock size={11} /> Live test pending: physical device ring and two-way audio not yet validated on hardware.
           </span>

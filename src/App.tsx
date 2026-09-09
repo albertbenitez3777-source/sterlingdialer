@@ -9,6 +9,7 @@ import { maskPhone, formatPhone } from '@/utils/privacy';
 import { useHeartbeat, type HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
 import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/utils/funnel';
+import { transferMetricsForWindow, type TransferMetricSummary } from '@/utils/transfer-metrics';
 import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
@@ -74,7 +75,7 @@ type ErrorEntry = {
   talkroute_answered: boolean; bridge_confirmed: boolean;
 };
 
-type CampaignSummary = {
+type CampaignSummary = TransferMetricSummary & {
   campaign_state: string; dialer_activated: boolean; concurrency: number;
   provider_call_limit: number; leads_remaining: number; calls_attempted_today: number;
   live_humans_today: number; human_drops_today: number; fire_transfers_today: number;
@@ -1974,15 +1975,18 @@ export default function App() {
 
                   {/* Talkroute Delivery Verification Timeline */}
                   <Reveal delay={200}>
-                    <TalkrouteDeliveryTimeline
-                      transferRequested={adminStats.summary.transfers_requested_today ?? 0}
-                      destinationDialed={adminStats.summary.talkroute_dialed_today ?? 0}
-                      agentAnswered={adminStats.summary.agent_answered_today ?? 0}
-                      bridgeConfirmed={(adminStats.summary as Record<string, unknown>).bridge_confirmed_today as number ?? 0}
-                      failedCount={adminStats.summary.transfer_failed_unverified_today ?? 0}
-                      failedReasons={(adminStats.summary.errors_recent ?? []).map(e => e.reason)}
-                      unverifiedCount={Math.max(0, (adminStats.summary.transfers_requested_today ?? 0) - ((adminStats.summary as Record<string, unknown>).bridge_confirmed_today as number ?? 0) - (adminStats.summary.transfer_failed_unverified_today ?? 0))}
-                    />
+                    {(() => {
+                      const metrics = transferMetricsForWindow(adminStats.summary, 'today');
+                      return <TalkrouteDeliveryTimeline
+                        transferRequested={metrics.requested}
+                        destinationDialed={metrics.dialed}
+                        agentAnswered={metrics.answered}
+                        bridgeConfirmed={metrics.bridged}
+                        failedCount={metrics.failed}
+                        failedReasons={[]}
+                        unverifiedCount={metrics.unverified}
+                      />;
+                    })()}
                   </Reveal>
 
                   {/* Inbound Verification Panel */}
@@ -2022,15 +2026,16 @@ export default function App() {
                         const f = perfView === 'today' ? adminStats.summary.funnel_today : perfView === 'week' ? adminStats.summary.funnel_week : adminStats.summary.funnel_all;
                         if (!f) return null;
                         const s = adminStats.summary;
+                        const metrics = transferMetricsForWindow(s, perfView);
                         const funnelData: FunnelData = {
                           calls_attempted: f.calls_attempted,
                           live_humans_reached: f.live_humans_reached,
-                          transfers_requested: (perfView === 'today' ? s.transfers_requested_today : perfView === 'week' ? s.transfers_requested_week : f.transfers_requested) ?? 0,
-                          talkroute_dialed: (perfView === 'today' ? s.talkroute_dialed_today : perfView === 'week' ? s.talkroute_dialed_week : f.talkroute_answered) ?? 0,
-                          agent_answered: (perfView === 'today' ? s.agent_answered_today : perfView === 'week' ? s.agent_answered_week : f.talkroute_answered) ?? 0,
-                          bridge_confirmed: (perfView === 'today' ? (s as Record<string, unknown>).bridge_confirmed_today : perfView === 'week' ? (s as Record<string, unknown>).bridge_confirmed_week : f.bridge_confirmed) as number ?? 0,
+                          transfers_requested: metrics.requested,
+                          talkroute_dialed: metrics.dialed,
+                          agent_answered: metrics.answered,
+                          bridge_confirmed: metrics.bridged,
                           likely_real_conversation: f.likely_real_conversation,
-                          transfer_failed_unverified: (perfView === 'today' ? s.transfer_failed_unverified_today : perfView === 'week' ? s.transfer_failed_unverified_week : 0) ?? 0,
+                          transfer_failed_unverified: metrics.unverified,
                           data_quality_exceptions: 0,
                           total_minutes: f.total_minutes,
                           productive_minutes: f.productive_minutes,
@@ -2053,8 +2058,8 @@ export default function App() {
                     <GlassCard hoverLift className="panel recent-failures-card">
                       <div className="panel-heading">
                         <div>
-                          <div className="eyebrow"><CircleHelp size={12} /> RECENT FAILURES</div>
-                          <h3>Transfer Failures — Last 20</h3>
+                          <div className="eyebrow"><CircleHelp size={12} /> RECENT CALL ISSUES</div>
+                          <h3>Call issues — latest 10</h3>
                         </div>
                       </div>
                       <div className="recent-failures-list">

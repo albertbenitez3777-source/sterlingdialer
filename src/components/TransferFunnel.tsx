@@ -37,8 +37,8 @@ export function TransferFunnel({ stages, exceptions, sideOutcome, exceptionsExpl
       {/* Side outcome — Transfer Failed / Unverified */}
       <div className="funnel-side-outcome">
         <div className="funnel-side-label">
-          <AlertTriangle size={12} /> Transfer Failed / Unverified
-          <span className="funnel-side-hint">side outcome of transfer requested</span>
+          <AlertTriangle size={12} /> Awaiting Answer Confirmation
+          <span className="funnel-side-hint">excludes confirmed connections and explicit failures</span>
         </div>
         <span className="funnel-side-value">{sideOutcome}</span>
       </div>
