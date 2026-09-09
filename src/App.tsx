@@ -3183,7 +3183,7 @@ function CallList({ records, loading, expandedCall, setExpandedCall, onPhoneClic
             </div>
             <div className="queue-card-right">
               <span className={`heat-status ${isFireTransfer ? 'hot' : 'warm'}`}>
-                <Flame size={12} /> {isFireTransfer ? 'HOT TRANSFER' : 'LIVE HUMAN'}
+                <Flame size={12} /> {isFireTransfer ? 'HOT TRANSFER' : call.queue === 'human_drop' ? 'LIVE HUMAN' : 'CALL RECORD'}
               </span>
               {isFireTransfer && (
                 <span className="call-now-alert">
@@ -3506,6 +3506,7 @@ function CallLogView({ expandedCall, setExpandedCall, sessionToken, onUnauthoriz
         <div className="hero-actions">
           <select className="filter-select" value={filter} onChange={e => { setFilter(e.target.value); }}>
             <option value="all">All Calls</option>
+            <option value="transfer_requested">Transfer Requests</option>
             <option value="fire_transfer">Transferred</option>
             <option value="human_drop">Dropped</option>
             <option value="no_answer">No Answer</option>
