@@ -3071,6 +3071,132 @@ RULES — follow exactly, no exceptions:
       return new Response(JSON.stringify({ success: true, message: "Retry campaign stopped" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── TRANSFER ALERT ACTIONS ─────────────────────────────────────────
+
+    if (action === "get_agent_alerts") {
+      const { session_token } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("get_agent_alerts", { p_agent_id: agent.id });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to fetch alerts" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "get_agent_inbox") {
+      const { session_token, category, limit: lim, offset: off } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("get_agent_inbox", {
+        p_agent_id: agent.id,
+        p_category: category || "all",
+        p_limit: lim || 50,
+        p_offset: off || 0,
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to fetch inbox" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "acknowledge_alert") {
+      const { session_token, alert_id, outcome, notes } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("acknowledge_alert", {
+        p_alert_id: alert_id,
+        p_agent_id: agent.id,
+        p_outcome: outcome,
+        p_notes: notes || "",
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to save outcome" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "schedule_alert_callback") {
+      const { session_token, alert_id, callback_at, notes } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("schedule_alert_callback", {
+        p_alert_id: alert_id,
+        p_agent_id: agent.id,
+        p_callback_at: callback_at,
+        p_notes: notes || "",
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to schedule callback" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "complete_callback") {
+      const { session_token, alert_id, notes } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("complete_callback", {
+        p_alert_id: alert_id,
+        p_agent_id: agent.id,
+        p_notes: notes || "",
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to complete callback" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "get_owner_alert_overview") {
+      const { session_token } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (agent.role !== "owner" && agent.role !== "administrator" && agent.role !== "supervisor") {
+        return new Response(JSON.stringify({ error: "Admin access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { data, error: rpcErr } = await supabase.rpc("get_owner_alert_overview");
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to fetch overview" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "get_alert_detail") {
+      const { session_token, alert_id } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data, error: rpcErr } = await supabase.rpc("get_alert_detail", {
+        p_alert_id: alert_id,
+        p_agent_id: agent.id,
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to fetch detail" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "create_test_alert") {
+      const { session_token, target_agent_id } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (agent.role !== "owner" && agent.role !== "administrator") {
+        return new Response(JSON.stringify({ error: "Admin access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const agentId = target_agent_id || agent.id;
+      const { data, error: rpcErr } = await supabase.rpc("create_transfer_alert", {
+        p_agent_id: agentId,
+        p_consumer_name: "Test Client - John Doe",
+        p_consumer_phone: "+15551234567",
+        p_consumer_email: "test@example.com",
+        p_consumer_address: "123 Test St, Springfield, IL 62701",
+        p_consumer_account_ref: "TEST-" + Date.now().toString(36).toUpperCase(),
+        p_consumer_extra: JSON.stringify({ home_value: "$285,000", income_range: "$50k-$75k" }),
+        p_call_direction: "outbound",
+        p_transfer_reason: "AI detected live human, agreed to transfer",
+        p_transfer_status: "destination_dialed",
+        p_previous_contacts: JSON.stringify([
+          { created_at: new Date(Date.now() - 86400000).toISOString(), queue: "voice_message", duration_seconds: 12 },
+          { created_at: new Date(Date.now() - 172800000).toISOString(), queue: "no_answer", duration_seconds: 0 },
+        ]),
+      });
+      if (rpcErr) return new Response(JSON.stringify({ error: "Failed to create test alert: " + rpcErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     return new Response(JSON.stringify({ error: "Unknown action" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -91,27 +91,33 @@ async function killStaleCalls(sql: Sql) {
     if (!staleCalls || staleCalls.length === 0) return;
 
     for (const call of staleCalls) {
-      // Reconcile only provider-confirmed terminal no-answer calls. Connected
-      // calls are reconciled by backfill, which preserves their full evidence.
-      // Local row age is never permission to stop a call or invent talk time.
       try {
         const statusRes = await fetch(`https://api.bland.ai/v1/calls/${call.provider_call_id}`, {
           headers: { "authorization": blandApiKey },
         });
-        if (!statusRes.ok) continue; // HTTP errors are not proof the call ended.
+        if (!statusRes.ok) continue;
         const info = await statusRes.json() as Record<string, unknown>;
         if (getBlandCallCompletion(info) !== true) continue;
+
         const terminalStatus = String(info.status || "").toLowerCase().replace(/[\s-]+/g, "_");
-        const failedWithoutAnswer = ["no_answer", "busy", "failed", "error", "cancelled", "canceled", "timeout", "timed_out"].includes(terminalStatus);
-        if (!failedWithoutAnswer) continue;
         const transcript = flattenTranscript(info.transcripts, info.concatenated_transcript);
         const transferring = Boolean(info.transferred_to || info.transfer_phone_number || info.warm_transfer_call);
         const durationSeconds = blandDurationToSeconds(info.call_length ?? info.duration);
-        if (transferring || transcript || detectLiveHuman(info, transcript) || info.recording_url ||
-            durationSeconds > 0 || (call.duration_seconds ?? 0) > 0) continue;
-      } catch { continue; } // provider unreachable — do not kill blind
+        const hasHuman = detectLiveHuman(info, transcript);
+        const hasEvidence = transferring || !!transcript || hasHuman || !!info.recording_url ||
+            durationSeconds > 0 || (call.duration_seconds ?? 0) > 0;
 
-      await sql`UPDATE calls SET queue = 'no_answer', is_completed = true WHERE id = ${call.id} AND queue = 'pending' AND is_completed = false`;
+        const failedWithoutAnswer = ["no_answer", "busy", "failed", "error", "cancelled", "canceled", "timeout", "timed_out"].includes(terminalStatus);
+
+        if (failedWithoutAnswer && !hasEvidence) {
+          await sql`UPDATE calls SET queue = 'no_answer', is_completed = true WHERE id = ${call.id} AND queue = 'pending' AND is_completed = false`;
+        } else if (hasEvidence) {
+          const queue = hasHuman || transferring ? 'human_drop' : durationSeconds > 5 ? 'voice_message' : 'no_answer';
+          await sql`UPDATE calls SET queue = ${queue}, is_completed = true, duration_seconds = GREATEST(duration_seconds, ${durationSeconds || 0}), recording_url = COALESCE(NULLIF(recording_url,''), ${String(info.recording_url || '')}), transcript = COALESCE(NULLIF(transcript,''), ${transcript || ''}) WHERE id = ${call.id} AND queue = 'pending' AND is_completed = false`;
+        } else {
+          await sql`UPDATE calls SET queue = 'no_answer', is_completed = true WHERE id = ${call.id} AND queue = 'pending' AND is_completed = false`;
+        }
+      } catch { continue; }
     }
   } catch { /* ignore */ }
 }
@@ -394,4 +400,4 @@ Deno.serve(async (req: Request) => {
     if (sql) await sql.end();
   }
 });
-// deploy-fix-v6: max_duration=8, stale=540s, 20s loop
+// deploy-fix-v7: max_duration=8, stale=540s, 20s loop

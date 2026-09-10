@@ -18,3 +18,6 @@ export { RecordingPlayer } from './RecordingPlayer';
 export { OpportunitiesFeed } from './OpportunitiesFeed';
 export { IncomingTransferPanel, type ActiveTransfer, type IncomingTransferPanelProps } from './IncomingTransferPanel';
 export { AgentWorkspaceView } from './AgentWorkspaceView';
+export { IncomingCallAlert, type TransferAlert } from './IncomingCallAlert';
+export { AgentInbox } from './AgentInbox';
+export { OwnerAlertOverview } from './OwnerAlertOverview';

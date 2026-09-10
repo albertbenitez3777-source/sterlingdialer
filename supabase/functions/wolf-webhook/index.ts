@@ -182,6 +182,15 @@ Deno.serve(async (req: Request) => {
           const transferId = String(body.transfer_call_id || body.transfer_id || "");
           await sql`UPDATE calls SET transfer_state = 'transfer_api_accepted', transfer_status = 'transfer_api_accepted', talkroute_leg_created = true, transfer_requested_at = ${now}${transferDest ? sql`, transfer_destination = ${transferDest}` : sql``}${transferId ? sql`, provider_transfer_id = ${transferId}` : sql``}, destination_dialed_at = ${now} WHERE id = ${callRows[0].id}`;
           console.log(`[webhook] Marked transfer_requested for call_id=${callRows[0].id} (NOT fire_transfer)`);
+
+          // Create transfer alert for the agent overlay
+          try {
+            const detailRows = await sql`SELECT c.agent_id, c.lead_id, c.consumer_name, c.consumer_phone, c.consumer_address, c.consumer_home_value, c.consumer_income_range, c.consumer_property_info, c.consumer_email, c.call_direction, l.email as lead_email FROM calls c LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = ${callRows[0].id} LIMIT 1`;
+            if (detailRows.length > 0 && detailRows[0].agent_id) {
+              const d = detailRows[0];
+              await sql`SELECT create_transfer_alert(${d.agent_id}::uuid, ${callRows[0].id}::uuid, ${d.lead_id}::uuid, ${d.consumer_name || ''}, ${d.consumer_phone || ''}, ${d.consumer_email || d.lead_email || ''}, ${d.consumer_address || ''}, '', ${JSON.stringify({ home_value: d.consumer_home_value || '', income_range: d.consumer_income_range || '', property_info: d.consumer_property_info || '' })}::jsonb, ${d.call_direction || 'outbound'}, 'AI detected live human, transfer initiated', 'destination_dialed', '[]'::jsonb)`;
+            }
+          } catch (alertErr) { console.error(`[webhook] transfer_alert creation failed: ${String(alertErr)}`); }
         }
       }
       return new Response(JSON.stringify({ success: true, action: "transfer_event_logged" }), {
@@ -633,6 +642,12 @@ Deno.serve(async (req: Request) => {
             VALUES (${callInfo.agent_id}, ${callInfo.id}, ${details?.lead_id || null}, ${inboxType}, ${inboxTitle}, ${inboxBody}, ${details?.consumer_name || ""}, ${details?.consumer_phone || ""}, ${publicRecordingUrl || ""}, ${transcript || ""})
           `;
         }
+
+        // Update transfer alert evidence when call completes
+        try {
+          const alertStatus = bridgeConfirmed ? 'bridge_confirmed' : talkrouteAnswered ? 'agent_answered' : talkrouteLegCreated ? 'destination_dialed' : 'requested';
+          await sql`SELECT update_alert_evidence(${callInfo.id}::uuid, ${publicRecordingUrl || null}, ${transcript || null}, ${alertStatus})`;
+        } catch (alertErr) { console.error(`[webhook] transfer_alert evidence update failed: ${String(alertErr)}`); }
       }
     }
 
