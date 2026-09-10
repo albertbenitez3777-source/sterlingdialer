@@ -2951,7 +2951,7 @@ export default function App() {
           {/* ── ADMIN: Call Log ───────────────────────────────────────────── */}
           {isOwner && activeNav === 'calls' && (
             <CallLogView expandedCall={expandedCall} setExpandedCall={setExpandedCall}
-              sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
+              sessionToken={sessionToken} onUnauthorized={atomicLogout} />
           )}
 
           {/* ── AGENT: Secretary ──────────────────────────────────────────── */}
