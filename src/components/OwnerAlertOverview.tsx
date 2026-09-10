@@ -1,106 +1,124 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Phone, PhoneMissed, RefreshCw, AlertCircle, CheckCircle2, Clock, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bell, ChevronDown, ChevronUp, RefreshCw, AlertTriangle } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
 
-type AgentOverview = {
+type AgentAlertStats = {
   agent_id: string;
   agent_name: string;
-  talkroute_number: string;
-  alerts_24h: number;
-  answered_24h: number;
-  missed_24h: number;
-  unacknowledged: number;
-  callbacks_pending: number;
-  callbacks_overdue: number;
-  answered_all_time: number;
-  missed_all_time: number;
-  completed_callbacks: number;
+  talkroute_number: string | null;
+  total_alerts: number;
+  active: number;
+  answered: number;
+  missed: number;
+  callback_needed: number;
+  completed: number;
+  avg_response_seconds: number | null;
 };
 
-export interface OwnerAlertOverviewProps {
+interface OwnerAlertOverviewProps {
   sessionToken: string;
   onUnauthorized: () => void;
   providerUrl: string;
 }
 
 export function OwnerAlertOverview({ sessionToken, onUnauthorized, providerUrl }: OwnerAlertOverviewProps) {
-  const [agents, setAgents] = useState<AgentOverview[]>([]);
-  const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [stats, setStats] = useState<AgentAlertStats[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await authFetch(providerUrl, {
-        body: { action: 'get_owner_alert_overview', session_token: sessionToken },
-        onUnauthorized,
-      });
-      if (result.ok && result.data) {
-        const d = result.data as Record<string, unknown>;
-        setAgents((d.overview || []) as AgentOverview[]);
-      }
-    } catch { /* handled */ }
+    const result = await authFetch(providerUrl, {
+      body: { action: 'get_owner_alert_overview', session_token: sessionToken },
+      onUnauthorized,
+    });
+    if (result.ok && result.data) {
+      const d = result.data as Record<string, unknown>;
+      setStats((d.agents || d.overview || []) as AgentAlertStats[]);
+    }
     setLoading(false);
-  }, [sessionToken, providerUrl, onUnauthorized]);
+  }, [providerUrl, sessionToken, onUnauthorized]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [load]);
 
-  const totalUnack = agents.reduce((s, a) => s + a.unacknowledged, 0);
-  const totalOverdue = agents.reduce((s, a) => s + a.callbacks_overdue, 0);
+  const totalActive = stats.reduce((s, a) => s + (a.active || 0), 0);
+  const totalMissed = stats.reduce((s, a) => s + (a.missed || 0), 0);
+  const totalCallbacks = stats.reduce((s, a) => s + (a.callback_needed || 0), 0);
 
   return (
     <div className="owner-alerts-overview">
-      <div className="oao-header" onClick={() => setExpanded(!expanded)}>
+      <div className="oao-header" onClick={() => setExpanded(v => !v)}>
         <div className="oao-header-left">
-          <Users size={16} />
-          <strong>Agent Transfer Inbox</strong>
-          {totalUnack > 0 && <span className="oao-badge oao-badge-warn">{totalUnack} unacknowledged</span>}
-          {totalOverdue > 0 && <span className="oao-badge oao-badge-danger">{totalOverdue} overdue</span>}
-          {loading && <Loader2 size={14} className="ica-spin" />}
+          <Bell size={16} />
+          <span style={{ fontWeight: 600 }}>Transfer Alerts</span>
+          {totalActive > 0 && <span className="oao-badge oao-badge-warn">{totalActive} active</span>}
+          {totalMissed > 0 && <span className="oao-badge oao-badge-danger">{totalMissed} missed</span>}
         </div>
         <div className="oao-header-right">
-          <button className="oao-refresh" onClick={e => { e.stopPropagation(); load(); }}><RefreshCw size={14} /></button>
+          <button className="oao-refresh" onClick={e => { e.stopPropagation(); setLoading(true); load(); }}>
+            <RefreshCw size={14} className={loading ? 'ica-spin' : ''} />
+          </button>
           {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
       </div>
 
       {expanded && (
         <div className="oao-table-wrap">
-          <table className="oao-table">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th className="oao-num">24h Alerts</th>
-                <th className="oao-num"><Phone size={12} /> Answered</th>
-                <th className="oao-num"><PhoneMissed size={12} /> Missed</th>
-                <th className="oao-num"><Clock size={12} /> Unack</th>
-                <th className="oao-num"><RefreshCw size={12} /> Callbacks</th>
-                <th className="oao-num"><AlertCircle size={12} /> Overdue</th>
-                <th className="oao-num"><CheckCircle2 size={12} /> All-time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map(a => (
-                <tr key={a.agent_id} className={a.unacknowledged > 0 || a.callbacks_overdue > 0 ? 'oao-row-warn' : ''}>
-                  <td>
-                    <div className="oao-agent-name">{a.agent_name}</div>
-                    {a.talkroute_number && <div className="oao-agent-route">{a.talkroute_number}</div>}
-                  </td>
-                  <td className="oao-num">{a.alerts_24h}</td>
-                  <td className="oao-num oao-answered">{a.answered_24h}</td>
-                  <td className="oao-num oao-missed">{a.missed_24h}</td>
-                  <td className="oao-num">{a.unacknowledged > 0 ? <span className="oao-cell-warn">{a.unacknowledged}</span> : '0'}</td>
-                  <td className="oao-num">{a.callbacks_pending}</td>
-                  <td className="oao-num">{a.callbacks_overdue > 0 ? <span className="oao-cell-danger">{a.callbacks_overdue}</span> : '0'}</td>
-                  <td className="oao-num">{a.answered_all_time} / {a.missed_all_time} / {a.completed_callbacks}</td>
+          {stats.length === 0 && !loading ? (
+            <div className="oao-empty">No transfer alert data yet</div>
+          ) : (
+            <table className="oao-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th className="oao-num">Total</th>
+                  <th className="oao-num">Active</th>
+                  <th className="oao-num">Answered</th>
+                  <th className="oao-num">Missed</th>
+                  <th className="oao-num">Callbacks</th>
+                  <th className="oao-num">Avg Response</th>
                 </tr>
-              ))}
-              {agents.length === 0 && !loading && (
-                <tr><td colSpan={8} className="oao-empty">No agent data</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {stats.map(agent => {
+                  const warn = (agent.missed || 0) >= 3 || (agent.callback_needed || 0) >= 3;
+                  return (
+                    <tr key={agent.agent_id} className={warn ? 'oao-row-warn' : ''}>
+                      <td>
+                        <div className="oao-agent-name">{agent.agent_name}</div>
+                        {agent.talkroute_number && <div className="oao-agent-route">{agent.talkroute_number}</div>}
+                      </td>
+                      <td className="oao-num">{agent.total_alerts || 0}</td>
+                      <td className="oao-num">
+                        {(agent.active || 0) > 0
+                          ? <span className="oao-cell-warn">{agent.active}</span>
+                          : 0}
+                      </td>
+                      <td className="oao-num oao-answered">{agent.answered || 0}</td>
+                      <td className="oao-num">
+                        {(agent.missed || 0) > 0
+                          ? <span className="oao-cell-danger">{agent.missed}</span>
+                          : <span className="oao-missed">0</span>}
+                      </td>
+                      <td className="oao-num">
+                        {(agent.callback_needed || 0) > 0
+                          ? <span className="oao-cell-warn">{agent.callback_needed}</span>
+                          : 0}
+                      </td>
+                      <td className="oao-num">
+                        {agent.avg_response_seconds != null
+                          ? `${Math.round(agent.avg_response_seconds)}s`
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

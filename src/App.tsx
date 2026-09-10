@@ -4039,6 +4039,18 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
   name: string; phone: string; onClose: () => void;
   onSecretaryCall: () => void; placingSecretaryCall: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
+  const digits = phone.replace(/\D/g, '');
+  const last10 = digits.slice(-10);
+  const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
+
+  const handleTalkroute = () => {
+    navigator.clipboard.writeText(last10.length === 10 ? last10 : phone).catch(() => {});
+    setCopied(true);
+    window.open('https://app.talkroute.com/phone', '_blank', 'noopener');
+    setTimeout(() => setCopied(false), 3000);
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="phone-action-modal" onClick={e => e.stopPropagation()}>
@@ -4047,7 +4059,7 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
           <div className="phone-action-avatar">{initials(name || '?')}</div>
           <div>
             <strong>{name || 'Unknown'}</strong>
-            <span>{phone}</span>
+            <span>{display}</span>
           </div>
         </div>
         <div className="phone-action-options">
@@ -4059,13 +4071,14 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
             </div>
             {placingSecretaryCall && <RefreshCw size={16} className="search-spinner" />}
           </button>
-          <a className="phone-action-option" href={`tel:${phone}`}>
+          <button className="phone-action-option" onClick={handleTalkroute}>
             <div className="phone-action-icon talkroute-icon"><Phone size={22} /></div>
             <div className="phone-action-text">
               <strong>Call via Talkroute</strong>
-              <span>Dial from your Talkroute line</span>
+              <span>{copied ? 'Number copied! Talkroute opening...' : 'Opens Talkroute — number auto-copied'}</span>
             </div>
-          </a>
+            {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
+          </button>
         </div>
       </div>
     </div>

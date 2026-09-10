@@ -1,25 +1,48 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  Inbox, Phone, PhoneMissed, RefreshCw, CheckCircle2, Clock, AlertCircle,
-  Search, ChevronDown, ChevronUp, User, MapPin, Mail, Hash, FileText,
-  MessageSquare, Loader2, X, Filter, Calendar
-} from 'lucide-react';
-import { RecordingPlayer } from './RecordingPlayer';
-import type { TransferAlert } from './IncomingCallAlert';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Inbox, Search, RefreshCw, ChevronDown, ChevronUp, Phone, PhoneOff, Clock, Check, Calendar, AlertTriangle, X, MapPin, DollarSign, Home, FileText, Copy } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
+import { RecordingPlayer } from './RecordingPlayer';
 
-type InboxCategory = 'all' | 'active' | 'answered' | 'missed' | 'callbacks' | 'overdue' | 'completed' | 'unacknowledged';
+type InboxItem = {
+  id: string;
+  call_id: string;
+  status: string;
+  consumer_name: string;
+  consumer_phone: string;
+  consumer_address: string | null;
+  consumer_home_value: string | null;
+  consumer_income_range: string | null;
+  consumer_property_info: string | null;
+  direction: string | null;
+  transfer_requested: boolean;
+  talkroute_leg_created: boolean;
+  talkroute_answered: boolean;
+  bridge_confirmed: boolean;
+  outcome: string | null;
+  notes: string | null;
+  callback_at: string | null;
+  callback_completed_at: string | null;
+  recording_url: string | null;
+  transcript: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
-const CATEGORY_CONFIG: { key: InboxCategory; label: string; icon: typeof Inbox }[] = [
-  { key: 'all', label: 'All', icon: Inbox },
-  { key: 'active', label: 'Incoming', icon: Phone },
-  { key: 'answered', label: 'Answered', icon: CheckCircle2 },
-  { key: 'missed', label: 'Missed', icon: PhoneMissed },
-  { key: 'callbacks', label: 'Callbacks Due', icon: RefreshCw },
-  { key: 'overdue', label: 'Overdue', icon: AlertCircle },
-  { key: 'completed', label: 'Completed', icon: CheckCircle2 },
-  { key: 'unacknowledged', label: 'Unknown', icon: Clock },
-];
+interface AgentInboxProps {
+  sessionToken: string;
+  onUnauthorized: () => void;
+  providerUrl: string;
+  agentId: string;
+}
+
+const TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'answered', label: 'Answered' },
+  { id: 'missed', label: 'Missed' },
+  { id: 'callback_needed', label: 'Callbacks' },
+  { id: 'completed', label: 'Completed' },
+] as const;
 
 function fmtPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -28,197 +51,199 @@ function fmtPhone(phone: string): string {
   return phone;
 }
 
-function fmtDate(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+function timeAgo(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
-type InboxItem = TransferAlert & { sort_key: string };
+function isOverdue(callbackAt: string | null): boolean {
+  if (!callbackAt) return false;
+  return new Date(callbackAt).getTime() < Date.now();
+}
+
+const STATUS_STEPS = ['transfer_requested', 'talkroute_leg_created', 'talkroute_answered', 'bridge_confirmed'] as const;
 
 function InboxItemCard({
-  item,
-  isExpanded,
-  onToggle,
-  onAcknowledge,
-  onCompleteCallback,
-  sessionToken,
-  onUnauthorized,
-  providerUrl,
+  item, providerUrl, sessionToken, onUnauthorized, onRefresh,
 }: {
   item: InboxItem;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onAcknowledge: (id: string, outcome: string, notes: string) => Promise<boolean>;
-  onCompleteCallback: (id: string, notes: string) => Promise<boolean>;
+  providerUrl: string;
   sessionToken: string;
   onUnauthorized: () => void;
-  providerUrl: string;
+  onRefresh: () => void;
 }) {
-  const [saving, setSaving] = useState(false);
-  const [notes, setNotes] = useState(item.agent_notes || '');
+  const [expanded, setExpanded] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [callbackDate, setCallbackDate] = useState('');
-  const [callbackTime, setCallbackTime] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);
+  const [cbDate, setCbDate] = useState('');
+  const [cbTime, setCbTime] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  const outcomeLabel = item.agent_outcome === 'answered' ? 'Answered'
-    : item.agent_outcome === 'missed' ? 'Missed'
-    : item.agent_outcome === 'callback_needed' ? 'Callback needed'
-    : item.agent_outcome === 'unacknowledged' ? 'Outcome unknown'
-    : 'Pending';
+  const handleAction = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
+    setSubmitting(true);
+    setError(null);
+    const result = await authFetch(providerUrl, {
+      body: { action, session_token: sessionToken, alert_id: item.id, notes, ...extra },
+      onUnauthorized,
+    });
+    if (result.ok) { onRefresh(); }
+    else { setError(result.error || 'Action failed'); }
+    setSubmitting(false);
+  }, [providerUrl, sessionToken, onUnauthorized, item.id, notes, onRefresh]);
 
-  const outcomeClass = item.agent_outcome === 'answered' ? 'inbox-outcome-answered'
-    : item.agent_outcome === 'missed' ? 'inbox-outcome-missed'
-    : item.agent_outcome === 'callback_needed' ? 'inbox-outcome-callback'
+  const handleSchedule = useCallback(async () => {
+    if (!cbDate || !cbTime) return;
+    const iso = new Date(`${cbDate}T${cbTime}`).toISOString();
+    await handleAction('schedule_alert_callback', { callback_at: iso });
+    setShowSchedule(false);
+  }, [cbDate, cbTime, handleAction]);
+
+  const handleComplete = useCallback(async () => {
+    await handleAction('complete_callback');
+  }, [handleAction]);
+
+  const copyPhone = () => {
+    navigator.clipboard.writeText(item.consumer_phone).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const overdue = item.status === 'callback_needed' && isOverdue(item.callback_at);
+  const outcomeDotClass = item.outcome === 'answered' ? 'inbox-outcome-answered'
+    : item.outcome === 'missed' ? 'inbox-outcome-missed'
+    : item.status === 'callback_needed' ? 'inbox-outcome-callback'
     : 'inbox-outcome-pending';
 
-  const isOverdue = item.callback_at && !item.callback_completed && new Date(item.callback_at) < new Date();
-
-  const handleAction = async (outcome: string) => {
-    setSaving(true);
-    setError(null);
-    const ok = await onAcknowledge(item.id, outcome, notes);
-    if (!ok) setError('Failed to save');
-    setSaving(false);
-  };
-
-  const handleComplete = async () => {
-    setSaving(true);
-    setError(null);
-    const ok = await onCompleteCallback(item.id, notes);
-    if (!ok) setError('Failed to complete');
-    setSaving(false);
-  };
-
-  const handleSchedule = async () => {
-    if (!callbackDate || !callbackTime) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const cbAt = new Date(`${callbackDate}T${callbackTime}`).toISOString();
-      const result = await authFetch(providerUrl, {
-        body: { action: 'schedule_alert_callback', session_token: sessionToken, alert_id: item.id, callback_at: cbAt, notes },
-        onUnauthorized,
-      });
-      if (!result.ok) setError('Failed to schedule');
-      else setShowSchedule(false);
-    } catch {
-      setError('Failed to schedule');
-    }
-    setSaving(false);
-  };
-
   return (
-    <div className={`inbox-item ${isExpanded ? 'inbox-item-expanded' : ''} ${isOverdue ? 'inbox-item-overdue' : ''}`}>
-      <div className="inbox-item-header" onClick={onToggle}>
+    <div className={`inbox-item ${overdue ? 'inbox-item-overdue' : ''}`}>
+      <div className="inbox-item-header" onClick={() => setExpanded(v => !v)}>
         <div className="inbox-item-left">
-          <div className={`inbox-outcome-dot ${outcomeClass}`} />
+          <span className={`inbox-outcome-dot ${outcomeDotClass}`} />
           <div className="inbox-item-info">
             <div className="inbox-item-name">
-              {item.consumer_name || 'Unmatched caller'}
-              {item.consumer_phone && <span className="inbox-item-phone">{fmtPhone(item.consumer_phone)}</span>}
+              {item.consumer_name || 'Unknown'}
+              {item.bridge_confirmed && <span className="inbox-bridge-badge">BRIDGED</span>}
             </div>
+            <div className="inbox-item-phone">{fmtPhone(item.consumer_phone)}</div>
             <div className="inbox-item-meta">
-              <span className={outcomeClass}>{outcomeLabel}</span>
-              {item.callback_at && !item.callback_completed && (
-                <span className={`inbox-cb-badge ${isOverdue ? 'inbox-cb-overdue' : ''}`}>
-                  <Calendar size={11} /> {isOverdue ? 'Overdue: ' : 'Due: '}{fmtDate(item.callback_at)}
-                </span>
-              )}
-              {item.callback_completed && <span className="inbox-cb-done"><CheckCircle2 size={11} /> Callback completed</span>}
-              <span className="inbox-item-time">{fmtDate(item.created_at)}</span>
-              <span className="inbox-item-direction">{item.call_direction === 'inbound' ? 'Inbound' : 'Outbound'}</span>
+              <span className="inbox-item-time">{timeAgo(item.created_at)}</span>
+              {item.direction && <span className="inbox-item-direction">{item.direction}</span>}
             </div>
           </div>
         </div>
         <div className="inbox-item-right">
-          {item.transfer_status === 'bridge_confirmed' && <span className="inbox-bridge-badge">Bridge</span>}
-          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          {item.status === 'callback_needed' && item.callback_at && (
+            item.callback_completed_at
+              ? <span className="inbox-cb-done"><Check size={12} /> Done</span>
+              : <span className={`inbox-cb-badge ${overdue ? 'inbox-cb-overdue' : ''}`}>
+                  <Calendar size={12} />
+                  {overdue ? 'OVERDUE' : new Date(item.callback_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </span>
+          )}
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
       </div>
 
-      {isExpanded && (
+      {expanded && (
         <div className="inbox-item-body">
-          {/* Client details */}
           <div className="inbox-client-details">
-            {item.consumer_email && <div className="inbox-detail"><Mail size={13} />{item.consumer_email}</div>}
-            {item.consumer_address && <div className="inbox-detail"><MapPin size={13} />{item.consumer_address}</div>}
-            {item.consumer_account_ref && <div className="inbox-detail"><Hash size={13} />Ref: {item.consumer_account_ref}</div>}
-            {item.consumer_extra && Object.entries(item.consumer_extra).filter(([, v]) => v != null && v !== '').map(([k, v]) => (
-              <div key={k} className="inbox-detail"><FileText size={13} />{k.replace(/_/g, ' ')}: {String(v)}</div>
+            {item.consumer_address && (
+              <div className="inbox-detail"><MapPin size={13} /><span>{item.consumer_address}</span></div>
+            )}
+            {item.consumer_home_value && (
+              <div className="inbox-detail"><Home size={13} /><span>Home: {item.consumer_home_value}</span></div>
+            )}
+            {item.consumer_income_range && (
+              <div className="inbox-detail"><DollarSign size={13} /><span>Income: {item.consumer_income_range}</span></div>
+            )}
+            {item.consumer_property_info && (
+              <div className="inbox-detail"><FileText size={13} /><span>{item.consumer_property_info}</span></div>
+            )}
+            <div className="inbox-detail">
+              <Phone size={13} />
+              <span>{fmtPhone(item.consumer_phone)}</span>
+              <button style={{ background: 'none', border: 'none', color: copied ? '#22c55e' : 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0 }} onClick={copyPhone}>
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="inbox-status-line">
+            {STATUS_STEPS.map(step => (
+              <span key={step} className={`inbox-status-step ${item[step] ? 'inbox-step-active' : ''}`}>
+                {item[step] && <Check size={9} style={{ marginRight: 2 }} />}
+                {step.replace(/_/g, ' ')}
+              </span>
             ))}
           </div>
 
-          {/* Status timeline */}
-          <div className="inbox-status-line">
-            {['requested', 'destination_dialed', 'agent_answered', 'bridge_confirmed'].map(s => {
-              const active = ['requested', 'destination_dialed', 'agent_answered', 'bridge_confirmed'].indexOf(s) <=
-                ['requested', 'destination_dialed', 'agent_answered', 'bridge_confirmed'].indexOf(item.transfer_status);
-              return <span key={s} className={`inbox-status-step ${active ? 'inbox-step-active' : ''}`}>{s.replace(/_/g, ' ')}</span>;
-            })}
-          </div>
+          {item.notes && <div className="inbox-notes"><FileText size={12} /> {item.notes}</div>}
 
-          {/* Notes */}
-          {item.agent_notes && (
-            <div className="inbox-notes"><MessageSquare size={13} /> {item.agent_notes}</div>
-          )}
-
-          {/* Recording */}
-          {(item.recording_url || item.call_id) && (
+          {item.recording_url && (
             <div className="inbox-recording">
-              <RecordingPlayer url={item.recording_url || null} callId={item.call_id || undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
+              <RecordingPlayer url={item.recording_url} />
             </div>
           )}
 
-          {/* Transcript snippet */}
           {item.transcript && (
-            <div className="inbox-transcript"><MessageSquare size={13} /> {item.transcript.slice(0, 300)}{item.transcript.length > 300 ? '...' : ''}</div>
+            <div className="inbox-transcript"><FileText size={12} /><span>{item.transcript.slice(0, 300)}{item.transcript.length > 300 ? '...' : ''}</span></div>
           )}
 
-          {error && <div className="inbox-error"><AlertCircle size={13} /> {error} <button onClick={() => setError(null)}><X size={11} /></button></div>}
+          {error && (
+            <div className="inbox-error">
+              <AlertTriangle size={12} /><span>{error}</span>
+              <button onClick={() => setError(null)}><X size={12} /></button>
+            </div>
+          )}
 
-          {/* Actions */}
           <div className="inbox-actions">
-            <textarea className="inbox-notes-input" placeholder="Notes..." value={notes} onChange={e => setNotes(e.target.value)} rows={1} />
-
-            {!item.agent_outcome && (
-              <div className="inbox-action-btns">
-                <button className="inbox-btn inbox-btn-answered" disabled={saving} onClick={() => handleAction('answered')}>
-                  {saving ? <Loader2 size={14} className="ica-spin" /> : <Phone size={14} />} Answered
-                </button>
-                <button className="inbox-btn inbox-btn-missed" disabled={saving} onClick={() => handleAction('missed')}>
-                  <PhoneMissed size={14} /> Missed
-                </button>
-                <button className="inbox-btn inbox-btn-callback" disabled={saving} onClick={() => setShowSchedule(!showSchedule)}>
-                  <RefreshCw size={14} /> Callback
-                </button>
-              </div>
+            {(item.status === 'active' || !item.outcome) && (
+              <>
+                <textarea
+                  className="inbox-notes-input"
+                  placeholder="Notes..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  rows={2}
+                />
+                <div className="inbox-action-btns">
+                  <button className="inbox-btn inbox-btn-answered" disabled={submitting} onClick={() => handleAction('acknowledge_alert', { outcome: 'answered' })}>
+                    {submitting ? <RefreshCw size={12} className="ica-spin" /> : <Phone size={12} />} Answered
+                  </button>
+                  <button className="inbox-btn inbox-btn-missed" disabled={submitting} onClick={() => handleAction('acknowledge_alert', { outcome: 'missed' })}>
+                    <PhoneOff size={12} /> Missed
+                  </button>
+                  <button className="inbox-btn inbox-btn-callback" disabled={submitting} onClick={() => setShowSchedule(v => !v)}>
+                    <Clock size={12} /> Callback
+                  </button>
+                </div>
+              </>
             )}
 
-            {item.agent_outcome === 'callback_needed' && !item.callback_completed && (
+            {item.status === 'callback_needed' && !item.callback_completed_at && (
               <div className="inbox-action-btns">
-                <button className="inbox-btn inbox-btn-complete" disabled={saving} onClick={handleComplete}>
-                  {saving ? <Loader2 size={14} className="ica-spin" /> : <CheckCircle2 size={14} />} Complete Callback
+                <button className="inbox-btn inbox-btn-complete" disabled={submitting} onClick={handleComplete}>
+                  <Check size={12} /> Complete Callback
                 </button>
-                <button className="inbox-btn inbox-btn-reschedule" disabled={saving} onClick={() => setShowSchedule(!showSchedule)}>
-                  <Calendar size={14} /> Reschedule
+                <button className="inbox-btn inbox-btn-reschedule" disabled={submitting} onClick={() => setShowSchedule(v => !v)}>
+                  <Calendar size={12} /> Reschedule
                 </button>
               </div>
-            )}
-
-            {item.agent_outcome === 'missed' && !item.callback_at && (
-              <button className="inbox-btn inbox-btn-callback" disabled={saving} onClick={() => setShowSchedule(!showSchedule)}>
-                <RefreshCw size={14} /> Schedule Callback
-              </button>
             )}
 
             {showSchedule && (
               <div className="inbox-schedule-form">
-                <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} className="inbox-input" />
-                <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="inbox-input" />
-                <button className="inbox-btn inbox-btn-schedule" disabled={saving} onClick={handleSchedule}>
-                  {saving ? <Loader2 size={14} className="ica-spin" /> : <Calendar size={14} />} Schedule
+                <input type="date" className="inbox-input" value={cbDate} onChange={e => setCbDate(e.target.value)} />
+                <input type="time" className="inbox-input" value={cbTime} onChange={e => setCbTime(e.target.value)} />
+                <button className="inbox-btn-schedule" disabled={submitting || !cbDate || !cbTime} onClick={handleSchedule}>
+                  {submitting ? <RefreshCw size={12} className="ica-spin" /> : <Calendar size={12} />} Schedule
                 </button>
               </div>
             )}
@@ -229,70 +254,37 @@ function InboxItemCard({
   );
 }
 
-export interface AgentInboxProps {
-  sessionToken: string;
-  onUnauthorized: () => void;
-  providerUrl: string;
-  agentId: string;
-}
-
 export function AgentInbox({ sessionToken, onUnauthorized, providerUrl, agentId }: AgentInboxProps) {
-  const [category, setCategory] = useState<InboxCategory>('all');
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadInbox = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await authFetch(providerUrl, {
-        body: { action: 'get_agent_inbox', session_token: sessionToken, category },
-        onUnauthorized,
-      });
-      if (result.ok && result.data) {
-        const d = result.data as Record<string, unknown>;
-        setItems(((d.items || []) as InboxItem[]));
-        setTotal((d.total || 0) as number);
-      }
-    } catch { /* handled by authFetch */ }
+  const load = useCallback(async () => {
+    const result = await authFetch(providerUrl, {
+      body: { action: 'get_agent_inbox', session_token: sessionToken, category: tab, limit: 50, offset: 0 },
+      onUnauthorized,
+    });
+    if (result.ok && result.data) {
+      const d = result.data as Record<string, unknown>;
+      setItems((d.items || d.inbox || []) as InboxItem[]);
+    }
     setLoading(false);
-  }, [sessionToken, category, providerUrl, onUnauthorized]);
-
-  useEffect(() => { loadInbox(); }, [loadInbox]);
+  }, [providerUrl, sessionToken, tab, onUnauthorized]);
 
   useEffect(() => {
-    const t = setInterval(loadInbox, 15000);
-    return () => clearInterval(t);
-  }, [loadInbox]);
+    setLoading(true);
+    load();
+    refreshTimer.current = setInterval(load, 15000);
+    return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
+  }, [load]);
 
-  const handleAcknowledge = useCallback(async (alertId: string, outcome: string, notes: string) => {
-    const result = await authFetch(providerUrl, {
-      body: { action: 'acknowledge_alert', session_token: sessionToken, alert_id: alertId, outcome, notes },
-      onUnauthorized,
-    });
-    if (result.ok) { loadInbox(); return true; }
-    return false;
-  }, [sessionToken, providerUrl, onUnauthorized, loadInbox]);
-
-  const handleCompleteCallback = useCallback(async (alertId: string, notes: string) => {
-    const result = await authFetch(providerUrl, {
-      body: { action: 'complete_callback', session_token: sessionToken, alert_id: alertId, notes },
-      onUnauthorized,
-    });
-    if (result.ok) { loadInbox(); return true; }
-    return false;
-  }, [sessionToken, providerUrl, onUnauthorized, loadInbox]);
-
-  const filtered = searchQuery
-    ? items.filter(i => {
-        const q = searchQuery.toLowerCase();
-        return (i.consumer_name || '').toLowerCase().includes(q) ||
-               (i.consumer_phone || '').includes(q) ||
-               (i.consumer_email || '').toLowerCase().includes(q) ||
-               (i.consumer_account_ref || '').toLowerCase().includes(q);
-      })
+  const filtered = search
+    ? items.filter(i =>
+        i.consumer_name?.toLowerCase().includes(search.toLowerCase()) ||
+        i.consumer_phone?.includes(search)
+      )
     : items;
 
   return (
@@ -301,64 +293,48 @@ export function AgentInbox({ sessionToken, onUnauthorized, providerUrl, agentId 
         <div className="inbox-header-left">
           <Inbox size={18} />
           <h3>Transfer Inbox</h3>
-          {total > 0 && <span className="inbox-total-badge">{total}</span>}
+          {items.length > 0 && <span className="inbox-total-badge">{items.length}</span>}
         </div>
-        <button className="inbox-refresh" onClick={loadInbox} disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'ica-spin' : ''} />
+        <button className="inbox-refresh" onClick={() => { setLoading(true); load(); }} title="Refresh">
+          <RefreshCw size={16} className={loading ? 'ica-spin' : ''} />
         </button>
       </div>
 
-      {/* Category tabs */}
       <div className="inbox-tabs">
-        {CATEGORY_CONFIG.map(c => {
-          const Icon = c.icon;
-          return (
-            <button
-              key={c.key}
-              className={`inbox-tab ${category === c.key ? 'inbox-tab-active' : ''}`}
-              onClick={() => setCategory(c.key)}
-            >
-              <Icon size={13} />
-              <span>{c.label}</span>
-            </button>
-          );
-        })}
+        {TABS.map(t => (
+          <button key={t.id} className={`inbox-tab ${tab === t.id ? 'inbox-tab-active' : ''}`} onClick={() => setTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Search */}
       <div className="inbox-search">
         <Search size={14} />
-        <input
-          type="text"
-          placeholder="Search by name, phone, email, or account..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-        />
-        {searchQuery && <button onClick={() => setSearchQuery('')}><X size={13} /></button>}
+        <input placeholder="Search by name or phone..." value={search} onChange={e => setSearch(e.target.value)} />
+        {search && <button onClick={() => setSearch('')}><X size={14} /></button>}
       </div>
 
-      {/* Items */}
       <div className="inbox-list">
-        {loading && items.length === 0 && (
-          <div className="inbox-empty"><Loader2 size={20} className="ica-spin" /> Loading...</div>
-        )}
-        {!loading && filtered.length === 0 && (
+        {filtered.length === 0 && !loading && (
           <div className="inbox-empty">
-            <Inbox size={24} />
-            <p>{searchQuery ? 'No results match your search' : 'No items in this category'}</p>
+            <Inbox size={32} />
+            <span>{search ? 'No results match your search' : 'No items in this category'}</span>
+          </div>
+        )}
+        {loading && filtered.length === 0 && (
+          <div className="inbox-empty">
+            <RefreshCw size={24} className="ica-spin" />
+            <span>Loading...</span>
           </div>
         )}
         {filtered.map(item => (
           <InboxItemCard
             key={item.id}
             item={item}
-            isExpanded={expandedId === item.id}
-            onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
-            onAcknowledge={handleAcknowledge}
-            onCompleteCallback={handleCompleteCallback}
+            providerUrl={providerUrl}
             sessionToken={sessionToken}
             onUnauthorized={onUnauthorized}
-            providerUrl={providerUrl}
+            onRefresh={load}
           />
         ))}
       </div>

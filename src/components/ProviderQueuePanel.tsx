@@ -1,55 +1,101 @@
-import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, ChevronDown, ChevronUp, Activity } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
 
-type ProviderHealth = {
-  checked_at: string; account_http_status: number; account_status: string | null;
-  balance: number | null; queue_http_status: number; queued: number | null;
-  in_progress: number | null; oldest_queued_at: string | null;
+type QueueEntry = {
+  queue: string;
+  count: number;
+  items?: Array<{
+    id: string;
+    consumer_name: string;
+    phone: string;
+    status: string;
+    created_at: string;
+  }>;
 };
 
-export function ProviderQueuePanel({ providerUrl, sessionToken, onUnauthorized }: {
-  providerUrl: string; sessionToken: string; onUnauthorized: () => void;
-}) {
-  const [health, setHealth] = useState<ProviderHealth | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const checkQueue = async () => {
-    if (loading) return;
-    setLoading(true); setError('');
-    try {
-      const result = await authFetch<ProviderHealth>(providerUrl, {
-        body: { action: 'provider_queue_health', session_token: sessionToken }, onUnauthorized,
-      });
-      if (result.ok && result.data) setHealth(result.data);
-      else { setHealth(null); setError('Could not check the provider queue. Please try again.'); }
-    } catch { setHealth(null); setError('Could not reach the provider. Please try again.'); }
-    finally { setLoading(false); }
-  };
+interface ProviderQueuePanelProps {
+  providerUrl: string;
+  sessionToken: string;
+  onUnauthorized: () => void;
+}
+
+export function ProviderQueuePanel({ providerUrl, sessionToken, onUnauthorized }: ProviderQueuePanelProps) {
+  const [queues, setQueues] = useState<QueueEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    const result = await authFetch(providerUrl, {
+      body: { action: 'get_provider_queues', session_token: sessionToken },
+      onUnauthorized,
+    });
+    if (result.ok && result.data) {
+      const d = result.data as Record<string, unknown>;
+      setQueues((d.queues || []) as QueueEntry[]);
+    }
+    setLoading(false);
+  }, [providerUrl, sessionToken, onUnauthorized]);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const total = queues.reduce((s, q) => s + q.count, 0);
+
   return (
-    <section className="panel" aria-label="Provider queue">
-      <div className="panel-heading">
-        <div><h3>Provider queue</h3><p>Check whether Bland has started the submitted calls.</p></div>
-        <button className="secondary-button" onClick={checkQueue} disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'search-spinner' : ''} />
-          {loading ? 'Checking...' : 'Check provider queue'}
-        </button>
+    <div style={{
+      background: 'rgba(15,15,25,0.6)', border: '1px solid rgba(255,255,255,0.06)',
+      borderRadius: 14, overflow: 'hidden', marginBottom: 12,
+    }}>
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', cursor: 'pointer',
+        }}
+        onClick={() => setExpanded(v => !v)}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#fff', fontSize: 14, fontWeight: 600 }}>
+          <Activity size={16} />
+          <span>Provider Queues</span>
+          {total > 0 && (
+            <span style={{
+              background: 'rgba(234,179,8,0.12)', color: '#eab308', fontSize: 11,
+              fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+            }}>{total}</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.4)' }}>
+          <button onClick={e => { e.stopPropagation(); setLoading(true); load(); }} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 4 }}>
+            <RefreshCw size={14} className={loading ? 'ica-spin' : ''} />
+          </button>
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </div>
       </div>
-      <div role="status" aria-live="polite">
-        {error && <p>{error}</p>}
-        {health && <>
-          <div className="contact-detail-grid">
-            <div className="detail-row"><span>Waiting at Bland:</span><strong>{health.queued ?? 'Unavailable'}</strong></div>
-            <div className="detail-row"><span>Calls in progress:</span><strong>{health.in_progress ?? 'Unavailable'}</strong></div>
-            <div className="detail-row"><span>Account status:</span><strong>{health.account_status ?? 'Unavailable'}</strong></div>
-            <div className="detail-row"><span>Provider balance:</span><strong>{health.balance == null ? 'Unavailable' : '$' + Number(health.balance).toFixed(2)}</strong></div>
-          </div>
-          {health.oldest_queued_at && <p>Oldest queued call: {new Date(health.oldest_queued_at).toLocaleString()}</p>}
-          {(health.queued ?? 0) > 0 && health.in_progress === 0 && <p>Bland has queued calls but none are in progress. Check the account queue and service status in Bland.</p>}
-          {health.queue_http_status !== 200 && <p>The provider queue is temporarily unavailable.</p>}
-          <p>Checked {new Date(health.checked_at).toLocaleTimeString()}</p>
-        </>}
-      </div>
-    </section>
+      {expanded && (
+        <div style={{ padding: '0 16px 14px' }}>
+          {queues.length === 0 ? (
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, textAlign: 'center', padding: 16 }}>
+              {loading ? 'Loading...' : 'No active queues'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {queues.map(q => (
+                <div key={q.queue} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8,
+                  fontSize: 13, color: 'rgba(255,255,255,0.7)',
+                }}>
+                  <span style={{ textTransform: 'capitalize' }}>{q.queue.replace(/_/g, ' ')}</span>
+                  <span style={{ fontWeight: 600, color: q.count > 0 ? '#eab308' : 'rgba(255,255,255,0.3)' }}>{q.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
