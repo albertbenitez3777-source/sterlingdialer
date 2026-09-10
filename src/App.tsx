@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  Activity, Bookmark, Check, ChevronDown, CircleHelp, Clock, Download, FileText, FileUp, Flame, LayoutDashboard, LogOut,
+  Activity, Bookmark, Check, ChevronDown, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
   Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { AnimatedBackground, GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer } from '@/components';
+import { AnimatedBackground, GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
 import { maskPhone, formatPhone } from '@/utils/privacy';
 import { useHeartbeat, type HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
@@ -493,6 +493,9 @@ export default function App() {
   const [activeTransfersError, setActiveTransfersError] = useState<string | null>(null);
   const [, setDismissedTransferIds] = useState<Set<string>>(new Set());
 
+  // Transfer alerts (new alert overlay system)
+  const [transferAlerts, setTransferAlerts] = useState<TransferAlert[]>([]);
+
   // Saved transfers
   const [savedTransfers, setSavedTransfers] = useState<SavedTransfer[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
@@ -862,6 +865,7 @@ export default function App() {
             loadSecretaryCalls(token),
             loadSavedTransfers(token),
             loadActiveTransfers(token),
+            loadTransferAlerts(token),
           ]);
         } finally {
           if (mounted) agentPollingRef.current = false;
@@ -963,6 +967,41 @@ export default function App() {
       setSavingTransferIds(prev => { const n = new Set(prev); n.delete(callId); return n; });
     }
   };
+
+  const loadTransferAlerts = useCallback(async (token: string) => {
+    try {
+      const result = await authFetch(PROVIDER_URL, {
+        body: { action: 'get_agent_alerts', session_token: token },
+        onUnauthorized: () => atomicLogoutRef.current?.(),
+      });
+      if (result.ok && result.data) {
+        const d = result.data as Record<string, unknown>;
+        setTransferAlerts(((d.alerts || []) as TransferAlert[]));
+      }
+    } catch { /* handled */ }
+  }, []);
+
+  const handleAlertAcknowledge = useCallback(async (alertId: string, outcome: string, notes: string): Promise<boolean> => {
+    const result = await authFetch(PROVIDER_URL, {
+      body: { action: 'acknowledge_alert', session_token: sessionToken, alert_id: alertId, outcome, notes },
+      onUnauthorized: () => atomicLogoutRef.current?.(),
+    });
+    if (result.ok) { loadTransferAlerts(sessionToken); return true; }
+    return false;
+  }, [sessionToken, loadTransferAlerts]);
+
+  const handleAlertSchedule = useCallback(async (alertId: string, callbackAt: string, notes: string): Promise<boolean> => {
+    const result = await authFetch(PROVIDER_URL, {
+      body: { action: 'schedule_alert_callback', session_token: sessionToken, alert_id: alertId, callback_at: callbackAt, notes },
+      onUnauthorized: () => atomicLogoutRef.current?.(),
+    });
+    if (result.ok) { loadTransferAlerts(sessionToken); return true; }
+    return false;
+  }, [sessionToken, loadTransferAlerts]);
+
+  const handleAlertDismiss = useCallback((alertId: string) => {
+    setTransferAlerts(prev => prev.filter(a => a.id !== alertId));
+  }, []);
 
   const loadActiveTransfers = useCallback(async (token: string) => {
     setActiveTransfersLoading(true);
@@ -1603,6 +1642,7 @@ export default function App() {
       ]
     : [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'inbox', label: 'Inbox', icon: Inbox },
         { id: 'opportunities', label: 'Opportunities', icon: Users },
         { id: 'calls', label: 'Call Now', icon: Flame },
         { id: 'saved', label: 'Saved', icon: Bookmark },
@@ -1986,6 +2026,15 @@ export default function App() {
                         unverifiedCount={metrics.unverified}
                       />;
                     })()}
+                  </Reveal>
+
+                  {/* Owner Alert Overview */}
+                  <Reveal delay={200}>
+                    <OwnerAlertOverview
+                      sessionToken={sessionToken}
+                      onUnauthorized={atomicLogout}
+                      providerUrl={PROVIDER_URL}
+                    />
                   </Reveal>
 
                   {/* Inbound Verification Panel */}
@@ -2969,6 +3018,19 @@ export default function App() {
             />
           )}
 
+          {/* ── AGENT: Incoming Call Alert Overlay ──────────────────── */}
+          {!isOwner && transferAlerts.length > 0 && (
+            <IncomingCallAlert
+              alerts={transferAlerts}
+              onAcknowledge={handleAlertAcknowledge}
+              onScheduleCallback={handleAlertSchedule}
+              onDismiss={handleAlertDismiss}
+              sessionToken={sessionToken}
+              onUnauthorized={handleLogout}
+              agentName={session?.agent?.full_name ?? 'Agent'}
+            />
+          )}
+
           {/* ── AGENT: Incoming Transfer Panel ──────────────────────── */}
           {!isOwner && (
             <IncomingTransferPanel
@@ -3028,6 +3090,16 @@ export default function App() {
               redialBatchId={agentRedialBatchId}
               redialTranscripts={redialTranscripts.map(call => ({ consumer_name: call.name, transcript: call.transcript, status: call.status }))}
               onCloseRedialPanel={() => { if (redialPollTimer) { clearInterval(redialPollTimer); setRedialPollTimer(null); } setAgentRedialBatchId(null); setRedialTranscripts([]); }}
+            />
+          )}
+
+          {/* ── AGENT: Transfer Inbox ──────────────────────────────────── */}
+          {!isOwner && activeNav === 'inbox' && (
+            <AgentInbox
+              sessionToken={sessionToken}
+              onUnauthorized={handleLogout}
+              providerUrl={PROVIDER_URL}
+              agentId={session?.agent?.id ?? ''}
             />
           )}
 
