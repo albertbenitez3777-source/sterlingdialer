@@ -234,7 +234,7 @@ function classifyFetchError(err: unknown): LoginErrorKind {
 
 function loginErrorMessage(kind: LoginErrorKind): string {
   switch (kind) {
-    case 'network': return 'Cannot reach the server. If using the Bolt preview, the connection is being routed through the dev proxy. Please wait a moment and try again.';
+    case 'network': return 'Cannot reach the server. Please check your connection and try again.';
     case 'timeout': return 'Request timed out — the server may be waking up. Please try again.';
     case 'unauthorized': return 'Invalid PIN or credentials.';
     case 'server_error': return 'Server error. Please try again in a moment.';
@@ -634,7 +634,7 @@ export default function App() {
         } else if (d.valid === false) {
           localStorage.removeItem('sterling_session_token');
         }
-      }).catch(() => {});
+      }).catch(() => { localStorage.removeItem('sterling_session_token'); });
     return () => { cancelled = true; };
   }, []);
 
