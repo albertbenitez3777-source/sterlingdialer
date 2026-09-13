@@ -67,6 +67,16 @@ test('typing a new query invalidates the old request before the debounce fires',
   assert.equal(state.hasMore, true);
 });
 
+test('the browser sends the backend search_text contract, including phone digits', () => {
+  const h = harness();
+  h.render().onSearchChange('(718) 253-6227');
+  h.fireDebounce();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].body.action, 'search_contacts');
+  assert.equal(h.requests[0].body.search_text, '(718) 253-6227');
+  assert.equal('query' in h.requests[0].body, false);
+});
+
 test('clearing search cannot be undone by a late response', async () => {
   const h = harness();
   h.render().onSearchChange('contact'); h.fireDebounce();
