@@ -155,7 +155,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
           onLoadedMetadata={() => setLoading(false)}
           onCanPlay={() => setLoading(false)}
           onError={handleAudioError}
-          style={{ width: '100%', display: loading || recovering ? 'none' : 'block' }}
+          style={{ width: '100%', display: 'block' }}
         />
       </div>
     </div>

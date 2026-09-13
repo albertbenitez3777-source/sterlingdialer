@@ -2922,6 +2922,10 @@ RULES — follow exactly, no exceptions:
     // ============================================================
     if (action === "recover_recording") {
       const { session_token, call_id } = body;
+      const recordingSource = body.recording_source || "calls";
+      if (!["calls", "secretary_calls"].includes(recordingSource)) {
+        return new Response(JSON.stringify({ error: "Invalid recording source" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const agent = await verifySession(session_token);
       if (!agent) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -2937,7 +2941,7 @@ RULES — follow exactly, no exceptions:
 
       // Fetch the call row — verify ownership or owner role
       const { data: callRow, error: callErr } = await supabase
-        .from("calls")
+        .from(recordingSource)
         .select("id, agent_id, provider_call_id, recording_url")
         .eq("id", call_id)
         .maybeSingle();
@@ -2972,17 +2976,41 @@ RULES — follow exactly, no exceptions:
       // Try fetching recording from Bland (2 strategies: /recording endpoint, then detail fallback)
       let audioBlob: Blob | null = null;
       let contentType = "audio/mpeg";
+      const readAudio = async (response: Response): Promise<boolean> => {
+        if (!response.ok) return false;
+        const type = response.headers.get("content-type") || "";
+        if (!type.includes("audio/") && !type.includes("octet-stream")) return false;
+        const blob = await response.blob();
+        if (!blob.size) return false;
+        audioBlob = blob;
+        contentType = type;
+        return true;
+      };
+      const fetchAudioUrl = async (value: unknown): Promise<boolean> => {
+        if (typeof value !== "string") return false;
+        let parsed: URL;
+        try { parsed = new URL(value); } catch { return false; }
+        if (parsed.protocol !== "https:") return false;
+        const providerHost = parsed.hostname === "api.bland.ai";
+        if (!providerHost && parsed.hostname !== "bland-voicemail-storage.s3.amazonaws.com") return false;
+        return readAudio(await fetch(parsed.href, {
+          headers: providerHost ? { authorization: blandApiKey } : {},
+          signal: AbortSignal.timeout(15000),
+        }));
+      };
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const recRes = await fetch(`https://api.bland.ai/v1/calls/${blandCallId}/recording`, {
             headers: { "authorization": blandApiKey },
+            signal: AbortSignal.timeout(15000),
           });
           if (recRes.ok) {
             const ct = recRes.headers.get("content-type") || "";
-            if (ct.includes("audio") || ct.includes("octet")) {
-              audioBlob = await recRes.blob();
-              contentType = ct;
+            if (ct.includes("json")) {
+              const payload = await recRes.json();
+              if (await fetchAudioUrl(payload.recording_url || payload.url || payload.data?.recording_url)) break;
+            } else if (await readAudio(recRes)) {
               break;
             }
           }
@@ -2994,14 +3022,7 @@ RULES — follow exactly, no exceptions:
           if (detailRes.ok) {
             const detail = await detailRes.json() as Record<string, unknown>;
             const recUrl = String(detail.recording_url || "");
-            if (recUrl && recUrl.startsWith("http")) {
-              const s3Res = await fetch(recUrl);
-              if (s3Res.ok) {
-                audioBlob = await s3Res.blob();
-                contentType = s3Res.headers.get("content-type") || "audio/mpeg";
-                break;
-              }
-            }
+            if (await fetchAudioUrl(recUrl)) break;
           }
         } catch {
           // retry
@@ -3017,7 +3038,7 @@ RULES — follow exactly, no exceptions:
 
       // Store in Supabase storage
       const ext = contentType.includes("ogg") ? "ogg" : contentType.includes("wav") ? "wav" : "mp3";
-      const filePath = `${call_id}.${ext}`;
+      const filePath = `${recordingSource}/${call_id}.${ext}`;
       const uploadRes = await fetch(`${supabaseUrl}/storage/v1/object/call-recordings/${filePath}`, {
         method: "POST",
         headers: {
@@ -3037,7 +3058,7 @@ RULES — follow exactly, no exceptions:
       const publicUrl = `${supabaseUrl}/storage/v1/object/public/call-recordings/${filePath}`;
 
       // Update calls.recording_url
-      await supabase.from("calls").update({ recording_url: publicUrl }).eq("id", call_id);
+      await supabase.from(recordingSource).update({ recording_url: publicUrl }).eq("id", call_id);
 
       return new Response(JSON.stringify({ success: true, recording_url: publicUrl }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
