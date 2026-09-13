@@ -49,7 +49,9 @@ export function useContactSearch<T extends { id?: string; contact_key?: string }
   const doSearch = async (query: string, offset: number, generation: number) => {
     const requestSession = sessionToken;
     const result = await authFetch(providerUrl, {
-      body: { action: 'search_contacts', session_token: requestSession, query: query.trim(), limit: 25, offset },
+      // wolf-provider's public contract is `search_text`. Keeping this name in
+      // one place prevents a silent empty search when the UI and function drift.
+      body: { action: 'search_contacts', session_token: requestSession, search_text: query.trim(), offset },
       onUnauthorized: () => {
         if (mountedRef.current && generation === generationRef.current && requestSession === sessionRef.current) onUnauthorized();
       },
