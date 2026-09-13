@@ -3596,7 +3596,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
 
       <div className="sourceview-intro">
         <div className="sourceview-intro-icon"><Search size={21} /></div>
-        <div><small>SOURCEVIEW</small><strong>Find more information in one click</strong><p>Open a client and Federal One prepares every available public search automatically.</p></div>
+        <div><small>SOURCEVIEW</small><strong>Find more information in one click</strong><p>Open a client to review saved information and optional external search links.</p></div>
         <span>ONE CLICK</span>
       </div>
 
@@ -4073,7 +4073,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     if (autoSearchStarted.current) return;
     autoSearchStarted.current = true;
     setStartingSearch(true);
-    setFindingNotice('Checking every available public source…');
+    setFindingNotice('Searching saved records and preparing source links…');
     void authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }>; known?: { emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } } }>(providerUrl, {
       body: {
         action: 'start_source_search', session_token: sessionToken,
@@ -4096,7 +4096,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     if (startingSearch) return;
 
     setStartingSearch(true);
-    setFindingNotice('Preparing every available public search…');
+    setFindingNotice('Preparing source links…');
     const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }>; known?: { emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } } }>(providerUrl, {
       body: {
         action: 'start_source_search', session_token: sessionToken,
@@ -4162,7 +4162,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
         {sourceOpen && (
           <div className="sourceview-panel">
             <div className="sourceview-heading"><div><small>CLIENT INTELLIGENCE</small><strong>More information</strong></div><span>{startingSearch ? 'SEARCHING' : 'READY'}</span></div>
-            <p>Federal One checks saved records first, then prepares focused public searches. Email is always searched. Web matches stay marked possible until reviewed.</p>
+            <p>Federal One searches your saved records, including stored email fields. External websites are not searched automatically; source links require manual review.</p>
             {knownProfile && <div className="sourceview-known">
               <div className="sourceview-known-title"><strong>Found in Federal One</strong><small>{knownProfile.records_checked} matching records checked</small></div>
               <div className="sourceview-known-grid">
@@ -4172,7 +4172,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
                 <div><span>SPOUSE / ASSOCIATES</span><strong>{knownProfile.associates.length ? knownProfile.associates.join(', ') : 'Not found yet'}</strong></div>
               </div>
             </div>}
-            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching…' : 'Search the Web'}</button>
+            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching…' : 'Refresh saved information and links'}</button>
             <div className="sourceview-links">
               {researchSources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
             </div>
