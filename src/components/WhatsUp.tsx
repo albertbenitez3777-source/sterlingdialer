@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, X, ImagePlus, ChevronDown, Video } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
 import './WhatsUp.css';
+const LiveVideo=lazy(()=>import('./LiveVideo'));
 type Person={id:string;full_name:string;role:string};
 type Room={id:string;member_a:string;member_b:string};
 type Message={id:string;sender_agent_id:string;sender_name:string;body:string;image_data?:string;created_at:string};
 export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:string;agentId:string;onUnauthorized:()=>void}) {
+ const [video,setVideo]=useState<{room:string;title:string}|null>(null);
  const [open,setOpen]=useState(true),[room,setRoom]=useState('team'),[people,setPeople]=useState<Person[]>([]),[rooms,setRooms]=useState<Room[]>([]),[review,setReview]=useState(false);
  const [messages,setMessages]=useState<Message[]>([]),[draft,setDraft]=useState(''),[photo,setPhoto]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[more,setMore]=useState(false),[unread,setUnread]=useState(false);
  const log=useRef<HTMLDivElement>(null); const pinned=useRef(true);
@@ -15,7 +17,7 @@ export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:stri
  const lastTeam=useRef('');const teamSeen=useRef(false);const file=useRef<HTMLInputElement>(null);
  const api=useCallback(async<T,>(action:string,body:Record<string,unknown>={})=>authFetch<T>(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/federal-one-v2`,{onUnauthorized:()=>expired.current(),body:{action,session_token:sessionToken,...body}}),[sessionToken]);
  const directory=useCallback(async()=>{const r=await api<{agents:Person[];rooms:Room[];can_review:boolean}>('whatsup_directory');if(r.ok&&r.data){setPeople(r.data.agents);setRooms(r.data.rooms);setReview(r.data.can_review);}else setError(r.error||'Chat unavailable');},[api]);
- useEffect(()=>{void directory();},[directory]);
+ useEffect(()=>{let stop=false;let timer:ReturnType<typeof setTimeout>;const poll=async()=>{await directory();if(!stop)timer=setTimeout(poll,30000);};void poll();return()=>{stop=true;clearTimeout(timer);};},[directory]);
  useEffect(()=>{
   let stopped=false;let after:string|undefined;let timer:ReturnType<typeof setTimeout>;
   pinned.current=true;setMessages([]);setError('');setDraft('');setPhoto(null);
@@ -42,6 +44,7 @@ export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:stri
   <p className="whatsup-notice">Team messages are shared. Direct chats are visible to their participants and the owner/admin. History is retained.</p>
   <div ref={log} onScroll={()=>{const e=log.current;if(e)pinned.current=e.scrollHeight-e.scrollTop-e.clientHeight<50;}} className="whatsup-messages" role="log" aria-label={title} aria-live="polite">{more&&<button onClick={()=>void loadOlder()} disabled={busy}>Load earlier messages</button>}{messages.length===0&&!error&&<p>No messages yet.</p>}{messages.map(m=><article key={m.id} className={m.sender_agent_id===agentId?'mine':''}><header><strong>{m.sender_name}</strong><time>{new Date(m.created_at).toLocaleString()}</time></header>{m.image_data&&<img src={m.image_data} alt={`Photo shared by ${m.sender_name}`} loading="lazy"/>}<p>{m.body}</p></article>)}</div>
   {error&&<p className="whatsup-error" role="alert">{error}</p>}{observer?<p className="whatsup-notice">Owner review · read only</p>:<><div className="whatsup-compose">{photo&&<div><img src={photo} alt="Photo ready to send"/><button onClick={()=>setPhoto(null)} aria-label="Remove photo"><X size={14}/></button></div>}<textarea aria-label="Chat message" placeholder={room==='team'?'Message the team…':'Direct message…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={2000}/><input hidden ref={file} type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>void selectPhoto(e.target.files?.[0])}/><button disabled={busy} onClick={()=>file.current?.click()} aria-label="Attach a photo"><ImagePlus size={18}/></button><button disabled={busy||(!draft.trim()&&!photo)} onClick={()=>void send()} aria-label="Send chat message"><Send size={18}/></button></div></>}
-  <div className="whatsup-call"><Video size={15}/><span>Live calls need a configured media server. Camera stays off.</span></div></>}
+  <div className="whatsup-call"><button disabled={observer||!!video} onClick={()=>setVideo({room,title})}><Video size={15}/> Live call</button><span>Join with camera and microphone controls.</span></div></>}
+ {video&&<Suspense fallback={<p>Loading video controls…</p>}><LiveVideo roomKey={video.room} title={video.title} sessionToken={sessionToken} onUnauthorized={onUnauthorized} onClose={()=>setVideo(null)}/></Suspense>}
  </aside>;
 }

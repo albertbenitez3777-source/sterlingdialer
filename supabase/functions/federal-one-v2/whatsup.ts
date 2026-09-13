@@ -1,3 +1,4 @@
+import { createVideoGrant, videoConfiguration } from './video.ts';
 // All access uses the existing verified session. No public table reads.
 export async function whatsUp(supabase: any, agent: {id:string;full_name:string;role:string}, body: Record<string,unknown>) {
  const action=String(body.action||'');
@@ -27,7 +28,9 @@ export async function whatsUp(supabase: any, agent: {id:string;full_name:string;
   return error?respond({error:'Conversation could not be opened'},500):respond({room:room.id});
  }
  const room=String(body.room||'team');
- if(!await allowed(room,action==='whatsup_send'))return respond({error:'Conversation access denied'},403);
+ if(!await allowed(room,(action==='whatsup_send'||action==='whatsup_video_join')))return respond({error:'Conversation access denied'},403);
+ if(action==='whatsup_video_status'){const config=videoConfiguration();return respond({configured:config.configured,...(owner?{missing:config.missing}:{})});}
+ if(action==='whatsup_video_join')return createVideoGrant(agent,room);
  if(action==='whatsup_latest'){
   const {data,error}=await supabase.from('federal_one_chat_messages').select('id').eq('room_key',room).order('created_at',{ascending:false}).limit(1);
   return error?respond({error:'Chat status unavailable'},503):respond({id:data?.[0]?.id||''});
