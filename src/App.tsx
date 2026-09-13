@@ -1541,20 +1541,22 @@ export default function App() {
         <div className="login-grid" />
         <div className="login-shell">
           <div className="login-brand">
-            <div className="brand-mark">S</div>
-            <strong>STERLING <span>COLLECTIONS</span></strong>
-            <small>PRIVATE SALES FLOOR</small>
+            <div className="brand-mark">F1</div>
+            <div className="brand-copy">
+              <strong>FEDERAL <span>ONE</span></strong>
+              <small>PRIVATE COLLECTIONS OPERATIONS</small>
+            </div>
           </div>
           <div className="login-card glass-card">
             <div className="login-card-visual" aria-hidden="true">
               <img src="/wolf-agent-momentum.webp" alt="" />
               <div className="login-card-visual-overlay" />
-              <div className="login-card-visual-caption"><span>STERLING COLLECTIONS</span><strong>PRIVATE SALES FLOOR</strong><small>Owner initialization</small></div>
+              <div className="login-card-visual-caption"><span>FEDERAL ONE</span><strong>ONE PLATFORM. TOTAL CONTROL.</strong><small>Private operating system · Owner initialization</small></div>
             </div>
             <div className="login-card-copy">
               <div className="eyebrow"><CircleHelp size={12} /> FIRST-TIME SETUP</div>
-              <h1>Set Your <em>Admin PIN</em></h1>
-              <p>Choose a 4-digit PIN to secure your admin dashboard. You'll use this every time you log in.</p>
+              <h1>Secure Your <em>Workspace</em></h1>
+              <p>Create the private access PIN for the Federal One administration console.</p>
             </div>
             <div className="login-form">
               <label>ENTER 4-DIGIT PIN</label>
@@ -1567,7 +1569,7 @@ export default function App() {
                 onKeyDown={e => e.key === 'Enter' && handleOwnerSetup()} />
               {setupError && <div className="notice"><span>{setupError}</span></div>}
               <GlowButton fullWidth onClick={handleOwnerSetup} disabled={settingUp}>
-                {settingUp ? 'Setting up...' : 'Create Admin PIN'}
+                {settingUp ? 'Securing workspace...' : 'Create Secure Access'}
               </GlowButton>
             </div>
           </div>
@@ -1587,40 +1589,39 @@ export default function App() {
         <div className="login-grid" />
         <div className="login-shell">
           <div className="login-brand">
-            <div className="brand-mark">S</div>
-            <strong>STERLING <span>COLLECTIONS</span></strong>
-            <small>PRIVATE SALES FLOOR</small>
+            <div className="brand-mark">F1</div>
+            <div className="brand-copy">
+              <strong>FEDERAL <span>ONE</span></strong>
+              <small>PRIVATE COLLECTIONS OPERATIONS</small>
+            </div>
           </div>
           <div className="login-card glass-card">
             <div className="login-card-visual" aria-hidden="true">
               <img src="/wolf-agent-momentum.webp" alt="" />
               <div className="login-card-visual-overlay" />
-              <div className="login-card-visual-caption"><span>STERLING COLLECTIONS</span><strong>BUILT FROM PRESSURE</strong><small>Trained to perform</small></div>
+              <div className="login-card-visual-caption"><span>FEDERAL ONE</span><strong>ONE PLATFORM. TOTAL CONTROL.</strong><small>Dialer · Clients · Operations</small></div>
             </div>
             <div className="login-card-copy">
-              <div className="eyebrow"><Zap size={12} /> STERLING COLLECTIONS · PRIVATE SALES FLOOR</div>
+              <div className="eyebrow"><ShieldCheck size={12} /> SECURE OPERATIONS ACCESS</div>
               <h1>
-                <span className="headline-word" style={{ animationDelay: '0.1s' }}>Built From</span>
-                <span className="headline-word em" style={{ animationDelay: '0.3s' }}> Pressure.</span>
-                <span className="headline-word" style={{ animationDelay: '0.5s' }}> Trained</span>
-                <span className="headline-word" style={{ animationDelay: '0.7s' }}> To</span>
-                <span className="headline-word em" style={{ animationDelay: '0.9s' }}> Perform.</span>
+                <span className="headline-word" style={{ animationDelay: '0.1s' }}>One Platform.</span>
+                <span className="headline-word em" style={{ animationDelay: '0.3s' }}> Total Control.</span>
               </h1>
-              <p>Discipline over excuses. Consistency over hype. Every conversation is an opportunity.</p>
+              <p>Your dialer, client intelligence, agent performance, and verified transfers—unified in one private workspace.</p>
               <div className="login-chips">
-                <span className="login-chip">HUSTLE SMART</span>
-                <span className="login-chip">STAY SHARP</span>
-                <span className="login-chip">FINISH STRONG</span>
+                <span className="login-chip">DIALER</span>
+                <span className="login-chip">CLIENTS</span>
+                <span className="login-chip">OPERATIONS</span>
               </div>
             </div>
             <div className="login-form">
-              <label>ENTER PIN TO LOG IN</label>
+              <label>SECURE ACCESS PIN</label>
               <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
               {loginError && <div className="notice"><span>{loginError}</span></div>}
               <GlowButton fullWidth onClick={() => handleLogin()} disabled={loggingIn}>
-                {loggingIn ? 'Connecting — please wait...' : 'Enter Dashboard'}
+                {loggingIn ? 'Verifying access...' : 'Enter Federal One'}
               </GlowButton>
-              <div className="login-foot"><CircleHelp size={12} /> <span>4-digit PIN access only</span></div>
+              <div className="login-foot"><ShieldCheck size={12} /> <span>Private workspace · Authorized personnel only</span></div>
             </div>
           </div>
         </div>
@@ -1656,9 +1657,11 @@ export default function App() {
       {/* Sidebar */}
       <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand" onClick={handleLogout} title="Click to log out" style={{ cursor: 'pointer' }}>
-          <div className="brand-mark small">S</div>
-          <strong>STERLING <span>DIALER</span></strong>
-          <small>{isOwner ? 'ADMIN' : 'AGENT'}</small>
+          <div className="brand-mark small">F1</div>
+          <div className="brand-copy">
+            <strong>FEDERAL <span>ONE</span></strong>
+            <small>{isOwner ? 'ADMIN CONSOLE' : 'AGENT WORKSPACE'}</small>
+          </div>
         </div>
         <div className="sidebar-hero">
           <img src={HERO_IMAGES[2]} alt="" loading="lazy" />
@@ -1886,9 +1889,9 @@ export default function App() {
                     <img src={CINEMATIC_HERO.commandCenter} alt="" className="command-center-hero-img" loading="eager" />
                     <div className="command-center-hero-overlay" />
                     <div className="command-center-hero-content">
-                      <div className="command-center-hero-eyebrow">STERLING COLLECTIONS COMMAND CENTER</div>
-                      <h1 className="command-center-hero-title">Discipline. Clarity. Results.</h1>
-                      <p className="command-center-hero-subtitle">Every call measured. Every transfer verified. Every minute accountable. This is the high-performance collections sales floor — built for professionals who deliver results with integrity.</p>
+                      <div className="command-center-hero-eyebrow">FEDERAL ONE · OPERATIONS COMMAND</div>
+                      <h1 className="command-center-hero-title">Every call accounted for.</h1>
+                      <p className="command-center-hero-subtitle">One private operating platform for dialing, client intelligence, agent readiness, and verified transfers.</p>
                     </div>
                   </div>
 
