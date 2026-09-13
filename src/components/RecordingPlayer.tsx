@@ -20,6 +20,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
   const [recoveredUrl, setRecoveredUrl] = useState<string | null>(null);
   const [recoveredKey, setRecoveredKey] = useState<string | null>(null);
   const [recoveryFailed, setRecoveryFailed] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
   const attemptedRecovery = useRef(false);
   const recoveryRequest = useRef<AbortController | null>(null);
   const sourceKey = `${recordingSource}:${callId || ''}:${sessionToken || ''}:${url || ''}`;
@@ -37,6 +38,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
     setRecoveredUrl(null);
     setRecoveredKey(null);
     setRecoveryFailed(false);
+    setRecoveryMessage('');
     setError(false);
     setRecovering(false);
     setLoading(true);
@@ -56,6 +58,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
       const result = await authFetch<{ recording_url: string }>(PROVIDER_URL, {
         onUnauthorized: () => { if (activeKey.current === sourceKey) onUnauthorized?.(); },
         signal: controller.signal,
+        timeoutMs: 90000,
         body: { action: 'recover_recording', session_token: sessionToken, call_id: callId, recording_source: recordingSource },
       });
       if (controller.signal.aborted || activeKey.current !== sourceKey) return;
@@ -64,6 +67,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
         setRecoveredKey(sourceKey);
         setRecoveredUrl(result.data.recording_url);
       } else {
+        setRecoveryMessage(result.error || 'Recording is unavailable from the provider.');
         setRecoveryFailed(true);
         setError(true);
         setLoading(false);
@@ -122,7 +126,7 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
         <div className="detail-label">RECORDING</div>
         <div className="recording-unavailable">
           <VolumeX size={14} />
-          <span>Recording not ready or unavailable. Retry after the call finishes.</span>
+          <span>{recoveryMessage || 'Recording not ready or unavailable. Retry after the call finishes.'}</span>
           {callId && sessionToken && (
             <button className="recording-retry-btn" onClick={handleManualRetry} disabled={recovering}>
               <RefreshCw size={12} className={recovering ? 'animate-spin' : ''} />
