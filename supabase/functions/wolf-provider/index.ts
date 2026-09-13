@@ -19,7 +19,7 @@ async function autoConfigureInbound(agentId?: string): Promise<{ configured: num
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/wolf-configure-inbound`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
       body: JSON.stringify({ agent_id: agentId || undefined }),
     });
     const data = await res.json().catch(() => ({}));

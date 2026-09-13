@@ -22,6 +22,11 @@ function normalizeToE164(input: string): string {
   return "+" + d;
 }
 
+async function sha256(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes)).map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 const inboundTaskTemplate = (agentName: string) => `You are Elizabeth with Certified Notification Services, answering ${agentName}'s line from Washington, D.C. This is a callback — the caller is expecting to speak with ${agentName}.
 
 TRANSFER DECISION — follow exactly:
@@ -44,6 +49,13 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const authorization = req.headers.get("authorization") || "";
+  if (!serviceRoleKey || authorization !== `Bearer ${serviceRoleKey}`) {
+    return new Response(JSON.stringify({ error: "Authorized Federal One service required" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -97,6 +109,11 @@ Deno.serve(async (req: Request) => {
       const transferNumber = talkrouteNumber;
       const task = inboundTaskTemplate(agent.full_name);
       const firstSentence = firstSentenceTemplate(agent.full_name);
+      const expectedFingerprint = await sha256(JSON.stringify({ blandNumber, transferNumber, webhookUrl, task, firstSentence }));
+      const { data: audit } = await supabase.from("federal_one_route_audits").insert({
+        agent_id: agent.id, bland_number: blandNumber, talkroute_number: talkrouteNumber,
+        webhook_url: webhookUrl, expected_fingerprint: expectedFingerprint, status: "pending",
+      }).select("id").single();
 
       try {
         const updateBody: Record<string, unknown> = {
@@ -131,8 +148,31 @@ Deno.serve(async (req: Request) => {
         const inboundData = await inboundRes.json().catch(() => ({ status: "error", message: "Non-JSON response" }));
 
         if (inboundRes.ok && (inboundData.status === "success" || inboundData.success === true)) {
-          configured++;
-          await supabase.from("agents").update({ inbound_configured: true }).eq("id", agent.id);
+          const verifyRes = await fetch(`https://api.bland.ai/v1/inbound/${encodeURIComponent(blandNumber)}`, {
+            headers: { "authorization": blandApiKey },
+          });
+          const verifyData = await verifyRes.json().catch(() => ({})) as Record<string, unknown>;
+          const providerConfig = (verifyData.data || verifyData) as Record<string, unknown>;
+          const providerTransfer = normalizeToE164(String(providerConfig.transfer_phone_number || ""));
+          const providerWebhook = String(providerConfig.webhook || providerConfig.webhook_url || "");
+          const routeMatches = verifyRes.ok && providerTransfer === transferNumber && providerWebhook === webhookUrl;
+          const providerFingerprint = await sha256(JSON.stringify({
+            blandNumber, transferNumber: providerTransfer, webhookUrl: providerWebhook,
+            task: String(providerConfig.task || ""), firstSentence: String(providerConfig.first_sentence || ""),
+          }));
+          if (routeMatches) configured++;
+          await supabase.from("agents").update({
+            inbound_configured: routeMatches, mapping_verified: routeMatches,
+            provider_sync_status: routeMatches ? "synced" : "failed",
+            last_verification_at: routeMatches ? new Date().toISOString() : null,
+            exact_blocker: routeMatches ? "" : "Inbound route differs from the Federal One configuration",
+          }).eq("id", agent.id);
+          if (audit?.id) await supabase.from("federal_one_route_audits").update({
+            status: routeMatches ? "verified" : "drifted", provider_fingerprint: providerFingerprint,
+            configured_at: new Date().toISOString(), verified_at: new Date().toISOString(),
+            checks: { provider_read_ok: verifyRes.ok, transfer_matches: providerTransfer === transferNumber, webhook_matches: providerWebhook === webhookUrl },
+            error_message: routeMatches ? null : "Provider read-back did not match the expected Talkroute or webhook",
+          }).eq("id", audit.id);
           results.push({
             agent_id: agent.id,
             agent_name: agent.full_name,
@@ -140,9 +180,14 @@ Deno.serve(async (req: Request) => {
             talkroute_number: talkrouteNumber,
             transfer_number: transferNumber,
             transfer_route: "hub",
-            status: "configured",
+            status: routeMatches ? "verified" : "drifted",
+            checks: { transfer_matches: providerTransfer === transferNumber, webhook_matches: providerWebhook === webhookUrl },
           });
         } else {
+          if (audit?.id) await supabase.from("federal_one_route_audits").update({
+            status: "failed", error_message: String(inboundData.message || inboundData.error || "Provider rejected configuration"),
+          }).eq("id", audit.id);
+          await supabase.from("agents").update({ inbound_configured: false, mapping_verified: false, provider_sync_status: "failed" }).eq("id", agent.id);
           results.push({
             agent_id: agent.id,
             agent_name: agent.full_name,
@@ -152,6 +197,8 @@ Deno.serve(async (req: Request) => {
           });
         }
       } catch (e) {
+        if (audit?.id) await supabase.from("federal_one_route_audits").update({ status: "failed", error_message: String(e) }).eq("id", audit.id);
+        await supabase.from("agents").update({ inbound_configured: false, mapping_verified: false, provider_sync_status: "failed" }).eq("id", agent.id);
         results.push({
           agent_id: agent.id,
           agent_name: agent.full_name,

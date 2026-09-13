@@ -378,6 +378,12 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+      // Unknown or newly-added inbound numbers are never discarded. Route the
+      // record to the owner review inbox until an agent mapping is confirmed.
+      if (!resolvedAgentId) {
+        const ownerRows = await sql`SELECT id FROM agents WHERE is_owner = true AND status = 'active' ORDER BY created_at LIMIT 1`;
+        resolvedAgentId = ownerRows[0]?.id || null;
+      }
 
       const insertRows = await sql`
         INSERT INTO calls (provider_call_id, call_direction, queue, from_number, to_number, consumer_phone, is_live_human, agent_id${startedAt ? sql`, started_at` : sql``})

@@ -4,7 +4,7 @@ import {
   Activity, Bookmark, Check, ChevronDown, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
   Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { AnimatedBackground, GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
+import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
 import { maskPhone, formatPhone } from '@/utils/privacy';
 import { useHeartbeat, type AttendanceInfo as HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
@@ -94,6 +94,11 @@ type CampaignSummary = TransferMetricSummary & {
 };
 
 type AdminStats = { summary: CampaignSummary; agents: AdminAgentRow[] };
+type TeamHealth = {
+  services: { database: string; bland_api_key: boolean; webhook_signature: boolean; federal_one_v2: string };
+  agents: Array<{ id: string; full_name: string; inbound_configured: boolean; mapping_verified: boolean; provider_sync_status: string; settings?: { camera_state?: string; personal_dialer_state?: string } | null; device?: { last_seen_at?: string; device_kind?: string } | null; route?: { status?: string } | null }>;
+  checked_at: string;
+};
 
 type DataHealth = {
   status: 'loading' | 'healthy' | 'degraded';
@@ -187,18 +192,6 @@ const PROVIDER_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-provider`;
 const FEDERAL_ONE_V2_URL = `${FUNCTIONS_BASE}/functions/v1/federal-one-v2`;
 const TZ = 'America/New_York';
 
-const HERO_IMAGES = [
-  'https://images.pexels.com/photos/5440420/pexels-photo-5440420.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/28384940/pexels-photo-28384940.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/4261563/pexels-photo-4261563.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/32983561/pexels-photo-32983561.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/21581764/pexels-photo-21581764.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/6699772/pexels-photo-6699772.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/31650383/pexels-photo-31650383.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/14921310/pexels-photo-14921310.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-  'https://images.pexels.com/photos/2248589/pexels-photo-2248589.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2',
-];
-
 const CINEMATIC_HERO = {
   skyline: 'https://images.pexels.com/photos/33803478/pexels-photo-33803478.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1080&dpr=2',
   callCenter: 'https://images.pexels.com/photos/8867208/pexels-photo-8867208.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1080&dpr=2',
@@ -208,8 +201,8 @@ const CINEMATIC_HERO = {
   agentMomentum: '/wolf-agent-momentum.webp',
 };
 
-const MATRIX_COLUMNS = Array.from({ length: 34 }, (_, index) => ({
-  left: `${(index * 2.93 + (index % 4) * 0.41) % 100}%`,
+const MATRIX_COLUMNS = Array.from({ length: 48 }, (_, index) => ({
+  left: `${(index * 2.11 + (index % 5) * 0.37) % 100}%`,
   delay: `${-((index * 0.73) % 8)}s`,
   duration: `${5.8 + (index % 7) * 0.72}s`,
   opacity: 0.2 + (index % 6) * 0.09,
@@ -227,6 +220,8 @@ function MatrixField() {
       </div>
       <div className="matrix-horizontal matrix-horizontal-a">101101001&nbsp;&nbsp;011010110&nbsp;&nbsp;FEDERAL/ONE&nbsp;&nbsp;010011101&nbsp;&nbsp;10110010</div>
       <div className="matrix-horizontal matrix-horizontal-b">01010011&nbsp;&nbsp;11001010&nbsp;&nbsp;VERIFIED/ROUTE&nbsp;&nbsp;00101101&nbsp;&nbsp;10010110</div>
+      <div className="matrix-diagonal matrix-diagonal-a">010010101101001101011010010101101001011010011010110100</div>
+      <div className="matrix-diagonal matrix-diagonal-b">101101001011010010100110101101001011010010110100101101</div>
       <div className="matrix-core" />
     </div>
   );
@@ -322,10 +317,11 @@ function SkeletonCard() {
 }
 
 // ── Section Hero (restrained image-led header) ───────────────────────────
-function SectionHero({ image, eyebrow, title, subtitle }: { image: string; eyebrow: string; title: string; subtitle: string }) {
+function SectionHero(props: { image: string; eyebrow: string; title: string; subtitle: string }) {
+  const { eyebrow, title, subtitle } = props;
   return (
     <div className="section-hero" role="banner">
-      <img src={image} alt="" loading="lazy" />
+      <div className="section-hero-code" aria-hidden="true">01001101 10110100 01101001 00110110 11010010 01011010 10100110 01101001</div>
       <div className="section-hero-overlay" />
       <div className="section-hero-content">
         <div className="section-hero-eyebrow">{eyebrow}</div>
@@ -357,6 +353,7 @@ export default function App() {
 
   // Admin data
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
+  const [teamHealth, setTeamHealth] = useState<TeamHealth | null>(null);
   const [, setLoadingAdmin] = useState(false);
   const [callLimit, setCallLimit] = useState(500);
   const [minuteCap, setMinuteCap] = useState<number | null>(null);
@@ -721,6 +718,11 @@ export default function App() {
         if (summary?.provider_call_limit) setCallLimit(summary.provider_call_limit as number);
         if (summary?.daily_minute_cap !== undefined) setMinuteCap(summary.daily_minute_cap as number);
         setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
+        const healthResult = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
+          body: { action: 'get_team_status', session_token: token },
+          onUnauthorized: () => atomicLogoutRef.current?.(),
+        });
+        if (healthResult.ok && healthResult.data) setTeamHealth(healthResult.data);
       } else {
         const msg = result.error || `HTTP ${result.status}`;
         if (!result.loggedOut) {
@@ -1609,26 +1611,26 @@ export default function App() {
   const canControl = session.agent?.role === 'owner';
   const navItems = isOwner
     ? [
-        { id: 'dashboard', label: 'Command', icon: LayoutDashboard },
-        { id: 'opportunities', label: 'Opportunities', icon: Users },
-        { id: 'contacts', label: 'Client Intelligence', icon: Search },
-        { id: 'leads', label: 'Lead Vault', icon: Upload },
-        { id: 'calls', label: 'Call Intelligence', icon: Phone },
-        { id: 'saved', label: 'Transfer Vault', icon: Bookmark },
+        { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+        { id: 'opportunities', label: 'People to Call', icon: Users },
+        { id: 'contacts', label: 'Find a Client', icon: Search },
+        { id: 'leads', label: 'Add Leads', icon: Upload },
+        { id: 'calls', label: 'All Calls', icon: Phone },
+        { id: 'saved', label: 'Saved Calls', icon: Bookmark },
       ]
     : [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'inbox', label: 'Inbox', icon: Inbox },
-        { id: 'opportunities', label: 'Opportunities', icon: Users },
-        { id: 'calls', label: 'Call Now', icon: Flame },
-        { id: 'saved', label: 'Saved', icon: Bookmark },
-        { id: 'secretary', label: 'Secretary', icon: Send },
-        { id: 'contacts', label: 'Client Intelligence', icon: Search },
+        { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+        { id: 'inbox', label: 'New Calls', icon: Inbox },
+        { id: 'opportunities', label: 'People to Call', icon: Users },
+        { id: 'calls', label: 'My Calls', icon: Flame },
+        { id: 'saved', label: 'Saved Calls', icon: Bookmark },
+        { id: 'secretary', label: 'Ask Elizabeth', icon: Send },
+        { id: 'contacts', label: 'Find a Client', icon: Search },
       ];
 
   return (
     <div className="app-shell f1-v2-shell">
-      <AnimatedBackground />
+      <MatrixField />
       {/* Sidebar */}
       <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand" onClick={handleLogout} title="Click to log out" style={{ cursor: 'pointer' }}>
@@ -1703,7 +1705,7 @@ export default function App() {
             <Menu size={20} />
           </button>
           <div className="breadcrumbs">
-            <strong>{isOwner ? 'Operations Grid' : 'Agent Grid'}</strong>
+            <strong>{isOwner ? 'Admin' : 'My Workspace'}</strong>
             <span>/</span>
             <span>{navItems.find(n => n.id === activeNav)?.label}</span>
           </div>
@@ -1806,6 +1808,18 @@ export default function App() {
             </section>
           )}
 
+          {isOwner && activeNav === 'dashboard' && teamHealth && (
+            <section className="f1-team-health" aria-label="System and team health">
+              <div className="f1-health-service"><span className="ok" /><div><small>DATABASE</small><strong>Online</strong></div></div>
+              <div className="f1-health-service"><span className={teamHealth.services.bland_api_key ? 'ok' : 'bad'} /><div><small>BLAND.AI</small><strong>{teamHealth.services.bland_api_key ? 'Connected' : 'Needs key'}</strong></div></div>
+              <div className="f1-health-service"><span className={teamHealth.services.webhook_signature ? 'ok' : 'warn'} /><div><small>WEBHOOK SECURITY</small><strong>{teamHealth.services.webhook_signature ? 'Protected' : 'Needs secret'}</strong></div></div>
+              {teamHealth.agents.map(agent => <div className="f1-health-agent" key={agent.id}>
+                <span className={agent.route?.status === 'verified' ? 'ok' : 'warn'} />
+                <div><small>{agent.full_name}</small><strong>{agent.settings?.camera_state === 'connected' ? 'Camera on' : agent.device?.last_seen_at ? 'Connected' : 'Not connected'} · {agent.route?.status === 'verified' ? 'Route ready' : 'Check route'}</strong></div>
+              </div>)}
+            </section>
+          )}
+
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
           {isOwner && activeNav === 'dashboard' && (
             <ProviderQueuePanel providerUrl={PROVIDER_URL} sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
@@ -1856,16 +1870,16 @@ export default function App() {
               {/* Dashboard sub-tabs */}
               <div className="dash-tabs" role="tablist" aria-label="Dashboard sections">
                 <button className={`dash-tab ${dashTab === 'overview' ? 'active' : ''}`} onClick={() => setDashTab('overview')} role="tab" aria-selected={dashTab === 'overview'}>
-                  <LayoutDashboard size={14} /> Overview
+                  <LayoutDashboard size={14} /> Today
                 </button>
                 <button className={`dash-tab ${dashTab === 'agents' ? 'active' : ''}`} onClick={() => setDashTab('agents')} role="tab" aria-selected={dashTab === 'agents'}>
-                  <Users size={14} /> Agents
+                  <Users size={14} /> Team
                 </button>
                 <button className={`dash-tab ${dashTab === 'redial' ? 'active' : ''}`} onClick={() => setDashTab('redial')} role="tab" aria-selected={dashTab === 'redial'}>
-                  <Flame size={14} /> Re-Dial
+                  <Flame size={14} /> Call Again
                 </button>
                 {isOwner && <button className={`dash-tab ${dashTab === 'transfers' ? 'active' : ''}`} onClick={async () => { setDashTab('transfers'); if (!transferProof) { setTransferProofLoading(true); try { const tk = localStorage.getItem('sterling_session_token'); const r = await authFetch<{since:string;agents:Record<string,unknown>[];totals:Record<string,number>}>(PROVIDER_URL, { onUnauthorized: handleLogout, body: { action: 'get_transfer_proof', session_token: tk } }); if (r.ok && r.data) setTransferProof(r.data); } catch { /* transfer proof load */ } finally { setTransferProofLoading(false); } } }} role="tab" aria-selected={dashTab === 'transfers'}>
-                  <ShieldCheck size={14} /> Transfer Proof
+                  <ShieldCheck size={14} /> Transfer Check
                 </button>}
                 {canControl && <button className={`dash-tab ${dashTab === 'settings' ? 'active' : ''}`} onClick={() => setDashTab('settings')} role="tab" aria-selected={dashTab === 'settings'}>
                   <Settings size={14} /> Settings
@@ -1875,17 +1889,6 @@ export default function App() {
               {/* ── OVERVIEW TAB: KPI strip, corrected funnel, recent failures, agent readiness ── */}
               {dashTab === 'overview' && (
                 <>
-                  {/* Command Center Hero */}
-                  <div className="command-center-hero">
-                    <img src={CINEMATIC_HERO.commandCenter} alt="" className="command-center-hero-img" loading="eager" />
-                    <div className="command-center-hero-overlay" />
-                    <div className="command-center-hero-content">
-                      <div className="command-center-hero-eyebrow">FEDERAL ONE · OPERATIONS COMMAND</div>
-                      <h1 className="command-center-hero-title">Every call accounted for.</h1>
-                      <p className="command-center-hero-subtitle">One private operating platform for dialing, client intelligence, agent readiness, and verified transfers.</p>
-                    </div>
-                  </div>
-
                   {/* Live Operations Health Map */}
                   <LiveHealthMap
                     campaignState={adminStats.summary.campaign_state}
@@ -2732,7 +2735,6 @@ export default function App() {
                               <th style={{ padding: '.5rem .4rem', textAlign: 'right' }}>Live Humans</th>
                               <th style={{ padding: '.5rem .4rem', textAlign: 'right' }}>No Answer</th>
                               <th style={{ padding: '.5rem .4rem', textAlign: 'right' }}>VM</th>
-                              <th style={{ padding: '.5rem .4rem', textAlign: 'right' }}>DNC</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2749,7 +2751,6 @@ export default function App() {
                                 <td style={{ padding: '.45rem .4rem', textAlign: 'right' }}>{Number(ag.live_humans)}</td>
                                 <td style={{ padding: '.45rem .4rem', textAlign: 'right' }}>{Number(ag.no_answer)}</td>
                                 <td style={{ padding: '.45rem .4rem', textAlign: 'right' }}>{Number(ag.voicemail)}</td>
-                                <td style={{ padding: '.45rem .4rem', textAlign: 'right' }}>{Number(ag.dnc)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -2919,11 +2920,6 @@ export default function App() {
                       <span className="bucket-label">CALLED</span>
                       <span className="bucket-value">{called}</span>
                       <span className="bucket-hint">Dialed, no suppression</span>
-                    </div>
-                    <div className="lead-bucket suppressed">
-                      <span className="bucket-label">SUPPRESSED</span>
-                      <span className="bucket-value">{suppressed}</span>
-                      <span className="bucket-hint">DNC flagged</span>
                     </div>
                     <div className="lead-bucket invalid">
                       <span className="bucket-label">INVALID</span>
@@ -3292,7 +3288,6 @@ function CallList({ records, loading, expandedCall, setExpandedCall, onPhoneClic
               <div className="detail-row"><span>Queue:</span><strong>{queueLabel(call.queue)}</strong></div>
               {call.transfer_status && call.transfer_status !== 'none' && <div className="detail-row"><span>Transfer Status:</span><strong>{call.transfer_status}</strong></div>}
               {call.callback_requested && <div className="detail-row"><span>Callback Requested:</span><strong>Yes</strong></div>}
-              {call.is_dnc && <div className="detail-row"><span>Do Not Call:</span><strong>Yes</strong></div>}
               {call.is_wrong_number && <div className="detail-row"><span>Wrong Number:</span><strong>Yes</strong></div>}
               {call.agent_notes && call.agent_notes.trim() && <div className="detail-row"><span>Agent Notes:</span><strong>{call.agent_notes}</strong></div>}
               {call.agent_disposition && <div className="detail-row"><span>Agent Disposition:</span><strong>{call.agent_disposition}</strong></div>}
@@ -3622,19 +3617,19 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
 }) {
   return (
     <>
-      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CLIENT INTELLIGENCE" title="Client Intelligence" subtitle="Search every saved record, then launch SourceView to research additional agent-reviewed information without an external API." />
+      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CLIENT SEARCH" title="Find a Client" subtitle="Find saved clients, then search public sources for more possible information." />
       <div className="hero-row">
         <div>
-          <div className="eyebrow"><Search size={12} /> UNIFIED CLIENT INDEX</div>
-          <h2>Find anyone in the system.</h2>
-          <p>Search history, open a client, then choose Secretary, Talkroute, or SourceView from the same action sheet.</p>
+          <div className="eyebrow"><Search size={12} /> ALL CLIENTS</div>
+          <h2>Who are you looking for?</h2>
+          <p>Search, open a client, then choose Elizabeth, Talkroute, or Find More Information.</p>
         </div>
       </div>
 
       <div className="sourceview-intro">
         <div className="sourceview-intro-icon"><Search size={21} /></div>
-        <div><small>FEDERAL ONE SOURCEVIEW</small><strong>Agent-assisted public-source research</strong><p>No lookup API required. Searches open only after an agent selects a client; any verification stays under the agent's control.</p></div>
-        <span>MANUAL + SAVED</span>
+        <div><small>SOURCEVIEW</small><strong>Find more information in one click</strong><p>Open a client and Federal One prepares every available public search automatically.</p></div>
+        <span>ONE CLICK</span>
       </div>
 
       <div className="panel search-panel">
@@ -3643,7 +3638,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
           <input
             type="text"
             className="search-input"
-            placeholder="Search by name, phone, address, or email..."
+            placeholder="Type a name, phone, address, or email…"
             value={searchQuery}
             onChange={e => onSearchChange(e.target.value)}
             onKeyDown={onSearchKeyDown}
@@ -3769,7 +3764,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                   )}
                   {(contact.phone || contact.phone_normalized) && (
                     <button className="contact-intelligence-action" onClick={() => onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone)}>
-                      <Search size={16} /><span><strong>Open Client Action Center</strong><small>Secretary · Talkroute · SourceView</small></span><ChevronDown size={15} />
+                      <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Talkroute · Find More Information</small></span><ChevronDown size={15} />
                     </button>
                   )}
                   <RecordingPlayer url={contact.recording_url} callId={contact.source === 'call' ? contact.id : undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
@@ -3897,7 +3892,7 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
       pending: 'Pending', dialing: 'Dialing...', ringing: 'Ringing...',
       answered: 'Answered', transferred: 'Transferred', completed: 'Completed',
       voicemail_left: 'Voicemail', no_answer: 'No Answer',
-      failed: 'Failed', dnc_blocked: 'DNC Blocked',
+      failed: 'Failed', dnc_blocked: 'Contact blocked',
     };
     return map[status] || status;
   };
@@ -4047,11 +4042,12 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
   providerUrl: string; sessionToken: string; onUnauthorized: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [directCallId, setDirectCallId] = useState('');
+  const [directCallSaved, setDirectCallSaved] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [findingValue, setFindingValue] = useState('');
-  const [findingUrl, setFindingUrl] = useState('');
   const [findingNotice, setFindingNotice] = useState('');
-  const [savingFinding, setSavingFinding] = useState(false);
+  const [startingSearch, setStartingSearch] = useState(false);
+  const [researchSources, setResearchSources] = useState<Array<{ id: string; name: string; group: string; url: string }>>([]);
   const [sourceFindings, setSourceFindings] = useState<SourceFinding[]>([]);
   const [loadingFindings, setLoadingFindings] = useState(false);
   const digits = phone.replace(/\D/g, '');
@@ -4061,20 +4057,29 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
   const handleTalkroute = () => {
     navigator.clipboard.writeText(last10.length === 10 ? last10 : phone).catch(() => {});
     setCopied(true);
+    void authFetch<{ direct_call: { id: string } }>(providerUrl, {
+      body: { action: 'log_direct_call', session_token: sessionToken, client_name: name, client_phone: phone },
+      onUnauthorized,
+    }).then(result => { if (result.ok && result.data?.direct_call.id) setDirectCallId(result.data.direct_call.id); });
     window.open('https://app.talkroute.com/phone', '_blank', 'noopener');
     setTimeout(() => setCopied(false), 3000);
   };
 
-  const sourceQuery = encodeURIComponent(`"${name}" "${display}"`);
-  const nameQuery = encodeURIComponent(`"${name}"`);
-  const sourceLinks = [
-    { label: 'Exact web match', detail: 'Google', url: `https://www.google.com/search?q=${sourceQuery}` },
-    { label: 'Independent web', detail: 'Bing', url: `https://www.bing.com/search?q=${sourceQuery}` },
-    { label: 'Privacy search', detail: 'DuckDuckGo', url: `https://duckduckgo.com/?q=${sourceQuery}` },
-    { label: 'Address & property', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+address+property+records` },
-    { label: 'Business records', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+business+owner+company` },
-    { label: 'Professional profiles', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+professional+profile` },
-  ];
+  const saveDirectOutcome = async (outcome: string) => {
+    if (!directCallId) return;
+    const result = await authFetch(providerUrl, {
+      body: { action: 'complete_direct_call', session_token: sessionToken, direct_call_id: directCallId, outcome },
+      onUnauthorized,
+    });
+    if (result.ok) setDirectCallSaved(true);
+  };
+
+  useEffect(() => {
+    void authFetch(providerUrl, {
+      body: { action: 'set_active_client', session_token: sessionToken, client_name: name, client_phone: phone },
+      onUnauthorized,
+    });
+  }, [providerUrl, sessionToken, name, phone, onUnauthorized]);
 
   useEffect(() => {
     if (!sourceOpen) return;
@@ -4091,32 +4096,29 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
     return () => { cancelled = true; };
   }, [sourceOpen, providerUrl, sessionToken, name, phone, onUnauthorized]);
 
-  const savePossibleFinding = async () => {
-    const value = findingValue.trim();
-    const url = findingUrl.trim();
-    if (!value || !/^https?:\/\//i.test(url) || savingFinding) {
-      setFindingNotice('Add the information found and a complete source link.');
-      return;
-    }
-    setSavingFinding(true);
-    setFindingNotice('');
-    const result = await authFetch<{ finding: SourceFinding }>(providerUrl, {
+  const startEverywhereSearch = async () => {
+    if (startingSearch) return;
+    const firstWindow = window.open('', '_blank');
+    if (firstWindow) firstWindow.opener = null;
+    setStartingSearch(true);
+    setFindingNotice('Preparing every available public search…');
+    const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }> } }>(providerUrl, {
       body: {
-        action: 'save_source_finding', session_token: sessionToken,
-        client_name: name, client_phone: phone, source_name: new URL(url).hostname,
-        source_url: url, finding_type: 'other', finding_value: value,
+        action: 'start_source_search', session_token: sessionToken,
+        client_name: name, client_phone: phone,
       },
       onUnauthorized,
     });
-    if (result.ok) {
-      setFindingValue('');
-      setFindingUrl('');
-      setFindingNotice('Saved as a possible match for review.');
-      if (result.data?.finding) setSourceFindings(current => [result.data!.finding, ...current]);
+    const sources = result.data?.research?.sources || [];
+    if (result.ok && sources.length) {
+      setResearchSources(sources);
+      setFindingNotice(`${sources.length} public searches are ready. The first search opened; use the list below to review the rest.`);
+      if (firstWindow) firstWindow.location.href = sources[0].url;
     } else {
-      setFindingNotice(result.error || 'Could not save this finding.');
+      firstWindow?.close();
+      setFindingNotice(result.error || 'Search could not be prepared.');
     }
-    setSavingFinding(false);
+    setStartingSearch(false);
   };
 
   return (
@@ -4147,25 +4149,28 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
             </div>
             {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
           </button>
-          <button className="phone-action-option" onClick={() => setSourceOpen(current => !current)}>
+          <button className="phone-action-option" onClick={() => { setSourceOpen(true); void startEverywhereSearch(); }}>
             <div className="phone-action-icon sourceview-icon"><Search size={22} /></div>
             <div className="phone-action-text">
-              <strong>Additional Source Search</strong>
-              <span>Open SourceView for agent-reviewed research</span>
+              <strong>Find More Information</strong>
+              <span>One click searches every available public source</span>
             </div>
             <ChevronDown size={16} style={{ transform: sourceOpen ? 'rotate(180deg)' : undefined }} />
           </button>
         </div>
+        {directCallId && !directCallSaved && <div className="direct-call-result">
+          <strong>What happened?</strong>
+          <div>{[['answered','Answered'],['no_answer','No answer'],['voicemail','Voicemail'],['callback','Call back'],['wrong_number','Wrong number']].map(([value, label]) => <button key={value} onClick={() => void saveDirectOutcome(value)}>{label}</button>)}</div>
+        </div>}
+        {directCallSaved && <div className="sourceview-notice">Call result saved.</div>}
         {sourceOpen && (
           <div className="sourceview-panel">
-            <div className="sourceview-heading"><div><small>FEDERAL ONE SOURCEVIEW</small><strong>Possible result workspace</strong></div><span>POSSIBLE</span></div>
-            <p>Choose a public-source search. If a site asks for verification, complete it in that site yourself. Federal One never bypasses it and never searches until you click.</p>
+            <div className="sourceview-heading"><div><small>SOURCEVIEW</small><strong>Find this person</strong></div><span>{startingSearch ? 'SEARCHING' : 'READY'}</span></div>
+            <p>Federal One prepares every public search at once. If a site asks for a checkbox, complete it in that site and continue.</p>
+            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching everywhere…' : 'Search everywhere again'}</button>
             <div className="sourceview-links">
-              {sourceLinks.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.label}</strong><small>{source.detail}</small></span><Search size={13} /></a>)}
+              {researchSources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
             </div>
-            <label>Information found<input value={findingValue} onChange={event => setFindingValue(event.target.value)} placeholder="Possible address, phone, email, business…" /></label>
-            <label>Source link<input value={findingUrl} onChange={event => setFindingUrl(event.target.value)} placeholder="https://…" inputMode="url" /></label>
-            <button className="sourceview-save" onClick={savePossibleFinding} disabled={savingFinding}>{savingFinding ? 'Saving…' : 'Save as possible result'}</button>
             {findingNotice && <div className="sourceview-notice">{findingNotice}</div>}
             <div className="sourceview-saved">
               <div className="sourceview-saved-head"><strong>Saved possible results</strong><span>{sourceFindings.length}</span></div>

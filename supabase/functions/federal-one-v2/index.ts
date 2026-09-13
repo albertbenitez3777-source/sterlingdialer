@@ -17,6 +17,28 @@ const contactKey = (name: string, phone: string) => {
   return digits ? `phone:${digits}` : `name:${name.trim().toLowerCase().replace(/\s+/g, "-")}`;
 };
 
+const clean = (value: unknown, max = 240) => String(value || "").trim().slice(0, max);
+const q = (value: string) => encodeURIComponent(value);
+
+function buildResearchSources(name: string, phone: string, email: string, address: string) {
+  const exact = [`"${name}"`, phone ? `"${phone}"` : "", email ? `"${email}"` : "", address ? `"${address}"` : ""].filter(Boolean).join(" ");
+  const identity = [`"${name}"`, phone || email || address].filter(Boolean).join(" ");
+  return [
+    { id: "google", name: "Google", group: "Web", url: `https://www.google.com/search?q=${q(exact)}` },
+    { id: "bing", name: "Bing", group: "Web", url: `https://www.bing.com/search?q=${q(exact)}` },
+    { id: "duckduckgo", name: "DuckDuckGo", group: "Web", url: `https://duckduckgo.com/?q=${q(exact)}` },
+    { id: "brave", name: "Brave Search", group: "Web", url: `https://search.brave.com/search?q=${q(exact)}` },
+    { id: "phone", name: "Phone match", group: "Identity", url: `https://www.google.com/search?q=${q(phone ? `"${phone}"` : identity)}` },
+    { id: "email", name: "Email match", group: "Identity", url: `https://www.google.com/search?q=${q(email ? `"${email}"` : identity)}` },
+    { id: "address", name: "Address records", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} address property records`)}` },
+    { id: "business", name: "Business records", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} business company officer`)}` },
+    { id: "licenses", name: "Public licenses", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} site:.gov license`)}` },
+    { id: "courtlistener", name: "CourtListener", group: "Records", url: `https://www.courtlistener.com/?q=${q(name)}&type=r` },
+    { id: "sec", name: "SEC EDGAR", group: "Records", url: `https://www.sec.gov/edgar/search/#/q=${q(name)}` },
+    { id: "profiles", name: "Professional profiles", group: "Web", url: `https://www.google.com/search?q=${q(`${identity} professional profile`)}` },
+  ];
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -34,14 +56,37 @@ Deno.serve(async (req: Request) => {
     const agent = verified.agent as { id: string; full_name: string; role: string };
     const action = String(body.action || "");
 
+    if (action === "get_team_status") {
+      if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Administrator access required" }, 403);
+      const [{ data: agents, error: agentsError }, { data: settings }, { data: heartbeats }, { data: routes }] = await Promise.all([
+        supabase.from("agents").select("id,full_name,status,active_for_dialer,available_for_transfer,inbound_configured,mapping_verified,provider_sync_status,last_verification_at").eq("status", "active").eq("is_owner", false).order("full_name"),
+        supabase.from("federal_one_agent_settings").select("agent_id,personal_dialer_state,camera_state,camera_verified_at,number_certification_state,updated_at"),
+        supabase.from("federal_one_device_heartbeats").select("agent_id,device_kind,connection_state,last_seen_at").order("last_seen_at", { ascending: false }),
+        supabase.from("federal_one_route_audits").select("agent_id,status,checks,verified_at,created_at").order("created_at", { ascending: false }),
+      ]);
+      if (agentsError) return json({ error: "Team health could not be loaded" }, 500);
+      const latest = <T extends { agent_id: string }>(rows: T[] | null | undefined, id: string) => (rows || []).find(row => row.agent_id === id) || null;
+      return json({
+        services: { database: "online", bland_api_key: Boolean(Deno.env.get("BLAND_API_KEY")), webhook_signature: Boolean(Deno.env.get("BLAND_WEBHOOK_SECRET")), federal_one_v2: "online" },
+        agents: (agents || []).map(row => ({ ...row, settings: latest(settings, row.id), device: latest(heartbeats, row.id), route: latest(routes, row.id) })),
+        checked_at: new Date().toISOString(),
+      });
+    }
+
     if (action === "get_federal_one_v2") {
-      const [{ data: route, error: routeError }, { data: settings }, { data: messages }] = await Promise.all([
+      const [{ data: route, error: routeError }, { data: settings }, { data: messages }, { data: activeClient }] = await Promise.all([
         supabase.from("agents").select("bland_number,talkroute_number,transfer_certified,inbound_configured").eq("id", agent.id).single(),
         supabase.from("federal_one_agent_settings").select("personal_dialer_state,number_certification_state,camera_state,camera_verified_at,mobile_companion_only").eq("agent_id", agent.id).maybeSingle(),
         supabase.from("federal_one_chat_messages").select("id,sender_agent_id,sender_name,message_kind,body,created_at").eq("room_key", "team").order("created_at", { ascending: false }).limit(50),
+        supabase.from("federal_one_active_clients").select("contact_key,client_name,client_phone,client_snapshot,updated_at").eq("agent_id", agent.id).maybeSingle(),
       ]);
       if (routeError) return json({ error: "Agent route unavailable" }, 500);
-      return json({ route, settings, messages: (messages || []).reverse() });
+      let clientNotes: unknown[] = [];
+      if (activeClient?.contact_key) {
+        const { data } = await supabase.from("federal_one_client_notes").select("id,agent_id,client_name,body,created_at").eq("contact_key", activeClient.contact_key).order("created_at", { ascending: false }).limit(20);
+        clientNotes = data || [];
+      }
+      return json({ route, settings, messages: (messages || []).reverse(), active_client: activeClient || null, client_notes: clientNotes });
     }
 
     if (action === "set_federal_one_camera_state") {
@@ -60,6 +105,89 @@ Deno.serve(async (req: Request) => {
         room_key: "team", sender_agent_id: agent.id, sender_name: agent.full_name, message_kind: "agent", body: message,
       }).select("id,sender_agent_id,sender_name,message_kind,body,created_at").single();
       return error ? json({ error: "Message could not be saved" }, 500) : json({ message: data });
+    }
+
+    if (action === "set_personal_dialer_state") {
+      const state = clean(body.state, 30);
+      if (!["stopped", "ready", "running", "paused"].includes(state)) return json({ error: "Invalid dialer state" }, 400);
+      const { data: currentSettings } = await supabase.from("federal_one_agent_settings").select("camera_required,camera_state").eq("agent_id", agent.id).maybeSingle();
+      if (state === "running" && currentSettings?.camera_required && currentSettings.camera_state !== "connected") {
+        return json({ error: "Join the desktop workroom before starting calls" }, 409);
+      }
+      const { error } = await supabase.from("federal_one_agent_settings").upsert({
+        agent_id: agent.id, personal_dialer_enabled: state !== "stopped", personal_dialer_state: state, updated_at: new Date().toISOString(),
+      }, { onConflict: "agent_id" });
+      if (!error) await supabase.from("agents").update({ active_for_dialer: state === "running" }).eq("id", agent.id);
+      return error ? json({ error: "Dialer state could not be saved" }, 500) : json({ success: true, state });
+    }
+
+    if (action === "device_heartbeat") {
+      const deviceKey = clean(body.device_key, 80);
+      const deviceKind = clean(body.device_kind, 20);
+      if (!deviceKey || !["desktop", "phone", "tablet"].includes(deviceKind)) return json({ error: "Invalid device" }, 400);
+      const { error } = await supabase.from("federal_one_device_heartbeats").upsert({
+        agent_id: agent.id, device_key: deviceKey, device_kind: deviceKind,
+        connection_state: "online", last_seen_at: new Date().toISOString(),
+      }, { onConflict: "agent_id,device_key" });
+      return error ? json({ error: "Connection status could not be saved" }, 500) : json({ success: true });
+    }
+
+    if (action === "set_active_client") {
+      const clientName = clean(body.client_name, 200);
+      const clientPhone = clean(body.client_phone, 40);
+      if (!clientName) return json({ error: "Client name is required" }, 400);
+      const snapshot = typeof body.client_snapshot === "object" && body.client_snapshot ? body.client_snapshot : {};
+      const { error } = await supabase.from("federal_one_active_clients").upsert({
+        agent_id: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName,
+        client_phone: clientPhone || null, client_snapshot: snapshot, updated_at: new Date().toISOString(),
+      }, { onConflict: "agent_id" });
+      return error ? json({ error: "Client could not be synced" }, 500) : json({ success: true });
+    }
+
+    if (action === "add_client_note") {
+      const clientName = clean(body.client_name, 200);
+      const clientPhone = clean(body.client_phone, 40);
+      const note = clean(body.note, 2000);
+      if (!clientName || !note) return json({ error: "Client and note are required" }, 400);
+      const { data, error } = await supabase.from("federal_one_client_notes").insert({
+        agent_id: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName, body: note,
+      }).select("id,agent_id,client_name,body,created_at").single();
+      return error ? json({ error: "Note could not be saved" }, 500) : json({ success: true, note: data });
+    }
+
+    if (action === "log_direct_call") {
+      const clientName = clean(body.client_name, 200);
+      const clientPhone = clean(body.client_phone, 40);
+      if (!clientName || !clientPhone) return json({ error: "Client and phone are required" }, 400);
+      const { data, error } = await supabase.from("federal_one_direct_calls").insert({
+        agent_id: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName,
+        client_phone: clientPhone, route: "talkroute", outcome: "opened",
+      }).select("id,opened_at").single();
+      return error ? json({ error: "Call launch could not be logged" }, 500) : json({ success: true, direct_call: data });
+    }
+
+    if (action === "complete_direct_call") {
+      const directCallId = clean(body.direct_call_id, 80);
+      const outcome = clean(body.outcome, 30);
+      const notes = clean(body.notes, 2000);
+      if (!directCallId || !["answered", "no_answer", "voicemail", "wrong_number", "callback", "completed"].includes(outcome)) return json({ error: "Choose a valid call result" }, 400);
+      const { error } = await supabase.from("federal_one_direct_calls").update({ outcome, notes: notes || null, completed_at: new Date().toISOString() }).eq("id", directCallId).eq("agent_id", agent.id);
+      return error ? json({ error: "Call result could not be saved" }, 500) : json({ success: true });
+    }
+
+    if (action === "start_source_search") {
+      const clientName = clean(body.client_name, 200);
+      const clientPhone = clean(body.client_phone, 40);
+      const clientEmail = clean(body.client_email, 320);
+      const clientAddress = clean(body.client_address, 500);
+      if (!clientName) return json({ error: "Client name is required" }, 400);
+      const sources = buildResearchSources(clientName, clientPhone, clientEmail, clientAddress);
+      const { data, error } = await supabase.from("federal_one_research_sessions").insert({
+        created_by: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName,
+        client_phone: clientPhone || null, client_email: clientEmail || null, client_address: clientAddress || null,
+        status: "ready", source_count: sources.length, sources,
+      }).select("id,status,source_count,sources,created_at").single();
+      return error ? json({ error: "Search could not be prepared" }, 500) : json({ research: data });
     }
 
     if (action === "get_source_findings") {

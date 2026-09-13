@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, Flame,
-  Inbox, MessageSquare, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
+  Inbox, MessageSquare, Pause, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
   Search, Send, ShieldCheck, Sparkles, Users, Video, XCircle,
 } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
@@ -43,6 +43,11 @@ type V2Workspace = {
     camera_state?: string; camera_verified_at?: string | null;
   };
   messages?: V2Message[];
+  active_client?: {
+    contact_key: string; client_name: string; client_phone?: string;
+    client_snapshot?: Record<string, unknown>; updated_at: string;
+  } | null;
+  client_notes?: Array<{ id: string; agent_id: string; client_name: string; body: string; created_at: string }>;
 };
 
 export interface AgentCockpitProps {
@@ -82,6 +87,10 @@ export function AgentCockpit(props: AgentCockpitProps) {
   const [chatError, setChatError] = useState('');
   const [cameraState, setCameraState] = useState<'idle' | 'requesting' | 'live' | 'blocked'>('idle');
   const [isMobile, setIsMobile] = useState(false);
+  const [dialerChanging, setDialerChanging] = useState(false);
+  const [dialerError, setDialerError] = useState('');
+  const [clientNote, setClientNote] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -95,11 +104,55 @@ export function AgentCockpit(props: AgentCockpitProps) {
   }, [providerUrl, sessionToken, onUnauthorized]);
 
   useEffect(() => {
-    setIsMobile(window.matchMedia('(max-width: 760px)').matches);
+    const mobile = window.matchMedia('(max-width: 760px)').matches;
+    setIsMobile(mobile);
     loadWorkspace();
     const poll = window.setInterval(loadWorkspace, 5000);
-    return () => window.clearInterval(poll);
-  }, [loadWorkspace]);
+    let deviceKey = window.localStorage.getItem('federal-one-device-key');
+    if (!deviceKey) {
+      deviceKey = crypto.randomUUID();
+      window.localStorage.setItem('federal-one-device-key', deviceKey);
+    }
+    const heartbeat = () => authFetch(providerUrl || '', {
+      body: { action: 'device_heartbeat', session_token: sessionToken, device_key: deviceKey, device_kind: mobile ? 'phone' : 'desktop' },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+    if (providerUrl && sessionToken) void heartbeat();
+    const heartbeatPoll = window.setInterval(() => { if (providerUrl && sessionToken) void heartbeat(); }, 15000);
+    return () => { window.clearInterval(poll); window.clearInterval(heartbeatPoll); };
+  }, [loadWorkspace, providerUrl, sessionToken, onUnauthorized]);
+
+  const changeDialerState = async () => {
+    if (!providerUrl || !sessionToken || dialerChanging) return;
+    const current = workspace?.settings?.personal_dialer_state || 'stopped';
+    const state = current === 'running' ? 'paused' : 'running';
+    setDialerChanging(true);
+    setDialerError('');
+    const result = await authFetch<{ state: string }>(providerUrl, {
+      body: { action: 'set_personal_dialer_state', session_token: sessionToken, state },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+    if (result.ok) setWorkspace(currentWorkspace => ({
+      ...currentWorkspace,
+      settings: { ...currentWorkspace?.settings, personal_dialer_state: result.data?.state || state },
+    }));
+    else setDialerError(result.error || 'Dialer could not be updated');
+    setDialerChanging(false);
+  };
+
+  const saveClientNote = async () => {
+    if (!workspace?.active_client || !clientNote.trim() || !providerUrl || !sessionToken || noteSaving) return;
+    setNoteSaving(true);
+    const result = await authFetch<{ note: { id: string; agent_id: string; client_name: string; body: string; created_at: string } }>(providerUrl, {
+      body: { action: 'add_client_note', session_token: sessionToken, client_name: workspace.active_client.client_name, client_phone: workspace.active_client.client_phone, note: clientNote.trim() },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+    if (result.ok && result.data?.note) {
+      setClientNote('');
+      setWorkspace(current => ({ ...current, client_notes: [result.data!.note, ...(current?.client_notes || [])] }));
+    }
+    setNoteSaving(false);
+  };
 
   const setRemoteCameraState = useCallback(async (state: 'disconnected' | 'requesting' | 'connected' | 'blocked') => {
     if (!providerUrl || !sessionToken) return;
@@ -182,9 +235,17 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <div className="f1-mobile-orb"><ShieldCheck size={24} /></div>
         <span className="f1-overline">FEDERAL ONE 2.0</span>
         <h2>{firstName}'s Client Companion</h2>
-        <p>Your phone is optimized for client information, search, notes and incoming alerts. Calling and camera controls stay on your computer.</p>
+        <p>Your phone follows the client open on your computer. Calling and camera controls stay on your computer.</p>
+        {workspace?.active_client ? <div className="f1-mobile-active-client">
+          <small>OPEN ON YOUR COMPUTER</small>
+          <strong>{workspace.active_client.client_name}</strong>
+          <span>{workspace.active_client.client_phone ? formatPhone(workspace.active_client.client_phone) : 'Client record'}</span>
+          <button onClick={() => onNavTo('contacts')}>Open client <ArrowUpRight size={15} /></button>
+          <div className="f1-mobile-note"><input value={clientNote} onChange={event => setClientNote(event.target.value)} placeholder="Add a note…" maxLength={2000} /><button onClick={() => void saveClientNote()} disabled={!clientNote.trim() || noteSaving}><Send size={14} /></button></div>
+          {(workspace.client_notes || []).slice(0, 2).map(note => <p className="f1-mobile-note-row" key={note.id}>{note.body}</p>)}
+        </div> : <div className="f1-mobile-active-client empty"><strong>No client open</strong><span>Open a client on your computer and it will appear here.</span></div>}
         <div className="f1-mobile-actions">
-          <button onClick={() => onNavTo('contacts')}><Search size={18} /><span>Search clients</span><ArrowUpRight size={16} /></button>
+          <button onClick={() => onNavTo('contacts')}><Search size={18} /><span>Find a client</span><ArrowUpRight size={16} /></button>
           <button onClick={() => onNavTo('inbox')}><Inbox size={18} /><span>Incoming alerts</span><ArrowUpRight size={16} /></button>
           <button onClick={() => onNavTo('saved')}><Clock size={18} /><span>Callbacks & saved</span><ArrowUpRight size={16} /></button>
         </div>
@@ -196,9 +257,9 @@ export function AgentCockpit(props: AgentCockpitProps) {
     <div className="f1-command-center" role="region" aria-label="Federal One agent command center">
       <section className="f1-command-hero">
         <div className="f1-command-copy">
-          <span className="f1-overline"><Sparkles size={12} /> FEDERAL ONE 2.0 · OPERATOR CONSOLE</span>
+          <span className="f1-overline"><Sparkles size={12} /> MY WORKSPACE</span>
           <h2>{greeting}, <em>{firstName}</em></h2>
-          <p>Your clients, personal route, secretary and team—one protected workspace.</p>
+          <p>Everything you need to find clients, make calls, and get help.</p>
         </div>
         <button className={`f1-availability ${available ? 'is-ready' : 'is-away'}`} onClick={onToggleAvail} disabled={togglingAvail}>
           <span />
@@ -213,17 +274,24 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <div className={`f1-readiness-item ${route.tone}`}><span className="f1-readiness-icon"><ShieldCheck size={15} /></span><div><small>ROUTE STATUS</small><strong>{route.label}</strong></div></div>
       </section>
 
+      <button className={`f1-simple-dialer ${workspace?.settings?.personal_dialer_state === 'running' ? 'running' : ''}`} onClick={() => void changeDialerState()} disabled={dialerChanging || !workspace?.route?.transfer_certified}>
+        <span>{workspace?.settings?.personal_dialer_state === 'running' ? <Pause size={19} /> : <PhoneCall size={19} />}</span>
+        <div><small>MY DIALER</small><strong>{dialerChanging ? 'Updating…' : workspace?.settings?.personal_dialer_state === 'running' ? 'Pause my calls' : 'Start my calls'}</strong></div>
+        <ArrowUpRight size={17} />
+      </button>
+      {dialerError && <div className="f1-simple-error">{dialerError}</div>}
+
       <div className="f1-command-grid">
         <main className="f1-command-main">
           <div className="f1-primary-actions">
             <button className="f1-primary-action dialer" onClick={() => onNavTo('calls')}>
-              <span className="f1-action-icon"><Flame size={24} /></span><div><small>PERSONAL WORKSPACE</small><strong>My Dialer</strong><p>Live calls, transfers and history</p></div><ArrowUpRight size={18} />
+              <span className="f1-action-icon"><Flame size={24} /></span><div><small>CALLS</small><strong>My Calls</strong><p>See live calls and history</p></div><ArrowUpRight size={18} />
             </button>
             <button className="f1-primary-action secretary" onClick={() => onNavTo('secretary')}>
-              <span className="f1-action-icon"><Send size={24} /></span><div><small>ELIZABETH</small><strong>Secretary</strong><p>Transfer or reminder mode</p></div><ArrowUpRight size={18} />
+              <span className="f1-action-icon"><Send size={24} /></span><div><small>HELP</small><strong>Ask Elizabeth</strong><p>Have Elizabeth call first</p></div><ArrowUpRight size={18} />
             </button>
             <button className="f1-primary-action intelligence" onClick={() => onNavTo('contacts')}>
-              <span className="f1-action-icon"><Search size={24} /></span><div><small>CLIENT INTELLIGENCE</small><strong>SourceView</strong><p>Search and additional sources</p></div><ArrowUpRight size={18} />
+              <span className="f1-action-icon"><Search size={24} /></span><div><small>SEARCH</small><strong>Find a Client</strong><p>Search records and public sources</p></div><ArrowUpRight size={18} />
             </button>
           </div>
 
