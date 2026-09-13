@@ -29,14 +29,51 @@ function buildResearchSources(name: string, phone: string, email: string, addres
     { id: "duckduckgo", name: "DuckDuckGo", group: "Web", url: `https://duckduckgo.com/?q=${q(exact)}` },
     { id: "brave", name: "Brave Search", group: "Web", url: `https://search.brave.com/search?q=${q(exact)}` },
     { id: "phone", name: "Phone match", group: "Identity", url: `https://www.google.com/search?q=${q(phone ? `"${phone}"` : identity)}` },
-    { id: "email", name: "Email match", group: "Identity", url: `https://www.google.com/search?q=${q(email ? `"${email}"` : identity)}` },
-    { id: "address", name: "Address records", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} address property records`)}` },
+    { id: "email", name: "Find email", group: "Email", url: `https://www.google.com/search?q=${q(email ? `"${email}"` : `"${name}" ${address || phone} email contact`)}` },
+    { id: "email_bing", name: "Find email on Bing", group: "Email", url: `https://www.bing.com/search?q=${q(email ? `"${email}"` : `"${name}" ${address || phone} email`)}` },
+    { id: "address", name: "Current and old addresses", group: "History", url: `https://www.google.com/search?q=${q(`${identity} address previous address property records`)}` },
+    { id: "phones", name: "Current and old phones", group: "History", url: `https://www.google.com/search?q=${q(`${identity} phone telephone mobile`)}` },
+    { id: "family", name: "Spouse and associates", group: "Relationships", url: `https://www.google.com/search?q=${q(`${identity} spouse associate family`)}` },
     { id: "business", name: "Business records", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} business company officer`)}` },
     { id: "licenses", name: "Public licenses", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} site:.gov license`)}` },
     { id: "courtlistener", name: "CourtListener", group: "Records", url: `https://www.courtlistener.com/?q=${q(name)}&type=r` },
     { id: "sec", name: "SEC EDGAR", group: "Records", url: `https://www.sec.gov/edgar/search/#/q=${q(name)}` },
     { id: "profiles", name: "Professional profiles", group: "Web", url: `https://www.google.com/search?q=${q(`${identity} professional profile`)}` },
   ];
+}
+
+const addText = (set: Set<string>, value: unknown) => {
+  if (typeof value === "string" && value.trim()) set.add(value.trim());
+  if (Array.isArray(value)) value.forEach(item => addText(set, item));
+};
+
+function collectKnownFields(rows: Array<Record<string, unknown>>, seed: { phone: string; email: string; address: string }) {
+  const emails = new Set<string>();
+  const phones = new Set<string>();
+  const addresses = new Set<string>();
+  const associates = new Set<string>();
+  addText(emails, seed.email); addText(phones, seed.phone); addText(addresses, seed.address);
+  const inspect = (value: unknown, key = "") => {
+    if (value == null) return;
+    if (Array.isArray(value)) return value.forEach(item => inspect(item, key));
+    if (typeof value === "object") return Object.entries(value as Record<string, unknown>).forEach(([nestedKey, nestedValue]) => inspect(nestedValue, nestedKey));
+    const text = String(value).trim();
+    if (!text) return;
+    if (/e-?mail/i.test(key) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) addText(emails, text);
+    if (/(phone|telephone|mobile|cell)/i.test(key)) addText(phones, text);
+    if (/(address|street|residence)/i.test(key)) addText(addresses, text);
+    if (/(spouse|associate|relative|co.?applicant|partner)/i.test(key)) addText(associates, text);
+  };
+  rows.forEach(row => {
+    addText(phones, row.telephone_original); addText(phones, row.telephone_normalized);
+    addText(phones, row.consumer_phone); addText(addresses, row.address); addText(addresses, row.consumer_address);
+    inspect(row.custom_fields, "custom_fields"); inspect(row.consumer_custom_fields, "consumer_custom_fields");
+  });
+  return {
+    emails: [...emails].slice(0, 20), phones: [...phones].slice(0, 20),
+    addresses: [...addresses].slice(0, 20), associates: [...associates].slice(0, 20),
+    records_checked: rows.length,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -182,12 +219,23 @@ Deno.serve(async (req: Request) => {
       const clientAddress = clean(body.client_address, 500);
       if (!clientName) return json({ error: "Client name is required" }, 400);
       const sources = buildResearchSources(clientName, clientPhone, clientEmail, clientAddress);
+      const phoneDigits = clientPhone.replace(/\D/g, "").slice(-10);
+      const leadQueries = [supabase.from("leads").select("id,name,telephone_original,telephone_normalized,address,custom_fields,created_at").ilike("name", clientName).limit(50)];
+      const callQueries = [supabase.from("calls").select("id,consumer_name,consumer_phone,consumer_address,consumer_custom_fields,created_at").ilike("consumer_name", clientName).limit(50)];
+      if (phoneDigits) {
+        leadQueries.push(supabase.from("leads").select("id,name,telephone_original,telephone_normalized,address,custom_fields,created_at").eq("telephone_normalized", phoneDigits).limit(50));
+        callQueries.push(supabase.from("calls").select("id,consumer_name,consumer_phone,consumer_address,consumer_custom_fields,created_at").eq("consumer_phone", phoneDigits).limit(50));
+      }
+      const internalResults = await Promise.all([...leadQueries, ...callQueries]);
+      const knownRows = new Map<string, Record<string, unknown>>();
+      internalResults.forEach(result => (result.data || []).forEach((row: Record<string, unknown>) => knownRows.set(String(row.id), row)));
+      const known = collectKnownFields([...knownRows.values()], { phone: clientPhone, email: clientEmail, address: clientAddress });
       const { data, error } = await supabase.from("federal_one_research_sessions").insert({
         created_by: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName,
         client_phone: clientPhone || null, client_email: clientEmail || null, client_address: clientAddress || null,
         status: "ready", source_count: sources.length, sources,
       }).select("id,status,source_count,sources,created_at").single();
-      return error ? json({ error: "Search could not be prepared" }, 500) : json({ research: data });
+      return error ? json({ error: "Search could not be prepared" }, 500) : json({ research: { ...data, known } });
     }
 
     if (action === "get_source_findings") {

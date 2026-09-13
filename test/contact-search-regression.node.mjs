@@ -95,3 +95,24 @@ test('additional fields preserve nested data, zero, and false', () => {
   assert.equal(contactFieldText(false), 'false');
   assert.equal(JSON.parse(contactFieldText({ history: ['retained'] })).history[0], 'retained');
 });
+
+test('client intelligence always prepares email, phone, address, and relationship searches', () => {
+  const source = readFileSync(new URL('../supabase/functions/federal-one-v2/index.ts', import.meta.url), 'utf8');
+  assert.match(source, /id: "email"/);
+  assert.match(source, /id: "email_bing"/);
+  assert.match(source, /id: "phones"/);
+  assert.match(source, /id: "address"/);
+  assert.match(source, /id: "family"/);
+  assert.match(source, /spouse\|associate\|relative/);
+});
+
+test('opening client intelligence checks internal records before showing public searches', () => {
+  const source = readFileSync(new URL('../supabase/functions/federal-one-v2/index.ts', import.meta.url), 'utf8');
+  assert.match(source, /collectKnownFields/);
+  assert.match(source, /knownRows/);
+  assert.match(source, /research: \{ \.\.\.data, known \}/);
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /Found in Federal One/);
+  assert.match(app, /SPOUSE \/ ASSOCIATES/);
+  assert.match(app, /Email is always searched/);
+});

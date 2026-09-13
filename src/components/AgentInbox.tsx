@@ -254,7 +254,7 @@ function InboxItemCard({
   );
 }
 
-export function AgentInbox({ sessionToken, onUnauthorized, providerUrl, agentId }: AgentInboxProps) {
+export function AgentInbox({ sessionToken, onUnauthorized, providerUrl }: AgentInboxProps) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<string>('all');

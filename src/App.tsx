@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  Activity, Bookmark, Check, ChevronDown, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
+  Activity, Bookmark, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
   Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
 import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
@@ -212,14 +212,15 @@ const MATRIX_COLUMNS = Array.from({ length: 48 }, (_, index) => ({
 function MatrixField() {
   return (
     <div className="matrix-field" aria-hidden="true">
+      <div className="matrix-tunnel">{Array.from({ length: 8 }, (_, index) => <i key={index} style={{ animationDelay: `${index * -.55}s` }} />)}</div>
       <div className="matrix-perspective-grid" />
       <div className="matrix-columns">
         {MATRIX_COLUMNS.map((column, index) => (
           <span key={index} style={{ left: column.left, animationDelay: column.delay, animationDuration: column.duration, opacity: column.opacity }}>{column.text}</span>
         ))}
       </div>
-      <div className="matrix-horizontal matrix-horizontal-a">101101001&nbsp;&nbsp;011010110&nbsp;&nbsp;FEDERAL/ONE&nbsp;&nbsp;010011101&nbsp;&nbsp;10110010</div>
-      <div className="matrix-horizontal matrix-horizontal-b">01010011&nbsp;&nbsp;11001010&nbsp;&nbsp;VERIFIED/ROUTE&nbsp;&nbsp;00101101&nbsp;&nbsp;10010110</div>
+      <div className="matrix-horizontal matrix-horizontal-a">101101001&nbsp;&nbsp;011010110&nbsp;&nbsp;101001101&nbsp;&nbsp;010011101&nbsp;&nbsp;10110010</div>
+      <div className="matrix-horizontal matrix-horizontal-b">01010011&nbsp;&nbsp;11001010&nbsp;&nbsp;011101001&nbsp;&nbsp;00101101&nbsp;&nbsp;10010110</div>
       <div className="matrix-diagonal matrix-diagonal-a">010010101101001101011010010101101001011010011010110100</div>
       <div className="matrix-diagonal matrix-diagonal-b">101101001011010010100110101101001011010010110100101101</div>
       <div className="matrix-core" />
@@ -1592,8 +1593,6 @@ export default function App() {
       <div className="matrix-access-page">
         <MatrixField />
         <main className={`matrix-access-card ${loginError ? 'has-error' : ''}`}>
-          <div className="matrix-access-pulse"><i /></div>
-          <span className="matrix-access-kicker">ACCESS NODE</span>
           <div className="matrix-access-form">
             <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
             {loginError && <div className="matrix-access-error">{loginError}</div>}
@@ -1612,11 +1611,12 @@ export default function App() {
   const navItems = isOwner
     ? [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
-        { id: 'opportunities', label: 'People to Call', icon: Users },
         { id: 'contacts', label: 'Find a Client', icon: Search },
-        { id: 'leads', label: 'Add Leads', icon: Upload },
         { id: 'calls', label: 'All Calls', icon: Phone },
+        { id: 'opportunities', label: 'Call Backs', icon: Users },
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
+        { id: 'leads', label: 'Add Leads', icon: Upload },
+        { id: 'system', label: 'System', icon: Settings },
       ]
     : [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
@@ -1631,84 +1631,41 @@ export default function App() {
   return (
     <div className="app-shell f1-v2-shell">
       <MatrixField />
-      {/* Sidebar */}
-      <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-brand" onClick={handleLogout} title="Click to log out" style={{ cursor: 'pointer' }}>
-          <div className="brand-mark small">01</div>
-          <div className="brand-copy">
-            <strong>FEDERAL <span>ONE</span> / 2.0</strong>
-            <small>{isOwner ? 'OPERATIONS GRID' : 'AGENT GRID'}</small>
-          </div>
-        </div>
-        <div className="sidebar-signal" aria-hidden="true">
-          <span>1011010010110100101</span><span>0110011010010110110</span><span>1101001011010011010</span>
-        </div>
-        <div className="floor-status">
-          <span className="live-dot"></span> LIVE FLOOR
-          <span className="status-time">{etClock} ET</span>
-        </div>
-        <nav>
+      <header className="f1-command-bar">
+        <button className="f1-command-identity" onClick={() => setActiveNav('dashboard')} aria-label="Open home">
+          <span className="f1-command-orb">01</span>
+          <span><strong>FEDERAL ONE</strong><small>{isOwner ? 'ADMIN' : 'AGENT'} · {etClock} ET</small></span>
+        </button>
+        <button className="mobile-menu" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Open navigation">
+          <Menu size={20} />
+        </button>
+        <nav className={`f1-command-nav ${mobileMenuOpen ? 'mobile-open' : ''}`}>
           {navItems.map(item => {
             const Icon = item.icon;
             return (
               <button key={item.id}
-                className={`nav-item ${activeNav === item.id ? 'active' : ''}`}
+                className={`f1-command-link ${activeNav === item.id ? 'active' : ''}`}
                 onClick={() => { setActiveNav(item.id); setMobileMenuOpen(false); }}>
                 <Icon size={16} />
-                {item.label}
+                <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="profile-mini">
-            <div className={`avatar ${isOwner ? 'gold' : 'green'}`}>{initials(session.agent?.full_name || '')}</div>
-            <strong>{session.agent?.full_name}</strong>
-            <span>{isOwner ? 'Administrator' : 'Agent'}</span>
-            {!isOwner && myAttendance && (
-              <div className={`login-status-badge ${myAttendance.presence === 'online' ? 'online' : myAttendance.presence === 'disconnected' ? 'warn' : 'offline'}`}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: presenceColor(myAttendance.presence), marginRight: 6 }} />
-                {presenceLabel(myAttendance.presence)}
-                {myAttendance.isLegacyEstimate && <span className="legacy-badge" title="Legacy estimate — pre-heartbeat data"> est</span>}
-              </div>
-            )}
-            {!isOwner && attendanceError && (
-              <div className="login-status-badge warn" style={{ fontSize: 10, color: '#f59e0b' }}>
-                <WifiOff size={10} /> Attendance sync error
-              </div>
-            )}
-            {!isOwner && (
-              <button
-                className={`availability-toggle-large ${agentAvailable ? 'available' : 'offline'}`}
-                onClick={handleToggleAvailability}
-                disabled={togglingAvail}
-              >
-                {togglingAvail ? '...' : agentAvailable ? <><Phone size={16} /> AVAILABLE</> : <><PhoneOff size={16} /> GO AVAILABLE</>}
-              </button>
-            )}
-            {!isOwner && myAttendance && (
-              <div className="login-weekly-mini">
-                <Clock size={11} /> Today: {fmtAttendanceDuration(myAttendance.todayTotalSeconds)} · Week: {fmtAttendanceDuration(myAttendance.weekTotalSeconds)}
-              </div>
-            )}
-            <button className="logout-btn" onClick={handleLogout}>
-              <LogOut size={14} /> Log Out
-            </button>
-          </div>
+        <div className="f1-command-user">
+          {!isOwner && myAttendance && <span className={`f1-presence-dot ${attendanceError ? 'warn' : myAttendance.presence}`} title={attendanceError || `${presenceLabel(myAttendance.presence)} · Today ${fmtAttendanceDuration(myAttendance.todayTotalSeconds)}`} />}
+          {!isOwner && <button className={`f1-ready-button ${agentAvailable ? 'available' : ''}`} onClick={handleToggleAvailability} disabled={togglingAvail}>
+            {agentAvailable ? <><Phone size={14} /> Ready</> : <><PhoneOff size={14} /> Not Ready</>}
+          </button>}
+          <span className={`avatar ${isOwner ? 'gold' : 'green'}`}>{initials(session.agent?.full_name || '')}</span>
+          <button className="f1-exit-button" onClick={handleLogout} title={`Log out ${session.agent?.full_name || ''}`}><LogOut size={16} /></button>
         </div>
-      </aside>
+      </header>
 
       {/* Main Content */}
       <div className="content-area">
-        <div className="topbar">
-          <button className="mobile-menu" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-            <Menu size={20} />
-          </button>
-          <div className="breadcrumbs">
-            <strong>{isOwner ? 'Admin' : 'My Workspace'}</strong>
-            <span>/</span>
-            <span>{navItems.find(n => n.id === activeNav)?.label}</span>
-          </div>
+        <div className="topbar f1-status-strip">
+          <div className="breadcrumbs"><strong>{navItems.find(n => n.id === activeNav)?.label}</strong></div>
           <div className="top-actions">
             {adminStats && (
               <div className={`dialer-indicator ${adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'waiting' : 'running') : 'stopped'}`}>
@@ -1793,22 +1750,29 @@ export default function App() {
           )}
 
           {isOwner && activeNav === 'dashboard' && (
-            <section className="f1-owner-masthead">
-              <div className="f1-owner-heading">
-                <span><Activity size={13} /> FEDERAL ONE / LIVE OPERATIONS</span>
-                <h1>Command the <em>entire floor.</em></h1>
-                <p>Routing, people, intelligence, and verified call evidence—visible from one operational grid.</p>
+            <section className="f1-simple-home">
+              <div className="f1-simple-welcome">
+                <span><Activity size={13} /> LIVE WORKSPACE</span>
+                <h1>What do you want to do?</h1>
+                <p>Choose one. Federal One keeps the technical details out of your way.</p>
               </div>
-              <div className="f1-owner-snapshot">
-                <div><small>SYSTEM</small><strong>{dataHealth.status === 'healthy' ? 'NOMINAL' : dataHealth.status.toUpperCase()}</strong></div>
-                <div><small>AGENTS READY</small><strong>{adminStats?.summary.agents_reachable ?? 0}</strong></div>
-                <div><small>ACTIVE CALLS</small><strong>{adminStats?.agents.reduce((total, agent) => total + (agent.pending_calls || 0), 0) ?? 0}</strong></div>
-                <div><small>CLIENTS QUEUED</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
+              <div className="f1-simple-actions">
+                <button onClick={() => setActiveNav('contacts')}><Search size={25} /><span><strong>Find a Client</strong><small>Name, phone, email, address, and more</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('calls')}><Phone size={25} /><span><strong>See Calls</strong><small>Live calls, results, recordings, and notes</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('opportunities')}><Users size={25} /><span><strong>Call Backs</strong><small>People who need attention</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('system')}><Settings size={25} /><span><strong>Check System</strong><small>Dialer, team, routes, and settings</small></span><ChevronRight size={18} /></button>
+              </div>
+              <div className="f1-simple-live">
+                <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
+                <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
+                <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
+                <div><small>PEOPLE READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
+                {canControl && adminStats?.summary.campaign_state !== 'running' && <button onClick={openPreflight}><Play size={14} /> Start Calls</button>}
               </div>
             </section>
           )}
 
-          {isOwner && activeNav === 'dashboard' && teamHealth && (
+          {isOwner && activeNav === 'system' && teamHealth && (
             <section className="f1-team-health" aria-label="System and team health">
               <div className="f1-health-service"><span className="ok" /><div><small>DATABASE</small><strong>Online</strong></div></div>
               <div className="f1-health-service"><span className={teamHealth.services.bland_api_key ? 'ok' : 'bad'} /><div><small>BLAND.AI</small><strong>{teamHealth.services.bland_api_key ? 'Connected' : 'Needs key'}</strong></div></div>
@@ -1821,18 +1785,18 @@ export default function App() {
           )}
 
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
-          {isOwner && activeNav === 'dashboard' && (
+          {isOwner && activeNav === 'system' && (
             <ProviderQueuePanel providerUrl={PROVIDER_URL} sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
           )}
-          {isOwner && activeNav === 'dashboard' && !adminStats && (
+          {isOwner && activeNav === 'system' && !adminStats && (
             <div className="stats-grid">
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
             </div>
           )}
-          {isOwner && activeNav === 'dashboard' && (
+          {isOwner && activeNav === 'system' && (
             <DataHealthBanner health={dataHealth} />
           )}
-          {isOwner && activeNav === 'dashboard' && adminStats && (
+          {isOwner && activeNav === 'system' && adminStats && (
             <>
               {/* Compact campaign status card */}
               <div className="campaign-status-card">
@@ -4052,6 +4016,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
   const [findingNotice, setFindingNotice] = useState('');
   const [startingSearch, setStartingSearch] = useState(false);
   const [researchSources, setResearchSources] = useState<Array<{ id: string; name: string; group: string; url: string }>>([]);
+  const [knownProfile, setKnownProfile] = useState<{ emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } | null>(null);
   const [sourceFindings, setSourceFindings] = useState<SourceFinding[]>([]);
   const [loadingFindings, setLoadingFindings] = useState(false);
   const autoSearchStarted = useRef(false);
@@ -4106,7 +4071,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     autoSearchStarted.current = true;
     setStartingSearch(true);
     setFindingNotice('Checking every available public source…');
-    void authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }> } }>(providerUrl, {
+    void authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }>; known?: { emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } } }>(providerUrl, {
       body: {
         action: 'start_source_search', session_token: sessionToken,
         client_name: name, client_phone: phone, client_email: email, client_address: address,
@@ -4116,7 +4081,8 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
       const sources = result.data?.research?.sources || [];
       if (result.ok && sources.length) {
         setResearchSources(sources);
-        setFindingNotice(`${sources.length} source checks are ready. Choose any result path below.`);
+        if (result.data?.research?.known) setKnownProfile(result.data.research.known);
+        setFindingNotice(`${sources.length} public searches are ready. Federal One also checked its own saved records.`);
       } else {
         setFindingNotice(result.error || 'Additional sources could not be prepared.');
       }
@@ -4129,7 +4095,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     if (firstWindow) firstWindow.opener = null;
     setStartingSearch(true);
     setFindingNotice('Preparing every available public search…');
-    const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }> } }>(providerUrl, {
+    const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }>; known?: { emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } } }>(providerUrl, {
       body: {
         action: 'start_source_search', session_token: sessionToken,
         client_name: name, client_phone: phone, client_email: email, client_address: address,
@@ -4139,6 +4105,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     const sources = result.data?.research?.sources || [];
     if (result.ok && sources.length) {
       setResearchSources(sources);
+      if (result.data?.research?.known) setKnownProfile(result.data.research.known);
       setFindingNotice(`${sources.length} public searches are ready. The first search opened; use the list below to review the rest.`);
       if (firstWindow) firstWindow.location.href = sources[0].url;
     } else {
@@ -4192,9 +4159,18 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
         {directCallSaved && <div className="sourceview-notice">Call result saved.</div>}
         {sourceOpen && (
           <div className="sourceview-panel">
-            <div className="sourceview-heading"><div><small>SOURCEVIEW</small><strong>Find this person</strong></div><span>{startingSearch ? 'SEARCHING' : 'READY'}</span></div>
-            <p>Federal One uses the saved name, phone, email and address to prepare every available public-source path. Review matches before treating them as this client.</p>
-            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Checking sources…' : 'Open best public search'}</button>
+            <div className="sourceview-heading"><div><small>CLIENT INTELLIGENCE</small><strong>More information</strong></div><span>{startingSearch ? 'SEARCHING' : 'READY'}</span></div>
+            <p>Federal One checks saved records first, then prepares focused public searches. Email is always searched. Web matches stay marked possible until reviewed.</p>
+            {knownProfile && <div className="sourceview-known">
+              <div className="sourceview-known-title"><strong>Found in Federal One</strong><small>{knownProfile.records_checked} matching records checked</small></div>
+              <div className="sourceview-known-grid">
+                <div><span>EMAIL</span><strong>{knownProfile.emails.length ? knownProfile.emails.join(', ') : 'Not found yet'}</strong></div>
+                <div><span>PHONE NUMBERS</span><strong>{knownProfile.phones.length ? knownProfile.phones.join(', ') : 'Not found yet'}</strong></div>
+                <div><span>ADDRESSES</span><strong>{knownProfile.addresses.length ? knownProfile.addresses.join(' · ') : 'Not found yet'}</strong></div>
+                <div><span>SPOUSE / ASSOCIATES</span><strong>{knownProfile.associates.length ? knownProfile.associates.join(', ') : 'Not found yet'}</strong></div>
+              </div>
+            </div>}
+            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching…' : 'Search the Web'}</button>
             <div className="sourceview-links">
               {researchSources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
             </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Bell, ChevronDown, ChevronUp, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Bell, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
 
 type AgentAlertStats = {
@@ -56,6 +56,7 @@ export function OwnerAlertOverview({ sessionToken, onUnauthorized, providerUrl }
           <span style={{ fontWeight: 600 }}>Transfer Alerts</span>
           {totalActive > 0 && <span className="oao-badge oao-badge-warn">{totalActive} active</span>}
           {totalMissed > 0 && <span className="oao-badge oao-badge-danger">{totalMissed} missed</span>}
+          {totalCallbacks > 0 && <span className="oao-badge">{totalCallbacks} callbacks</span>}
         </div>
         <div className="oao-header-right">
           <button className="oao-refresh" onClick={e => { e.stopPropagation(); setLoading(true); load(); }}>
