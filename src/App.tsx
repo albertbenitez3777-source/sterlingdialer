@@ -403,7 +403,7 @@ export default function App() {
   const [secCustomMsg, setSecCustomMsg] = useState('');
   const [placingSecCall, setPlacingSecCall] = useState(false);
   const [expandedSecCall, setExpandedSecCall] = useState<string | null>(null);
-  const [phoneAction, setPhoneAction] = useState<{ name: string; phone: string } | null>(null);
+  const [phoneAction, setPhoneAction] = useState<{ name: string; phone: string; email?: string; address?: string } | null>(null);
   const [placingQuickSecretaryCall, setPlacingQuickSecretaryCall] = useState(false);
 
   // Dashboard sub-tabs (compact layout)
@@ -2862,7 +2862,7 @@ export default function App() {
             <ContactsView {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
-              onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
+              onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
             />
           )}
@@ -2872,7 +2872,7 @@ export default function App() {
             <ContactsView {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
-              onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
+              onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
             />
           )}
@@ -3122,9 +3122,10 @@ export default function App() {
           )}
         </div>
       </div>
-      {phoneAction && !isOwner && (
+      {phoneAction && (
         <PhoneActionModal
-          name={phoneAction.name} phone={phoneAction.phone}
+          name={phoneAction.name} phone={phoneAction.phone} email={phoneAction.email} address={phoneAction.address}
+          canCall={!isOwner}
           onClose={() => setPhoneAction(null)}
           onSecretaryCall={() => placeQuickSecretaryCall(phoneAction.name, phoneAction.phone)}
           placingSecretaryCall={placingQuickSecretaryCall}
@@ -3612,7 +3613,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
   onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized,
 }: ReturnType<typeof useContactSearch<ContactResult>> & {
   expandedContact: string | null; setExpandedContact: (v: string | null) => void;
-  sessionToken: string; onPhoneClick: (name: string, phone: string) => void;
+  sessionToken: string; onPhoneClick: (name: string, phone: string, email?: string, address?: string) => void;
   onUnauthorized: () => void;
 }) {
   return (
@@ -3666,9 +3667,12 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                 <div className="queue-card-left">
                   <div className="avatar green">{initials(contact.consumer_name || '?')}</div>
                   <div>
-                    <strong>{contact.consumer_name || 'Unknown'}</strong>
+                    <button className="contact-name-link" onClick={(event) => {
+                      event.stopPropagation();
+                      onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address);
+                    }}>{contact.consumer_name || 'Unknown'}</button>
                     {(contact.phone_normalized || contact.phone) ? (
-                      <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone); }}>
+                      <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address); }}>
                         <Phone size={11} /> {formatPhone(contact.phone || contact.phone_normalized)}
                       </button>
                     ) : <span className="card-address">No phone on file</span>}
@@ -3763,7 +3767,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                     </div>
                   )}
                   {(contact.phone || contact.phone_normalized) && (
-                    <button className="contact-intelligence-action" onClick={() => onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone)}>
+                    <button className="contact-intelligence-action" onClick={() => onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address)}>
                       <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Talkroute · Find More Information</small></span><ChevronDown size={15} />
                     </button>
                   )}
@@ -4036,20 +4040,21 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
 }
 
 // ── Phone Action Modal ───────────────────────────────────────────────────
-function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecretaryCall, providerUrl, sessionToken, onUnauthorized }: {
-  name: string; phone: string; onClose: () => void;
+function PhoneActionModal({ name, phone, email = '', address = '', canCall, onClose, onSecretaryCall, placingSecretaryCall, providerUrl, sessionToken, onUnauthorized }: {
+  name: string; phone: string; email?: string; address?: string; canCall: boolean; onClose: () => void;
   onSecretaryCall: () => void; placingSecretaryCall: boolean;
   providerUrl: string; sessionToken: string; onUnauthorized: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [directCallId, setDirectCallId] = useState('');
   const [directCallSaved, setDirectCallSaved] = useState(false);
-  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(true);
   const [findingNotice, setFindingNotice] = useState('');
   const [startingSearch, setStartingSearch] = useState(false);
   const [researchSources, setResearchSources] = useState<Array<{ id: string; name: string; group: string; url: string }>>([]);
   const [sourceFindings, setSourceFindings] = useState<SourceFinding[]>([]);
   const [loadingFindings, setLoadingFindings] = useState(false);
+  const autoSearchStarted = useRef(false);
   const digits = phone.replace(/\D/g, '');
   const last10 = digits.slice(-10);
   const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
@@ -4096,6 +4101,28 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
     return () => { cancelled = true; };
   }, [sourceOpen, providerUrl, sessionToken, name, phone, onUnauthorized]);
 
+  useEffect(() => {
+    if (autoSearchStarted.current) return;
+    autoSearchStarted.current = true;
+    setStartingSearch(true);
+    setFindingNotice('Checking every available public source…');
+    void authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }> } }>(providerUrl, {
+      body: {
+        action: 'start_source_search', session_token: sessionToken,
+        client_name: name, client_phone: phone, client_email: email, client_address: address,
+      },
+      onUnauthorized,
+    }).then(result => {
+      const sources = result.data?.research?.sources || [];
+      if (result.ok && sources.length) {
+        setResearchSources(sources);
+        setFindingNotice(`${sources.length} source checks are ready. Choose any result path below.`);
+      } else {
+        setFindingNotice(result.error || 'Additional sources could not be prepared.');
+      }
+    }).finally(() => setStartingSearch(false));
+  }, [providerUrl, sessionToken, name, phone, email, address, onUnauthorized]);
+
   const startEverywhereSearch = async () => {
     if (startingSearch) return;
     const firstWindow = window.open('', '_blank');
@@ -4105,7 +4132,7 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
     const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }> } }>(providerUrl, {
       body: {
         action: 'start_source_search', session_token: sessionToken,
-        client_name: name, client_phone: phone,
+        client_name: name, client_phone: phone, client_email: email, client_address: address,
       },
       onUnauthorized,
     });
@@ -4133,27 +4160,27 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
           </div>
         </div>
         <div className="phone-action-options">
-          <button className="phone-action-option" onClick={onSecretaryCall} disabled={placingSecretaryCall}>
+          {canCall && <button className="phone-action-option" onClick={onSecretaryCall} disabled={placingSecretaryCall}>
             <div className="phone-action-icon secretary-icon"><Send size={22} /></div>
             <div className="phone-action-text">
               <strong>Send Elizabeth</strong>
               <span>Secretary calls &amp; transfers to you</span>
             </div>
             {placingSecretaryCall && <RefreshCw size={16} className="search-spinner" />}
-          </button>
-          <button className="phone-action-option" onClick={handleTalkroute}>
+          </button>}
+          {canCall && <button className="phone-action-option" onClick={handleTalkroute}>
             <div className="phone-action-icon talkroute-icon"><Phone size={22} /></div>
             <div className="phone-action-text">
               <strong>Call via Talkroute</strong>
               <span>{copied ? 'Number copied! Talkroute opening...' : 'Opens Talkroute — number auto-copied'}</span>
             </div>
             {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
-          </button>
+          </button>}
           <button className="phone-action-option" onClick={() => { setSourceOpen(true); void startEverywhereSearch(); }}>
             <div className="phone-action-icon sourceview-icon"><Search size={22} /></div>
             <div className="phone-action-text">
               <strong>Find More Information</strong>
-              <span>One click searches every available public source</span>
+              <span>Prepared automatically when this client opens</span>
             </div>
             <ChevronDown size={16} style={{ transform: sourceOpen ? 'rotate(180deg)' : undefined }} />
           </button>
@@ -4166,8 +4193,8 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
         {sourceOpen && (
           <div className="sourceview-panel">
             <div className="sourceview-heading"><div><small>SOURCEVIEW</small><strong>Find this person</strong></div><span>{startingSearch ? 'SEARCHING' : 'READY'}</span></div>
-            <p>Federal One prepares every public search at once. If a site asks for a checkbox, complete it in that site and continue.</p>
-            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching everywhere…' : 'Search everywhere again'}</button>
+            <p>Federal One uses the saved name, phone, email and address to prepare every available public-source path. Review matches before treating them as this client.</p>
+            <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Checking sources…' : 'Open best public search'}</button>
             <div className="sourceview-links">
               {researchSources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
             </div>
