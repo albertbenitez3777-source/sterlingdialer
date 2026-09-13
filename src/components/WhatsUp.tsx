@@ -12,7 +12,7 @@ export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:stri
  useEffect(()=>{if(pinned.current&&log.current)log.current.scrollTop=log.current.scrollHeight;},[messages]);
  const current=useRef(room); current.current=room;
  const expired=useRef(onUnauthorized);expired.current=onUnauthorized;
- const lastTeam=useRef('');const file=useRef<HTMLInputElement>(null);
+ const lastTeam=useRef('');const teamSeen=useRef(false);const file=useRef<HTMLInputElement>(null);
  const api=useCallback(async<T,>(action:string,body:Record<string,unknown>={})=>authFetch<T>(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/federal-one-v2`,{onUnauthorized:()=>expired.current(),body:{action,session_token:sessionToken,...body}}),[sessionToken]);
  const directory=useCallback(async()=>{const r=await api<{agents:Person[];rooms:Room[];can_review:boolean}>('whatsup_directory');if(r.ok&&r.data){setPeople(r.data.agents);setRooms(r.data.rooms);setReview(r.data.can_review);}else setError(r.error||'Chat unavailable');},[api]);
  useEffect(()=>{void directory();},[directory]);
@@ -23,8 +23,8 @@ export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:stri
    const r=await api<{messages:Message[];has_more:boolean}>('whatsup_history',{room,after});
    if(stopped)return;
    if(r.ok&&r.data){setMessages(old=>{const map=new Map(old.map(m=>[m.id,m]));r.data!.messages.forEach(m=>map.set(m.id,m));return [...map.values()].sort((a,b)=>a.created_at.localeCompare(b.created_at));});if(!after)setMore(r.data.has_more);after=r.data.messages.slice(-1)[0]?.created_at||after;setError('');}else setError(r.error||'Chat unavailable');
-   if(room!=='team'||!open){const t=await api<{id:string}>('whatsup_latest',{room:'team'});if(stopped)return;const latest=t.data?.id||'';if(lastTeam.current&&latest!==lastTeam.current)setUnread(true);lastTeam.current=latest;}
-   else {lastTeam.current=r.data?.messages.slice(-1)[0]?.id||lastTeam.current;setUnread(false);}
+   if(room!=='team'||!open){const t=await api<{id:string}>('whatsup_latest',{room:'team'});if(stopped)return;const latest=t.data?.id||'';if(teamSeen.current&&latest!==lastTeam.current)setUnread(true);lastTeam.current=latest;teamSeen.current=true;}
+   else {teamSeen.current=true;lastTeam.current=r.data?.messages.slice(-1)[0]?.id||lastTeam.current;setUnread(false);}
    timer=setTimeout(poll,4000);
   };void poll();return()=>{stopped=true;clearTimeout(timer);};
  },[api,room,open]);
