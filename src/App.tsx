@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { AnimatedBackground, GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
 import { maskPhone, formatPhone } from '@/utils/privacy';
-import { useHeartbeat, type HeartbeatAttendance } from '@/utils/useHeartbeat';
+import { useHeartbeat, type AttendanceInfo as HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
 import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/utils/funnel';
 import { transferMetricsForWindow, type TransferMetricSummary } from '@/utils/transfer-metrics';
@@ -179,6 +179,7 @@ const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
 const FUNCTIONS_BASE = SUPABASE_URL;
 const AUTH_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-auth`;
 const PROVIDER_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-provider`;
+const FEDERAL_ONE_V2_URL = `${FUNCTIONS_BASE}/functions/v1/federal-one-v2`;
 const TZ = 'America/New_York';
 
 const HERO_IMAGES = [
@@ -1762,7 +1763,7 @@ export default function App() {
           )}
 
           {/* ── AGENT: Momentum Banner ─────────────────────────────────── */}
-          {!isOwner && (
+          {!isOwner && activeNav !== 'dashboard' && (
             <section className="agent-momentum-banner" aria-label="Agent momentum">
               <img src={CINEMATIC_HERO.agentMomentum} alt="" loading="eager" />
               <div className="agent-momentum-overlay" />
@@ -1775,7 +1776,7 @@ export default function App() {
           )}
 
           {/* ── AGENT: Big Connection Status Banner ──────────────────────── */}
-          {!isOwner && (
+          {!isOwner && activeNav !== 'dashboard' && (
             <div className={`conn-banner ${!isOnline ? 'conn-disconnected' : agentAvailable ? 'conn-active' : 'conn-offline'}`}>
               {!isOnline ? (
                 <>
@@ -3050,6 +3051,7 @@ export default function App() {
           {!isOwner && activeNav === 'dashboard' && (
             <AgentCockpit
               agentName={session?.agent?.full_name ?? 'Agent'}
+              agentId={session?.agent?.id}
               available={agentAvailable}
               togglingAvail={togglingAvail}
               onToggleAvail={handleToggleAvailability}
@@ -3058,6 +3060,9 @@ export default function App() {
               todayStats={agentTodayStats}
               onNavTo={setActiveNav}
               activeNav={activeNav}
+              providerUrl={FEDERAL_ONE_V2_URL}
+              sessionToken={sessionToken}
+              onUnauthorized={handleLogout}
             />
           )}
 
@@ -3137,6 +3142,9 @@ export default function App() {
           onClose={() => setPhoneAction(null)}
           onSecretaryCall={() => placeQuickSecretaryCall(phoneAction.name, phoneAction.phone)}
           placingSecretaryCall={placingQuickSecretaryCall}
+          providerUrl={FEDERAL_ONE_V2_URL}
+          sessionToken={sessionToken}
+          onUnauthorized={handleLogout}
         />
       )}
       {isOwner && (
@@ -3901,7 +3909,7 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
 
   return (
     <>
-      <SectionHero image={CINEMATIC_HERO.agentMomentum} eyebrow="YOUR SECRETARY" title="Elizabeth Sterling" subtitle="Have Elizabeth connect a live caller to your line or deliver a reminder when they answer." />
+      <SectionHero image={CINEMATIC_HERO.agentMomentum} eyebrow="YOUR SECRETARY" title="Elizabeth" subtitle="Have Elizabeth connect a live caller to your line or deliver a reminder when they answer." />
       <div className="hero-row">
         <div>
           <div className="eyebrow"><Send size={12} /> SECRETARY</div>
@@ -4038,11 +4046,17 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
 }
 
 // ── Phone Action Modal ───────────────────────────────────────────────────
-function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecretaryCall }: {
+function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecretaryCall, providerUrl, sessionToken, onUnauthorized }: {
   name: string; phone: string; onClose: () => void;
   onSecretaryCall: () => void; placingSecretaryCall: boolean;
+  providerUrl: string; sessionToken: string; onUnauthorized: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [findingValue, setFindingValue] = useState('');
+  const [findingUrl, setFindingUrl] = useState('');
+  const [findingNotice, setFindingNotice] = useState('');
+  const [savingFinding, setSavingFinding] = useState(false);
   const digits = phone.replace(/\D/g, '');
   const last10 = digits.slice(-10);
   const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
@@ -4052,6 +4066,40 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
     setCopied(true);
     window.open('https://app.talkroute.com/phone', '_blank', 'noopener');
     setTimeout(() => setCopied(false), 3000);
+  };
+
+  const sourceQuery = encodeURIComponent(`"${name}" "${display}"`);
+  const sourceLinks = [
+    { label: 'Google', url: `https://www.google.com/search?q=${sourceQuery}` },
+    { label: 'Bing', url: `https://www.bing.com/search?q=${sourceQuery}` },
+    { label: 'DuckDuckGo', url: `https://duckduckgo.com/?q=${sourceQuery}` },
+  ];
+
+  const savePossibleFinding = async () => {
+    const value = findingValue.trim();
+    const url = findingUrl.trim();
+    if (!value || !/^https?:\/\//i.test(url) || savingFinding) {
+      setFindingNotice('Add the information found and a complete source link.');
+      return;
+    }
+    setSavingFinding(true);
+    setFindingNotice('');
+    const result = await authFetch(providerUrl, {
+      body: {
+        action: 'save_source_finding', session_token: sessionToken,
+        client_name: name, client_phone: phone, source_name: new URL(url).hostname,
+        source_url: url, finding_type: 'other', finding_value: value,
+      },
+      onUnauthorized,
+    });
+    if (result.ok) {
+      setFindingValue('');
+      setFindingUrl('');
+      setFindingNotice('Saved as a possible match for review.');
+    } else {
+      setFindingNotice(result.error || 'Could not save this finding.');
+    }
+    setSavingFinding(false);
   };
 
   return (
@@ -4082,7 +4130,28 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
             </div>
             {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
           </button>
+          <button className="phone-action-option" onClick={() => setSourceOpen(current => !current)}>
+            <div className="phone-action-icon sourceview-icon"><Search size={22} /></div>
+            <div className="phone-action-text">
+              <strong>Additional Source Search</strong>
+              <span>Open SourceView for agent-reviewed research</span>
+            </div>
+            <ChevronDown size={16} style={{ transform: sourceOpen ? 'rotate(180deg)' : undefined }} />
+          </button>
         </div>
+        {sourceOpen && (
+          <div className="sourceview-panel">
+            <div className="sourceview-heading"><div><small>FEDERAL ONE SOURCEVIEW</small><strong>Possible result workspace</strong></div><span>POSSIBLE</span></div>
+            <p>Search opens only when you choose a source. Complete any verification yourself, then save only information you can review.</p>
+            <div className="sourceview-links">
+              {sourceLinks.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer">{source.label} <Search size={13} /></a>)}
+            </div>
+            <label>Information found<input value={findingValue} onChange={event => setFindingValue(event.target.value)} placeholder="Possible address, phone, email, business…" /></label>
+            <label>Source link<input value={findingUrl} onChange={event => setFindingUrl(event.target.value)} placeholder="https://…" inputMode="url" /></label>
+            <button className="sourceview-save" onClick={savePossibleFinding} disabled={savingFinding}>{savingFinding ? 'Saving…' : 'Save as possible result'}</button>
+            {findingNotice && <div className="sourceview-notice">{findingNotice}</div>}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ function normalizeToE164(input: string): string {
   return "+" + d;
 }
 
-const inboundTaskTemplate = (agentName: string) => `You are Elizabeth, answering ${agentName}'s line. This is a callback — the caller is expecting to speak with ${agentName}.
+const inboundTaskTemplate = (agentName: string) => `You are Elizabeth with Certified Notification Services, answering ${agentName}'s line from Washington, D.C. This is a callback — the caller is expecting to speak with ${agentName}.
 
 TRANSFER DECISION — follow exactly:
 1. The instant you hear an answering machine, voicemail, or automated system — HANG UP immediately and say nothing.
@@ -33,7 +33,7 @@ TRANSFER DECISION — follow exactly:
 6. Never claim an urgent legal matter, lawsuit, deadline, or case-agent status.
 7. Never disclose debt amounts, account details, or financial information.`;
 
-const firstSentenceTemplate = (agentName: string) => `Hi, this is Elizabeth. Thank you for calling back regarding ${agentName}. Are you available for a brief conversation?`;
+const firstSentenceTemplate = (agentName: string) => `Hello, this is Elizabeth with Certified Notification Services, calling from Washington, D.C., on behalf of ${agentName}. How can I help you?`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {

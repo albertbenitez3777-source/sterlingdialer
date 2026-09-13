@@ -4,8 +4,11 @@ export function contactEmails(contact: { email?: string; emails?: string[]; cust
   if (contact.emails) result.push(...contact.emails);
   if (contact.custom_fields) {
     for (const [key, val] of Object.entries(contact.custom_fields)) {
-      if (/email/i.test(key) && typeof val === 'string' && val.includes('@')) {
-        if (!result.includes(val)) result.push(val);
+      if (/e-?mail/i.test(key)) {
+        const values = Array.isArray(val) ? val : [val];
+        for (const item of values) {
+          if (typeof item === 'string' && item.includes('@') && !result.includes(item)) result.push(item);
+        }
       }
     }
   }
