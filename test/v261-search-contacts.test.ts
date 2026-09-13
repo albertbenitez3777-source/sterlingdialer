@@ -62,8 +62,9 @@ describe('wolf-provider search_contacts handler', () => {
     expect(block).not.toContain('agentPhones');
   });
 
-  it('escapes LIKE wildcards', () => {
-    expect(block).toMatch(/replace.*[%_]/);
+  it('passes the literal term because the database function owns LIKE escaping', () => {
+    expect(block).toContain('p_search: searchText');
+    expect(block).not.toContain('escapeLike');
   });
 
   it('caps offset to prevent abuse', () => {
