@@ -154,6 +154,11 @@ type ContactResult = {
   is_completed: boolean | null; total_call_count: number;
 };
 
+type SourceFinding = {
+  id: string; source_name: string; source_url: string; finding_type: string;
+  finding_value: string; match_status: string; confidence: number; created_at: string;
+};
+
 type SavedTransfer = {
   id: string; call_id: string | null; consumer_name: string; consumer_phone: string;
   consumer_address: string | null; consumer_income_range: string | null;
@@ -202,6 +207,30 @@ const CINEMATIC_HERO = {
   loginTeam: '/wolf-login-team.webp',
   agentMomentum: '/wolf-agent-momentum.webp',
 };
+
+const MATRIX_COLUMNS = Array.from({ length: 34 }, (_, index) => ({
+  left: `${(index * 2.93 + (index % 4) * 0.41) % 100}%`,
+  delay: `${-((index * 0.73) % 8)}s`,
+  duration: `${5.8 + (index % 7) * 0.72}s`,
+  opacity: 0.2 + (index % 6) * 0.09,
+  text: `${index % 2 ? '01' : '10'}${(index * 731).toString(2).padStart(14, '0')}010110100110101001011001`,
+}));
+
+function MatrixField() {
+  return (
+    <div className="matrix-field" aria-hidden="true">
+      <div className="matrix-perspective-grid" />
+      <div className="matrix-columns">
+        {MATRIX_COLUMNS.map((column, index) => (
+          <span key={index} style={{ left: column.left, animationDelay: column.delay, animationDuration: column.duration, opacity: column.opacity }}>{column.text}</span>
+        ))}
+      </div>
+      <div className="matrix-horizontal matrix-horizontal-a">101101001&nbsp;&nbsp;011010110&nbsp;&nbsp;FEDERAL/ONE&nbsp;&nbsp;010011101&nbsp;&nbsp;10110010</div>
+      <div className="matrix-horizontal matrix-horizontal-b">01010011&nbsp;&nbsp;11001010&nbsp;&nbsp;VERIFIED/ROUTE&nbsp;&nbsp;00101101&nbsp;&nbsp;10010110</div>
+      <div className="matrix-core" />
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function fmtTime(iso: string | null | undefined): string {
@@ -1533,99 +1562,44 @@ export default function App() {
   // ── Login Screen ───────────────────────────────────────────────────────
   if (ownerNeedsSetup) {
     return (
-      <div className="login-page">
-        <div className="login-hero-fullbleed" aria-hidden="true">
-          <img src="/wolf-login-team.webp" alt="" />
-          <div className="login-hero-scrim" />
-        </div>
-        <div className="login-aurora" />
-        <div className="login-grid" />
-        <div className="login-shell">
-          <div className="login-brand">
-            <div className="brand-mark">F1</div>
-            <div className="brand-copy">
-              <strong>FEDERAL <span>ONE</span></strong>
-              <small>PRIVATE COLLECTIONS OPERATIONS</small>
-            </div>
+      <div className="matrix-access-page">
+        <MatrixField />
+        <main className="matrix-access-card setup-card">
+          <span className="matrix-access-kicker">INITIALIZE ACCESS</span>
+          <div className="matrix-access-form stacked">
+            <label>CREATE 4-DIGIT PIN</label>
+            <input className="matrix-pin-single" type="password" inputMode="numeric" maxLength={4}
+              value={setupPin} onChange={e => setSetupPin(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => e.key === 'Enter' && handleOwnerSetup()} autoFocus />
+            <label>CONFIRM PIN</label>
+            <input className="matrix-pin-single" type="password" inputMode="numeric" maxLength={4}
+              value={setupConfirm} onChange={e => setSetupConfirm(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => e.key === 'Enter' && handleOwnerSetup()} />
+            {setupError && <div className="matrix-access-error">{setupError}</div>}
+            <button className="matrix-enter" onClick={handleOwnerSetup} disabled={settingUp}>
+              {settingUp ? 'INITIALIZING…' : 'CREATE ACCESS'}
+            </button>
           </div>
-          <div className="login-card glass-card">
-            <div className="login-card-visual" aria-hidden="true">
-              <img src="/wolf-agent-momentum.webp" alt="" />
-              <div className="login-card-visual-overlay" />
-              <div className="login-card-visual-caption"><span>FEDERAL ONE</span><strong>ONE PLATFORM. TOTAL CONTROL.</strong><small>Private operating system · Owner initialization</small></div>
-            </div>
-            <div className="login-card-copy">
-              <div className="eyebrow"><CircleHelp size={12} /> FIRST-TIME SETUP</div>
-              <h1>Secure Your <em>Workspace</em></h1>
-              <p>Create the private access PIN for the Federal One administration console.</p>
-            </div>
-            <div className="login-form">
-              <label>ENTER 4-DIGIT PIN</label>
-              <input className="pin-input-single" type="password" inputMode="numeric" maxLength={4}
-                value={setupPin} onChange={e => setSetupPin(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={e => e.key === 'Enter' && handleOwnerSetup()} autoFocus />
-              <label style={{ marginTop: '20px' }}>CONFIRM PIN</label>
-              <input className="pin-input-single" type="password" inputMode="numeric" maxLength={4}
-                value={setupConfirm} onChange={e => setSetupConfirm(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={e => e.key === 'Enter' && handleOwnerSetup()} />
-              {setupError && <div className="notice"><span>{setupError}</span></div>}
-              <GlowButton fullWidth onClick={handleOwnerSetup} disabled={settingUp}>
-                {settingUp ? 'Securing workspace...' : 'Create Secure Access'}
-              </GlowButton>
-            </div>
-          </div>
-        </div>
+        </main>
       </div>
     );
   }
 
   if (!session?.valid) {
     return (
-      <div className="login-page">
-        <div className="login-hero-fullbleed" aria-hidden="true">
-          <img src="/wolf-login-team.webp" alt="" />
-          <div className="login-hero-scrim" />
-        </div>
-        <div className="login-aurora" />
-        <div className="login-grid" />
-        <div className="login-shell">
-          <div className="login-brand">
-            <div className="brand-mark">F1</div>
-            <div className="brand-copy">
-              <strong>FEDERAL <span>ONE</span></strong>
-              <small>PRIVATE COLLECTIONS OPERATIONS</small>
-            </div>
+      <div className="matrix-access-page">
+        <MatrixField />
+        <main className={`matrix-access-card ${loginError ? 'has-error' : ''}`}>
+          <div className="matrix-access-pulse"><i /></div>
+          <span className="matrix-access-kicker">ACCESS NODE</span>
+          <div className="matrix-access-form">
+            <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
+            {loginError && <div className="matrix-access-error">{loginError}</div>}
+            <button className="matrix-enter" onClick={() => handleLogin()} disabled={loggingIn}>
+              {loggingIn ? 'VERIFYING…' : 'ENTER'}
+            </button>
           </div>
-          <div className="login-card glass-card">
-            <div className="login-card-visual" aria-hidden="true">
-              <img src="/wolf-agent-momentum.webp" alt="" />
-              <div className="login-card-visual-overlay" />
-              <div className="login-card-visual-caption"><span>FEDERAL ONE</span><strong>ONE PLATFORM. TOTAL CONTROL.</strong><small>Dialer · Clients · Operations</small></div>
-            </div>
-            <div className="login-card-copy">
-              <div className="eyebrow"><ShieldCheck size={12} /> SECURE OPERATIONS ACCESS</div>
-              <h1>
-                <span className="headline-word" style={{ animationDelay: '0.1s' }}>One Platform.</span>
-                <span className="headline-word em" style={{ animationDelay: '0.3s' }}> Total Control.</span>
-              </h1>
-              <p>Your dialer, client intelligence, agent performance, and verified transfers—unified in one private workspace.</p>
-              <div className="login-chips">
-                <span className="login-chip">DIALER</span>
-                <span className="login-chip">CLIENTS</span>
-                <span className="login-chip">OPERATIONS</span>
-              </div>
-            </div>
-            <div className="login-form">
-              <label>SECURE ACCESS PIN</label>
-              <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
-              {loginError && <div className="notice"><span>{loginError}</span></div>}
-              <GlowButton fullWidth onClick={() => handleLogin()} disabled={loggingIn}>
-                {loggingIn ? 'Verifying access...' : 'Enter Federal One'}
-              </GlowButton>
-              <div className="login-foot"><ShieldCheck size={12} /> <span>Private workspace · Authorized personnel only</span></div>
-            </div>
-          </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -1635,12 +1609,12 @@ export default function App() {
   const canControl = session.agent?.role === 'owner';
   const navItems = isOwner
     ? [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'dashboard', label: 'Command', icon: LayoutDashboard },
         { id: 'opportunities', label: 'Opportunities', icon: Users },
-        { id: 'contacts', label: 'Contacts', icon: Search },
-        { id: 'leads', label: 'Leads', icon: Upload },
-        { id: 'calls', label: 'Call Log', icon: Phone },
-        { id: 'saved', label: 'Saved Transfers', icon: Bookmark },
+        { id: 'contacts', label: 'Client Intelligence', icon: Search },
+        { id: 'leads', label: 'Lead Vault', icon: Upload },
+        { id: 'calls', label: 'Call Intelligence', icon: Phone },
+        { id: 'saved', label: 'Transfer Vault', icon: Bookmark },
       ]
     : [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -1649,23 +1623,23 @@ export default function App() {
         { id: 'calls', label: 'Call Now', icon: Flame },
         { id: 'saved', label: 'Saved', icon: Bookmark },
         { id: 'secretary', label: 'Secretary', icon: Send },
-        { id: 'contacts', label: 'Contacts', icon: Search },
+        { id: 'contacts', label: 'Client Intelligence', icon: Search },
       ];
 
   return (
-    <div className="app-shell">
+    <div className="app-shell f1-v2-shell">
       <AnimatedBackground />
       {/* Sidebar */}
       <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand" onClick={handleLogout} title="Click to log out" style={{ cursor: 'pointer' }}>
-          <div className="brand-mark small">F1</div>
+          <div className="brand-mark small">01</div>
           <div className="brand-copy">
-            <strong>FEDERAL <span>ONE</span></strong>
-            <small>{isOwner ? 'ADMIN CONSOLE' : 'AGENT WORKSPACE'}</small>
+            <strong>FEDERAL <span>ONE</span> / 2.0</strong>
+            <small>{isOwner ? 'OPERATIONS GRID' : 'AGENT GRID'}</small>
           </div>
         </div>
-        <div className="sidebar-hero">
-          <img src={HERO_IMAGES[2]} alt="" loading="lazy" />
+        <div className="sidebar-signal" aria-hidden="true">
+          <span>1011010010110100101</span><span>0110011010010110110</span><span>1101001011010011010</span>
         </div>
         <div className="floor-status">
           <span className="live-dot"></span> LIVE FLOOR
@@ -1729,7 +1703,7 @@ export default function App() {
             <Menu size={20} />
           </button>
           <div className="breadcrumbs">
-            <strong>{isOwner ? 'Admin Dashboard' : 'Agent Dashboard'}</strong>
+            <strong>{isOwner ? 'Operations Grid' : 'Agent Grid'}</strong>
             <span>/</span>
             <span>{navItems.find(n => n.id === activeNav)?.label}</span>
           </div>
@@ -1814,6 +1788,22 @@ export default function App() {
             <div className="dialer-gated-banner">
               <Pause size={16} /> <strong>Dialing paused</strong> — 0 agents available. It will resume automatically when an agent goes available.
             </div>
+          )}
+
+          {isOwner && activeNav === 'dashboard' && (
+            <section className="f1-owner-masthead">
+              <div className="f1-owner-heading">
+                <span><Activity size={13} /> FEDERAL ONE / LIVE OPERATIONS</span>
+                <h1>Command the <em>entire floor.</em></h1>
+                <p>Routing, people, intelligence, and verified call evidence—visible from one operational grid.</p>
+              </div>
+              <div className="f1-owner-snapshot">
+                <div><small>SYSTEM</small><strong>{dataHealth.status === 'healthy' ? 'NOMINAL' : dataHealth.status.toUpperCase()}</strong></div>
+                <div><small>AGENTS READY</small><strong>{adminStats?.summary.agents_reachable ?? 0}</strong></div>
+                <div><small>ACTIVE CALLS</small><strong>{adminStats?.agents.reduce((total, agent) => total + (agent.pending_calls || 0), 0) ?? 0}</strong></div>
+                <div><small>CLIENTS QUEUED</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
+              </div>
+            </section>
           )}
 
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
@@ -3632,13 +3622,19 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
 }) {
   return (
     <>
-      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CONTACT DIRECTORY" title="Search Contacts" subtitle="Find contacts from every campaign by name, phone, email, address, or other saved details." />
+      <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CLIENT INTELLIGENCE" title="Client Intelligence" subtitle="Search every saved record, then launch SourceView to research additional agent-reviewed information without an external API." />
       <div className="hero-row">
         <div>
-          <div className="eyebrow"><Search size={12} /> CONTACT DIRECTORY</div>
-          <h2>Search Contacts</h2>
-          <p>Search all historical contacts, including leads, calls, retries, secretary calls, and saved transfers.</p>
+          <div className="eyebrow"><Search size={12} /> UNIFIED CLIENT INDEX</div>
+          <h2>Find anyone in the system.</h2>
+          <p>Search history, open a client, then choose Secretary, Talkroute, or SourceView from the same action sheet.</p>
         </div>
+      </div>
+
+      <div className="sourceview-intro">
+        <div className="sourceview-intro-icon"><Search size={21} /></div>
+        <div><small>FEDERAL ONE SOURCEVIEW</small><strong>Agent-assisted public-source research</strong><p>No lookup API required. Searches open only after an agent selects a client; any verification stays under the agent's control.</p></div>
+        <span>MANUAL + SAVED</span>
       </div>
 
       <div className="panel search-panel">
@@ -3693,11 +3689,6 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                       PRIORITY
                     </span>
                   )}
-                  {contact.is_dnc && (
-                    <span className="queue-badge" style={{ color: '#e8623a', borderColor: '#e8623a' }}>
-                      DNC
-                    </span>
-                  )}
                   {contact.call_queue && (
                     <StatusPill variant={queueToPillVariant(contact.call_queue || 'no_answer')}>
                       {queueLabel(contact.call_queue)}
@@ -3749,7 +3740,6 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                     {contact.transfer_status && contact.transfer_status !== 'none' && <div className="detail-row"><span>Transfer Status:</span><strong>{contact.transfer_status}</strong></div>}
                     {contact.is_completed != null && <div className="detail-row"><span>Call Completed:</span><strong>{contact.is_completed ? 'Yes' : 'No'}</strong></div>}
                     {contact.callback_requested && <div className="detail-row"><span>Callback Requested:</span><strong>Yes</strong></div>}
-                    {contact.is_dnc && <div className="detail-row"><span>Do Not Call:</span><strong>Yes</strong></div>}
                     {contact.is_wrong_number && <div className="detail-row"><span>Wrong Number:</span><strong>Yes</strong></div>}
                     {contact.created_at && <div className="detail-row"><span>Lead Added:</span><strong>{fmtDateTime(contact.created_at)}</strong></div>}
                   </div>
@@ -3776,6 +3766,11 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                       <div className="detail-label">CALL TRANSCRIPT</div>
                       <div className="transcript-text">{contact.transcript}</div>
                     </div>
+                  )}
+                  {(contact.phone || contact.phone_normalized) && (
+                    <button className="contact-intelligence-action" onClick={() => onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone)}>
+                      <Search size={16} /><span><strong>Open Client Action Center</strong><small>Secretary · Talkroute · SourceView</small></span><ChevronDown size={15} />
+                    </button>
                   )}
                   <RecordingPlayer url={contact.recording_url} callId={contact.source === 'call' ? contact.id : undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
                 </div>
@@ -4057,6 +4052,8 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
   const [findingUrl, setFindingUrl] = useState('');
   const [findingNotice, setFindingNotice] = useState('');
   const [savingFinding, setSavingFinding] = useState(false);
+  const [sourceFindings, setSourceFindings] = useState<SourceFinding[]>([]);
+  const [loadingFindings, setLoadingFindings] = useState(false);
   const digits = phone.replace(/\D/g, '');
   const last10 = digits.slice(-10);
   const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
@@ -4069,11 +4066,30 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
   };
 
   const sourceQuery = encodeURIComponent(`"${name}" "${display}"`);
+  const nameQuery = encodeURIComponent(`"${name}"`);
   const sourceLinks = [
-    { label: 'Google', url: `https://www.google.com/search?q=${sourceQuery}` },
-    { label: 'Bing', url: `https://www.bing.com/search?q=${sourceQuery}` },
-    { label: 'DuckDuckGo', url: `https://duckduckgo.com/?q=${sourceQuery}` },
+    { label: 'Exact web match', detail: 'Google', url: `https://www.google.com/search?q=${sourceQuery}` },
+    { label: 'Independent web', detail: 'Bing', url: `https://www.bing.com/search?q=${sourceQuery}` },
+    { label: 'Privacy search', detail: 'DuckDuckGo', url: `https://duckduckgo.com/?q=${sourceQuery}` },
+    { label: 'Address & property', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+address+property+records` },
+    { label: 'Business records', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+business+owner+company` },
+    { label: 'Professional profiles', detail: 'Public web', url: `https://www.google.com/search?q=${nameQuery}+professional+profile` },
   ];
+
+  useEffect(() => {
+    if (!sourceOpen) return;
+    let cancelled = false;
+    setLoadingFindings(true);
+    authFetch<{ findings: SourceFinding[] }>(providerUrl, {
+      body: { action: 'get_source_findings', session_token: sessionToken, client_name: name, client_phone: phone },
+      onUnauthorized,
+    }).then(result => {
+      if (cancelled) return;
+      if (result.ok && result.data) setSourceFindings(result.data.findings || []);
+      else setFindingNotice(result.error || 'Saved results could not be loaded.');
+    }).finally(() => { if (!cancelled) setLoadingFindings(false); });
+    return () => { cancelled = true; };
+  }, [sourceOpen, providerUrl, sessionToken, name, phone, onUnauthorized]);
 
   const savePossibleFinding = async () => {
     const value = findingValue.trim();
@@ -4084,7 +4100,7 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
     }
     setSavingFinding(true);
     setFindingNotice('');
-    const result = await authFetch(providerUrl, {
+    const result = await authFetch<{ finding: SourceFinding }>(providerUrl, {
       body: {
         action: 'save_source_finding', session_token: sessionToken,
         client_name: name, client_phone: phone, source_name: new URL(url).hostname,
@@ -4096,6 +4112,7 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
       setFindingValue('');
       setFindingUrl('');
       setFindingNotice('Saved as a possible match for review.');
+      if (result.data?.finding) setSourceFindings(current => [result.data!.finding, ...current]);
     } else {
       setFindingNotice(result.error || 'Could not save this finding.');
     }
@@ -4142,14 +4159,24 @@ function PhoneActionModal({ name, phone, onClose, onSecretaryCall, placingSecret
         {sourceOpen && (
           <div className="sourceview-panel">
             <div className="sourceview-heading"><div><small>FEDERAL ONE SOURCEVIEW</small><strong>Possible result workspace</strong></div><span>POSSIBLE</span></div>
-            <p>Search opens only when you choose a source. Complete any verification yourself, then save only information you can review.</p>
+            <p>Choose a public-source search. If a site asks for verification, complete it in that site yourself. Federal One never bypasses it and never searches until you click.</p>
             <div className="sourceview-links">
-              {sourceLinks.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer">{source.label} <Search size={13} /></a>)}
+              {sourceLinks.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.label}</strong><small>{source.detail}</small></span><Search size={13} /></a>)}
             </div>
             <label>Information found<input value={findingValue} onChange={event => setFindingValue(event.target.value)} placeholder="Possible address, phone, email, business…" /></label>
             <label>Source link<input value={findingUrl} onChange={event => setFindingUrl(event.target.value)} placeholder="https://…" inputMode="url" /></label>
             <button className="sourceview-save" onClick={savePossibleFinding} disabled={savingFinding}>{savingFinding ? 'Saving…' : 'Save as possible result'}</button>
             {findingNotice && <div className="sourceview-notice">{findingNotice}</div>}
+            <div className="sourceview-saved">
+              <div className="sourceview-saved-head"><strong>Saved possible results</strong><span>{sourceFindings.length}</span></div>
+              {loadingFindings ? <div className="sourceview-loading"><RefreshCw size={13} className="search-spinner" /> Loading saved research…</div> : sourceFindings.length === 0 ? (
+                <div className="sourceview-empty">No possible results saved for this client yet.</div>
+              ) : sourceFindings.map(finding => (
+                <a className="sourceview-finding" key={finding.id} href={finding.source_url} target="_blank" rel="noopener noreferrer">
+                  <div><strong>{finding.finding_value}</strong><small>{finding.source_name} · {finding.match_status || 'possible'}</small></div><Search size={13} />
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>
