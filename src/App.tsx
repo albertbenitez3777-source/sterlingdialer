@@ -13,6 +13,7 @@ import { transferMetricsForWindow, type TransferMetricSummary } from '@/utils/tr
 import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
+import { WhatsUp } from '@/components/WhatsUp';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import { currentInboundHealth } from '@/utils/inbound-health';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
@@ -1753,8 +1754,8 @@ export default function App() {
             <section className="f1-simple-home">
               <div className="f1-simple-welcome">
                 <span><Activity size={13} /> LIVE WORKSPACE</span>
-                <h1>What do you want to do?</h1>
-                <p>Choose one. Federal One keeps the technical details out of your way.</p>
+                <h1>Your operation, live</h1>
+                <p>Calls, team connections, transfer evidence, and reports are below.</p>
               </div>
               <div className="f1-simple-actions">
                 <button onClick={() => setActiveNav('contacts')}><Search size={25} /><span><strong>Find a Client</strong><small>Name, phone, email, address, and more</small></span><ChevronRight size={18} /></button>
@@ -1772,32 +1773,33 @@ export default function App() {
             </section>
           )}
 
-          {isOwner && activeNav === 'system' && teamHealth && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && teamHealth && (
             <section className="f1-team-health" aria-label="System and team health">
               <div className="f1-health-service"><span className="ok" /><div><small>DATABASE</small><strong>Online</strong></div></div>
               <div className="f1-health-service"><span className={teamHealth.services.bland_api_key ? 'ok' : 'bad'} /><div><small>BLAND.AI</small><strong>{teamHealth.services.bland_api_key ? 'Connected' : 'Needs key'}</strong></div></div>
               <div className="f1-health-service"><span className={teamHealth.services.webhook_signature ? 'ok' : 'warn'} /><div><small>WEBHOOK SECURITY</small><strong>{teamHealth.services.webhook_signature ? 'Protected' : 'Needs secret'}</strong></div></div>
               {teamHealth.agents.map(agent => <div className="f1-health-agent" key={agent.id}>
                 <span className={agent.route?.status === 'verified' ? 'ok' : 'warn'} />
-                <div><small>{agent.full_name}</small><strong>{agent.settings?.camera_state === 'connected' ? 'Camera on' : agent.device?.last_seen_at ? 'Connected' : 'Not connected'} · {agent.route?.status === 'verified' ? 'Route ready' : 'Check route'}</strong></div>
+                <div><small>{agent.full_name}</small><strong>{agent.settings?.camera_state === 'connected' ? 'Camera on' : agent.device?.last_seen_at && Date.now() - Date.parse(agent.device.last_seen_at) < 60000 ? 'Connected' : 'Not connected'} · {agent.route?.status === 'verified' ? 'Route ready' : 'Check route'}</strong></div>
               </div>)}
             </section>
           )}
 
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
-          {isOwner && activeNav === 'system' && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && (
             <ProviderQueuePanel providerUrl={PROVIDER_URL} sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
           )}
-          {isOwner && activeNav === 'system' && !adminStats && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && !adminStats && (
             <div className="stats-grid">
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
             </div>
           )}
-          {isOwner && activeNav === 'system' && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && (
             <DataHealthBanner health={dataHealth} />
           )}
-          {isOwner && activeNav === 'system' && adminStats && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && adminStats && (
             <>
+              <details className="f1-all-metrics"><summary>All reported dialer statistics</summary><p>Reported values from the current statistics service. Missing billing amounts are not treated as zero.</p><ReportedMetrics value={adminStats} /></details>
               {/* Compact campaign status card */}
               <div className="campaign-status-card">
                 <div className="campaign-status-left">
@@ -3118,6 +3120,7 @@ export default function App() {
           error={redialModalError}
         />
       )}
+      <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
@@ -4091,8 +4094,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
 
   const startEverywhereSearch = async () => {
     if (startingSearch) return;
-    const firstWindow = window.open('', '_blank');
-    if (firstWindow) firstWindow.opener = null;
+
     setStartingSearch(true);
     setFindingNotice('Preparing every available public search…');
     const result = await authFetch<{ research: { sources: Array<{ id: string; name: string; group: string; url: string }>; known?: { emails: string[]; phones: string[]; addresses: string[]; associates: string[]; records_checked: number } } }>(providerUrl, {
@@ -4106,10 +4108,10 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
     if (result.ok && sources.length) {
       setResearchSources(sources);
       if (result.data?.research?.known) setKnownProfile(result.data.research.known);
-      setFindingNotice(`${sources.length} public searches are ready. The first search opened; use the list below to review the rest.`);
-      if (firstWindow) firstWindow.location.href = sources[0].url;
+      setFindingNotice(`${sources.length} public searches are ready. Use the source links below to open a search yourself. These are search links, not verified findings.`);
+
     } else {
-      firstWindow?.close();
+
       setFindingNotice(result.error || 'Search could not be prepared.');
     }
     setStartingSearch(false);
@@ -4190,4 +4192,13 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
       </div>
     </div>
   );
+}
+
+function ReportedMetrics({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return <span>Not reported</span>;
+  if (typeof value !== 'object') return <span>{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</span>;
+  return <div style={{padding:'8px 12px'}}>{Object.entries(value as Record<string,unknown>).map(([key, item]) => {
+    const label = key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    return item && typeof item === 'object' ? <details key={key}><summary>{label}</summary><ReportedMetrics value={item}/></details> : <div key={key} style={{display:'flex',justifyContent:'space-between',gap:20,padding:'7px 0',borderBottom:'1px solid #ffffff12'}}><span>{label}</span><ReportedMetrics value={item}/></div>;
+  })}</div>;
 }

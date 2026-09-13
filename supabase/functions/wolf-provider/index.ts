@@ -1039,7 +1039,8 @@ Deno.serve(async (req: Request) => {
       // frontend cannot degrade every lookup into an empty search again.
       const rawSearch = typeof search_text === "string" ? search_text : query;
       const searchText = typeof rawSearch === "string" ? rawSearch.trim().slice(0, 250) : "";
-      const { data, error } = await supabase.rpc("search_contacts", { p_search: searchText, p_limit: 50, p_offset: safeOffset });
+      const searchAdmin = ["owner", "administrator"].includes(agent.role);
+      const { data, error } = await supabase.rpc(searchAdmin ? "search_contacts" : "search_contacts_scoped", { p_search: searchText, p_limit: 50, p_offset: safeOffset, ...(!searchAdmin ? { p_agent_id: agent.id } : {}) });
       if (error) return new Response(JSON.stringify({ error: "Search failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const results = data && Array.isArray(data.results) ? data.results : [];
       const total = data?.total ?? results.length;

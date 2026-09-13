@@ -1,3 +1,4 @@
+import { whatsUp } from "./whatsup.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
@@ -92,6 +93,8 @@ Deno.serve(async (req: Request) => {
     if (!verified?.valid || !verified.agent?.id) return json({ error: "Invalid or expired session" }, 401);
     const agent = verified.agent as { id: string; full_name: string; role: string };
     const action = String(body.action || "");
+    const chat = await whatsUp(supabase, agent, body);
+    if (chat) return json(chat.data, chat.status);
 
     if (action === "get_team_status") {
       if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Administrator access required" }, 403);
@@ -120,7 +123,7 @@ Deno.serve(async (req: Request) => {
       if (routeError) return json({ error: "Agent route unavailable" }, 500);
       let clientNotes: unknown[] = [];
       if (activeClient?.contact_key) {
-        const { data } = await supabase.from("federal_one_client_notes").select("id,agent_id,client_name,body,created_at").eq("contact_key", activeClient.contact_key).order("created_at", { ascending: false }).limit(20);
+        const { data } = await supabase.from("federal_one_client_notes").select("id,agent_id,client_name,body,created_at").eq("contact_key", activeClient.contact_key).eq("agent_id", agent.id).order("created_at", { ascending: false }).limit(20);
         clientNotes = data || [];
       }
       return json({ route, settings, messages: (messages || []).reverse(), active_client: activeClient || null, client_notes: clientNotes });
@@ -226,7 +229,8 @@ Deno.serve(async (req: Request) => {
         leadQueries.push(supabase.from("leads").select("id,name,telephone_original,telephone_normalized,address,custom_fields,created_at").eq("telephone_normalized", phoneDigits).limit(50));
         callQueries.push(supabase.from("calls").select("id,consumer_name,consumer_phone,consumer_address,consumer_custom_fields,created_at").eq("consumer_phone", phoneDigits).limit(50));
       }
-      const internalResults = await Promise.all([...leadQueries, ...callQueries]);
+      const researchAdmin = ["owner", "administrator"].includes(agent.role);
+      const internalResults = await Promise.all([...leadQueries.map(query => researchAdmin ? query : query.eq("assigned_agent_id", agent.id)), ...callQueries.map(query => researchAdmin ? query : query.eq("agent_id", agent.id))]);
       const knownRows = new Map<string, Record<string, unknown>>();
       internalResults.forEach(result => (result.data || []).forEach((row: Record<string, unknown>) => knownRows.set(String(row.id), row)));
       const known = collectKnownFields([...knownRows.values()], { phone: clientPhone, email: clientEmail, address: clientAddress });
@@ -241,8 +245,9 @@ Deno.serve(async (req: Request) => {
     if (action === "get_source_findings") {
       const clientName = String(body.client_name || "").trim();
       const clientPhone = String(body.client_phone || "");
-      const { data, error } = await supabase.from("federal_one_source_findings").select("*")
-        .eq("contact_key", contactKey(clientName, clientPhone)).order("created_at", { ascending: false }).limit(100);
+      let findingsQuery = supabase.from("federal_one_source_findings").select("*").eq("contact_key", contactKey(clientName, clientPhone));
+      if (!["owner", "administrator"].includes(agent.role)) findingsQuery = findingsQuery.eq("created_by", agent.id);
+      const { data, error } = await findingsQuery.order("created_at", { ascending: false }).limit(100);
       return error ? json({ error: "Findings could not be loaded" }, 500) : json({ findings: data || [] });
     }
 

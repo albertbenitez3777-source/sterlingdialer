@@ -15,8 +15,10 @@ async function searchCase(body, { authorized = true, fail = false, role = 'agent
     createDbClient: () => ({ rpc: async (name, args) => {
       calls.push({ name, args });
       if (name === 'verify_session') return { data: { valid: authorized, agent: authorized ? { id: 'fixture-agent', role } : null }, error: null };
-      assert.equal(name, 'search_contacts');
-      assert.deepEqual(Object.keys(args).sort(), ['p_limit', 'p_offset', 'p_search']);
+      const admin = ['owner','administrator'].includes(role);
+      assert.equal(name, admin ? 'search_contacts' : 'search_contacts_scoped');
+      assert.deepEqual(Object.keys(args).sort(), admin ? ['p_limit', 'p_offset', 'p_search'] : ['p_agent_id','p_limit', 'p_offset', 'p_search']);
+      if (!admin) assert.equal(args.p_agent_id, 'fixture-agent');
       if (fail) return { data: null, error: { message: 'synthetic failure' } };
       return { data: { results: [{ id: 'fixture-contact', email: 'client@example.test', custom_fields: { email: 'client@example.test', account: 'fixture' } }], total: 1200 }, error: null };
     } }),
@@ -115,4 +117,13 @@ test('opening client intelligence checks internal records before showing public 
   assert.match(app, /Found in Federal One/);
   assert.match(app, /SPOUSE \/ ASSOCIATES/);
   assert.match(app, /Email is always searched/);
+});
+
+test('agent cannot override search ownership in the request', async () => {
+ const r=await searchCase({search_text:'client',agent_id:'another-agent',p_agent_id:'another-agent'});
+ assert.equal(r.status,200);assert.equal(r.calls[1].args.p_agent_id,'fixture-agent');
+});
+test('owner retains whole-directory search',async()=>{
+ const r=await searchCase({search_text:'client'},{role:'owner'});
+ assert.equal(r.status,200);assert.equal(r.calls[1].name,'search_contacts');assert.equal('p_agent_id' in r.calls[1].args,false);
 });
