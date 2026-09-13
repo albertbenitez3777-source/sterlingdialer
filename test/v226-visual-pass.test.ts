@@ -20,18 +20,18 @@ describe('v226 visual pass', () => {
   it('loginTeam path is project-owned', () => { expect(APP_TSC.includes("'/wolf-login-team.webp'")).toBe(true); });
   it('agentMomentum path is project-owned', () => { expect(APP_TSC.includes("'/wolf-agent-momentum.webp'")).toBe(true); });
 
-  // ── 3. Login split-screen visual panel ────────────────────────────────────
-  it('login-card-visual element rendered', () => { expect(APP_TSC.includes('login-card-visual')).toBe(true); });
-  it('login visual caption rendered', () => { expect(APP_TSC.includes('login-card-visual-caption')).toBe(true); });
+  // ── 3. Matrix access environment ───────────────────────────────────────────
+  it('matrix field rendered', () => { expect(APP_TSC.includes('<MatrixField />')).toBe(true); });
+  it('centered access node rendered', () => { expect(APP_TSC.includes('ACCESS NODE')).toBe(true); });
   it('loginTeam image used in login card', () => { expect(APP_TSC.includes('wolf-login-team.webp') || APP_TSC.includes('CINEMATIC_HERO.loginTeam')).toBe(true); });
   it('login-card-visual CSS defined', () => { expect(INDEX_CSS.includes('.login-card-visual')).toBe(true); });
   it('login-card-visual img CSS defined', () => { expect(INDEX_CSS.includes('.login-card-visual img')).toBe(true); });
   it('login-card-visual overlay CSS defined', () => { expect(INDEX_CSS.includes('.login-card-visual-overlay')).toBe(true); });
 
-  // ── 4. Both PIN login screens use the visual panel ────────────────────────
-  it('both login screens have visual panel', () => {
-    const visualCount = (APP_TSC.match(/login-card-visual/g) || []).length;
-    expect(visualCount >= 6).toBe(true);
+  // ── 4. Both PIN screens use the matrix environment ────────────────────────
+  it('both PIN screens have a matrix field', () => {
+    const fieldCount = (APP_TSC.match(/<MatrixField/g) || []).length;
+    expect(fieldCount >= 3).toBe(true);
   });
 
   // ── 5. Agent momentum banner ──────────────────────────────────────────────
@@ -103,7 +103,10 @@ describe('v226 visual pass', () => {
   // ── 14. Auth and safeguards preserved ─────────────────────────────────────
   it('authFetch still used', () => { expect(APP_TSC.includes('authFetch')).toBe(true); });
   it('secretary double-submit guard preserved', () => { expect(APP_TSC.includes('placingSecCall')).toBe(true); });
-  it('search offset ref preserved', () => { expect(APP_TSC.includes('searchOffsetRef')).toBe(true); });
+  it('search pagination hook preserved', () => {
+    const hook = readFileSync(join(PROJECT_ROOT, 'src', 'utils', 'useContactSearch.ts'), 'utf-8');
+    expect(hook.includes('offsetRef')).toBe(true);
+  });
 
   // ── 15. Pagination preserved ──────────────────────────────────────────────
   it('hasMore state preserved', () => { expect(APP_TSC.includes('hasMore')).toBe(true); });
