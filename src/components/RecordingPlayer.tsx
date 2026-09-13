@@ -64,6 +64,9 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
       if (controller.signal.aborted || activeKey.current !== sourceKey) return;
 
       if (result.ok && result.data?.recording_url) {
+        setError(false);
+        setRecoveryFailed(false);
+        setRecoveryMessage('');
         setRecoveredKey(sourceKey);
         setRecoveredUrl(result.data.recording_url);
       } else {
@@ -89,13 +92,14 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
   }, [activeUrl, callId, sessionToken, recoveryFailed, recovering, attemptRecovery]);
 
   const handleAudioError = useCallback(() => {
+    if (recovering) return;
     setLoading(false);
     if (!attemptedRecovery.current && callId && sessionToken) {
       attemptRecovery();
     } else {
       setError(true);
     }
-  }, [callId, sessionToken, attemptRecovery]);
+  }, [callId, sessionToken, attemptRecovery, recovering]);
 
   const handleManualRetry = useCallback(() => {
     attemptedRecovery.current = false;

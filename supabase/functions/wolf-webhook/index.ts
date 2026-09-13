@@ -47,6 +47,7 @@ async function uploadRecordingToStorage(callId: string, audioBlob: Blob, content
       method: "POST",
       headers: {
         "Authorization": `Bearer ${serviceRoleKey}`,
+        "apikey": serviceRoleKey,
         "Content-Type": contentType,
         "x-upsert": "true",
       },
@@ -65,7 +66,7 @@ async function downloadAndStoreRecording(callId: string, blandCallId: string): P
   if (!blandApiKey || !blandCallId) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const recRes = await fetch(`https://api.bland.ai/v1/calls/${blandCallId}/recording`, {
+      const recRes = await fetch(`https://api.bland.ai/v1/recordings/${blandCallId}`, {
         headers: { "authorization": blandApiKey },
       });
       if (recRes.ok) {

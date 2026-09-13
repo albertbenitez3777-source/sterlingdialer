@@ -2939,6 +2939,8 @@ RULES — follow exactly, no exceptions:
         });
       }
 
+      await supabase.from("audit_logs").insert({ actor_id: null, action: "recording_recovery_requested", entity_type: recordingSource, entity_id: call_id, metadata: { agent_id: agent.id,} });
+
       // Fetch the call row — verify ownership or owner role
       const { data: callRow, error: callErr } = await supabase
         .from(recordingSource)
@@ -2947,6 +2949,7 @@ RULES — follow exactly, no exceptions:
         .maybeSingle();
 
       if (callErr || !callRow) {
+        await supabase.from("audit_logs").insert({ actor_id: null, action: "recording_recovery_failed", entity_type: recordingSource, entity_id: call_id, metadata: { agent_id: agent.id, stage: "lookup", code: callErr?.code || "missing" } });
         return new Response(JSON.stringify({ error: "Call not found" }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -2976,7 +2979,9 @@ RULES — follow exactly, no exceptions:
       // Try fetching recording from Bland (2 strategies: /recording endpoint, then detail fallback)
       let audioBlob: Blob | null = null;
       let contentType = "audio/mpeg";
+      const recordingChecks: Array<Record<string, unknown>> = [];
       const readAudio = async (response: Response): Promise<boolean> => {
+        recordingChecks.push({ stage: "audio", status: response.status, type: response.headers.get("content-type") });
         if (!response.ok) return false;
         const type = response.headers.get("content-type") || "";
         if (!type.includes("audio/") && !type.includes("octet-stream")) return false;
@@ -2992,7 +2997,10 @@ RULES — follow exactly, no exceptions:
         try { parsed = new URL(value); } catch { return false; }
         if (parsed.protocol !== "https:") return false;
         const providerHost = parsed.hostname === "api.bland.ai";
-        if (!providerHost && parsed.hostname !== "bland-voicemail-storage.s3.amazonaws.com") return false;
+        if (!providerHost && parsed.hostname !== "bland-voicemail-storage.s3.amazonaws.com") {
+          recordingChecks.push({ stage: "host", host: parsed.hostname });
+          return false;
+        }
         return readAudio(await fetch(parsed.href, {
           headers: providerHost ? { authorization: blandApiKey } : {},
           signal: AbortSignal.timeout(15000),
@@ -3001,10 +3009,11 @@ RULES — follow exactly, no exceptions:
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const recRes = await fetch(`https://api.bland.ai/v1/calls/${blandCallId}/recording`, {
+          const recRes = await fetch(`https://api.bland.ai/v1/recordings/${blandCallId}`, {
             headers: { "authorization": blandApiKey },
             signal: AbortSignal.timeout(15000),
           });
+          recordingChecks.push({ stage: "provider", status: recRes.status, type: recRes.headers.get("content-type") });
           if (recRes.ok) {
             const ct = recRes.headers.get("content-type") || "";
             if (ct.includes("json")) {
@@ -3031,6 +3040,7 @@ RULES — follow exactly, no exceptions:
       }
 
       if (!audioBlob || audioBlob.size === 0) {
+        await supabase.from("audit_logs").insert({ actor_id: null, action: "recording_recovery_failed", entity_type: recordingSource, entity_id: call_id, metadata: { agent_id: agent.id, checks: recordingChecks } });
         return new Response(JSON.stringify({ error: "Recording not available from provider" }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -3043,6 +3053,7 @@ RULES — follow exactly, no exceptions:
         method: "POST",
         headers: {
           "authorization": `Bearer ${serviceRoleKey}`,
+          "apikey": serviceRoleKey,
           "Content-Type": contentType,
           "x-upsert": "true",
         },
@@ -3050,6 +3061,8 @@ RULES — follow exactly, no exceptions:
       });
 
       if (!uploadRes.ok) {
+        const storageError = await uploadRes.json().catch(() => ({}));
+        await supabase.from("audit_logs").insert({ actor_id: null, action: "recording_recovery_failed", entity_type: recordingSource, entity_id: call_id, metadata: { agent_id: agent.id, checks: recordingChecks, storage_status: uploadRes.status, storage_error: storageError.message || storageError.error } });
         return new Response(JSON.stringify({ error: "Failed to store recording" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
