@@ -212,8 +212,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    await killStaleCalls(sql);
-
     const campaignRows = await sql`SELECT state, provider_call_limit, started_at FROM campaigns ORDER BY created_at DESC LIMIT 1`;
     const campaign = campaignRows[0] as Record<string, unknown> | undefined;
 
@@ -222,6 +220,9 @@ Deno.serve(async (req: Request) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Provider reconciliation is call-work and must never run while stopped.
+    await killStaleCalls(sql);
 
     if (!blandApiKey) {
       return new Response(JSON.stringify({ stopped: true, reason: "No BLAND_API_KEY" }), {
