@@ -22,55 +22,47 @@ const clean = (value: unknown, max = 240) => String(value || "").trim().slice(0,
 const q = (value: string) => encodeURIComponent(value);
 
 function buildResearchSources(name: string, phone: string, email: string, address: string) {
-  const exact = [`"${name}"`, phone ? `"${phone}"` : "", email ? `"${email}"` : "", address ? `"${address}"` : ""].filter(Boolean).join(" ");
-  const identity = [`"${name}"`, phone || email || address].filter(Boolean).join(" ");
-
   const [first = "", ...rest] = name.split(/\s+/);
   const last = rest.pop() ?? "";
   const ttNameSlug = first && last ? `${first}-${last}` : name.replace(/\s+/g, "-");
   const digits = phone.replace(/\D/g, "");
   const ttPhone = digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}` : "";
   const ttAddress = address ? address.replace(/[,#.]+/g, "").replace(/\s+/g, "-") : "";
+  const exact = [`"${name}"`, phone ? `"${phone}"` : "", address ? `"${address}"` : "", email ? `"${email}"` : ""].filter(Boolean).join(" ");
+  const addrParts = address ? address.replace(/[,]+/g, " ").replace(/\s+/g, " ").trim().split(" ") : [];
+  const cityStateZip = addrParts.length >= 3 ? addrParts.slice(-3).join("") : "";
 
-  const sources = [
-    { id: "google", name: "Google", group: "Web", url: `https://www.google.com/search?q=${q(exact)}` },
-    { id: "bing", name: "Bing", group: "Web", url: `https://www.bing.com/search?q=${q(exact)}` },
-    { id: "duckduckgo", name: "DuckDuckGo", group: "Web", url: `https://duckduckgo.com/?q=${q(exact)}` },
-    { id: "brave", name: "Brave Search", group: "Web", url: `https://search.brave.com/search?q=${q(exact)}` },
-    { id: "profiles", name: "Professional profiles", group: "Web", url: `https://www.google.com/search?q=${q(`${identity} professional profile`)}` },
+  const sources: Array<{ id: string; name: string; group: string; url: string }> = [];
 
-    { id: "phone", name: "Phone match", group: "Identity", url: `https://www.google.com/search?q=${q(phone ? `"${phone}"` : identity)}` },
-    { id: "email", name: "Find email", group: "Email", url: `https://www.google.com/search?q=${q(email ? `"${email}"` : `"${name}" ${address || phone} email contact`)}` },
-    { id: "email_bing", name: "Find email on Bing", group: "Email", url: `https://www.bing.com/search?q=${q(email ? `"${email}"` : `"${name}" ${address || phone} email`)}` },
+  sources.push({ id: "tt_name", name: "That's Them (Name)", group: "That's Them", url: `https://thatsthem.com/name/${encodeURIComponent(ttNameSlug)}` });
+  if (ttPhone) sources.push({ id: "tt_phone", name: "That's Them (Phone)", group: "That's Them", url: `https://thatsthem.com/phone/${ttPhone}` });
+  if (ttAddress) sources.push({ id: "tt_address", name: "That's Them (Address)", group: "That's Them", url: `https://thatsthem.com/address/${encodeURIComponent(ttAddress)}` });
+  if (email) sources.push({ id: "tt_email", name: "That's Them (Email)", group: "That's Them", url: `https://thatsthem.com/email/${encodeURIComponent(email)}` });
 
-    { id: "address", name: "Previous addresses", group: "History", url: `https://www.google.com/search?q=${q(`"${name}" previous address property records ${address || ""}`)}` },
-    { id: "phones", name: "Current and old phones", group: "History", url: `https://www.google.com/search?q=${q(`${identity} phone telephone mobile`)}` },
-    { id: "emails_history", name: "Other emails", group: "History", url: `https://www.google.com/search?q=${q(`"${name}" email ${phone || address || ""}`)}` },
-    { id: "family", name: "Spouse and relatives", group: "Relationships", url: `https://www.google.com/search?q=${q(`"${name}" spouse relatives family associates ${address || phone || ""}`)}` },
+  sources.push({ id: "google_exact", name: "Google exact", group: "Google Searches", url: `https://www.google.com/search?q=${q(exact)}` });
+  sources.push({ id: "google_prev_addr", name: "Google previous addresses", group: "Google Searches", url: `https://www.google.com/search?q=${q(`"${name}" "previous address" OR formerly OR "used to live" OR "property records" ${address || ""}`)}` });
+  sources.push({ id: "google_emails", name: "Google emails", group: "Google Searches", url: `https://www.google.com/search?q=${q(`"${name}" ${address || phone || ""} ${email || `"@gmail" OR "@yahoo" OR "@icloud" contact`}`)}` });
+  sources.push({ id: "google_spouse", name: "Google spouse / relatives", group: "Google Searches", url: `https://www.google.com/search?q=${q(`"${name}" spouse OR wife OR husband OR married OR relative OR associate ${address || phone || ""}`)}` });
 
-    { id: "tt_name", name: "ThatsThem (Name)", group: "People Search", url: `https://thatsthem.com/name/${encodeURIComponent(ttNameSlug)}` },
-    { id: "tps_name", name: "TruePeopleSearch", group: "People Search", url: `https://www.truepeoplesearch.com/results?name=${q(name)}` },
-    { id: "fps_name", name: "FastPeopleSearch", group: "People Search", url: `https://www.fastpeoplesearch.com/name/${q(ttNameSlug)}` },
-    { id: "ftn_name", name: "FamilyTreeNow", group: "People Search", url: `https://www.familytreenow.com/search/people?first=${q(first)}&last=${q(last)}` },
-    { id: "spf_name", name: "SearchPeopleFree", group: "People Search", url: `https://www.searchpeoplefree.com/find/${q(ttNameSlug)}` },
-    { id: "cbc_name", name: "CyberBackgroundChecks", group: "People Search", url: `https://www.cyberbackgroundchecks.com/people/${q(ttNameSlug)}` },
+  sources.push({ id: "bing", name: "Bing", group: "Web", url: `https://www.bing.com/search?q=${q(exact)}` });
+  sources.push({ id: "duckduckgo", name: "DuckDuckGo", group: "Web", url: `https://duckduckgo.com/?q=${q(exact)}` });
+  sources.push({ id: "brave", name: "Brave Search", group: "Web", url: `https://search.brave.com/search?q=${q(exact)}` });
 
-    { id: "business", name: "Business records", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} business company officer`)}` },
-    { id: "licenses", name: "Public licenses", group: "Records", url: `https://www.google.com/search?q=${q(`${identity} site:.gov license`)}` },
-    { id: "courtlistener", name: "CourtListener", group: "Records", url: `https://www.courtlistener.com/?q=${q(name)}&type=r` },
-    { id: "sec", name: "SEC EDGAR", group: "Records", url: `https://www.sec.gov/edgar/search/#/q=${q(name)}` },
-  ];
+  const tpsUrl = cityStateZip
+    ? `https://www.truepeoplesearch.com/results?name=${q(name)}&citystatezip=${q(cityStateZip)}`
+    : `https://www.truepeoplesearch.com/results?name=${q(name)}`;
+  sources.push({ id: "tps_name", name: "TruePeopleSearch", group: "People Search", url: tpsUrl });
+  if (digits.length === 10) sources.push({ id: "tps_phone", name: "TruePeopleSearch (Phone)", group: "People Search", url: `https://www.truepeoplesearch.com/results?phoneno=${digits}` });
+  sources.push({ id: "fps_name", name: "FastPeopleSearch", group: "People Search", url: `https://www.fastpeoplesearch.com/name/${q(ttNameSlug)}` });
+  if (digits.length === 10) sources.push({ id: "fps_phone", name: "FastPeopleSearch (Phone)", group: "People Search", url: `https://www.fastpeoplesearch.com/${digits}` });
+  sources.push({ id: "ftn_name", name: "FamilyTreeNow", group: "People Search", url: `https://www.familytreenow.com/search/people?first=${q(first)}&last=${q(last)}` });
+  sources.push({ id: "spf_name", name: "SearchPeopleFree", group: "People Search", url: `https://www.searchpeoplefree.com/find/${q(ttNameSlug)}` });
+  sources.push({ id: "cbc_name", name: "CyberBackgroundChecks", group: "People Search", url: `https://www.cyberbackgroundchecks.com/people/${q(ttNameSlug)}` });
 
-  if (ttPhone) {
-    sources.push({ id: "tt_phone", name: "ThatsThem (Phone)", group: "People Search", url: `https://thatsthem.com/phone/${ttPhone}` });
-    sources.push({ id: "fps_phone", name: "FastPeopleSearch (Phone)", group: "People Search", url: `https://www.fastpeoplesearch.com/${digits}` });
-  }
-  if (ttAddress) {
-    sources.push({ id: "tt_address", name: "ThatsThem (Address)", group: "People Search", url: `https://thatsthem.com/address/${encodeURIComponent(ttAddress)}` });
-  }
-  if (email) {
-    sources.push({ id: "tt_email", name: "ThatsThem (Email)", group: "People Search", url: `https://thatsthem.com/email/${encodeURIComponent(email)}` });
-  }
+  sources.push({ id: "courtlistener", name: "CourtListener", group: "Records", url: `https://www.courtlistener.com/?q=${q(name)}&type=r` });
+  sources.push({ id: "sec", name: "SEC EDGAR", group: "Records", url: `https://www.sec.gov/edgar/search/#/q=${q(name)}` });
+  sources.push({ id: "licenses", name: "Public licenses", group: "Records", url: `https://www.google.com/search?q=${q(`"${name}" ${phone || address || ""} site:.gov license`)}` });
+  sources.push({ id: "business", name: "Business records", group: "Records", url: `https://www.google.com/search?q=${q(`"${name}" ${phone || address || ""} business company officer`)}` });
 
   return sources;
 }

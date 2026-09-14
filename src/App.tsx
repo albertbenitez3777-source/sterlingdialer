@@ -491,6 +491,7 @@ export default function App() {
   // Contact search
   const contactSearch = useContactSearch<ContactResult>(PROVIDER_URL, sessionToken, () => atomicLogoutRef.current?.());
   const [expandedContact, setExpandedContact] = useState<string | null>(null);
+  const [extraInfoPrefill, setExtraInfoPrefill] = useState<{ name?: string; phone?: string; address?: string; email?: string } | null>(null);
 
   // Active incoming transfers (agent view)
   const [activeTransfers, setActiveTransfers] = useState<ActiveTransfer[]>([]);
@@ -3071,7 +3072,7 @@ export default function App() {
           )}
 
           {activeNav === 'extra' && (
-            <ExtraInfo sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
+            <ExtraInfo sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} prefill={extraInfoPrefill} />
           )}
         </div>
       </div>
@@ -3725,6 +3726,9 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                       <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Talkroute · Find More Information</small></span><ChevronDown size={15} />
                     </button>
                   )}
+                  <button className="contact-intelligence-action extra-info-card-btn" onClick={() => { setExtraInfoPrefill({ name: contact.consumer_name || '', phone: contact.phone_normalized || contact.phone || '', address: contact.address || '', email: contactEmails(contact)[0] || '' }); setActiveNav('extra'); }}>
+                    <FileText size={16} /><span><strong>Extra Info</strong><small>That's Them · People Search · Save findings</small></span><ChevronDown size={15} />
+                  </button>
                   <RecordingPlayer url={contact.recording_url} callId={contact.source === 'call' ? contact.id : undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
                 </div>
               )}
@@ -4161,7 +4165,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
             </div>}
             <button className="sourceview-search-all" onClick={() => void startEverywhereSearch()} disabled={startingSearch}><Search size={15} /> {startingSearch ? 'Searching…' : 'Refresh saved information and links'}</button>
             <div className="sourceview-links">
-              {researchSources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer"><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
+              {[...researchSources].sort((a, b) => { const p = (s: typeof a) => s.group === "That's Them" ? 0 : s.group === 'Google Searches' ? 1 : 2; return p(a) - p(b); }).map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" className={source.group === "That's Them" ? 'sourceview-thatsthem' : ''}><span><strong>{source.name}</strong><small>{source.group} · ready</small></span><Search size={13} /></a>)}
             </div>
             {findingNotice && <div className="sourceview-notice">{findingNotice}</div>}
             <div className="sourceview-saved">
