@@ -171,3 +171,122 @@ for (const [options, status] of [[{ unavailable: true }, 409], [{ duplicate: tru
     assert.equal(h.requests.length, 0);
   });
 }
+
+const sessionFailureCases = [
+  {
+    "expected": false,
+    "name": "feature 401 with valid session",
+    "status": 401,
+    "verify": {
+      "valid": true
+    }
+  },
+  {
+    "expected": true,
+    "name": "confirmed expired session",
+    "status": 401,
+    "verify": {
+      "valid": false
+    }
+  },
+  {
+    "expected": false,
+    "name": "verification outage",
+    "status": 401,
+    "verify": {},
+    "verifyStatus": 503
+  },
+  {
+    "expected": false,
+    "name": "verification network failure",
+    "status": 401,
+    "verifyThrows": true
+  },
+  {
+    "expected": false,
+    "name": "malformed verification",
+    "status": 401,
+    "verify": {}
+  },
+  {
+    "expected": false,
+    "name": "older response after new login",
+    "saved": "new-session",
+    "status": 401,
+    "verify": {
+      "valid": false
+    }
+  },
+  {
+    "expected": false,
+    "name": "already signed out",
+    "saved": null,
+    "status": 401,
+    "verify": {
+      "valid": false
+    }
+  },
+  {
+    "expected": false,
+    "name": "original server outage",
+    "status": 503
+  },
+  {
+    "expected": false,
+    "name": "original network outage",
+    "originalThrows": true
+  },
+  {
+    "expected": false,
+    "name": "successful response",
+    "ok": true,
+    "status": 200
+  },
+  {
+    "expected": false,
+    "name": "verification parse failure",
+    "parseThrows": true,
+    "status": 401
+  },
+  {
+    "cancel": true,
+    "expected": false,
+    "name": "cancelled during verification",
+    "status": 401,
+    "verify": {
+      "valid": false
+    }
+  }
+];
+for (const scenario of sessionFailureCases) {
+  test('session retention: ' + scenario.name, async () => {
+    let requests = 0, logouts = 0;
+    const controller = new AbortController();
+    const context = vm.createContext({
+      AbortController, setTimeout, clearTimeout,
+      localStorage: { getItem: () => Object.hasOwn(scenario, 'saved') ? scenario.saved : 'old-session' },
+      fetch: async (url, options) => {
+        requests++;
+        if (requests === 1) {
+          if (scenario.originalThrows) throw new Error('offline');
+          return new Response('{"ok":true}', { status: scenario.status });
+        }
+        assert.equal(url, 'https://example.invalid/functions/v1/wolf-auth');
+        assert.deepEqual(JSON.parse(options.body), { action: 'verify', session_token: 'old-session' });
+        if (scenario.verifyThrows) throw new Error('offline');
+        if (scenario.cancel) controller.abort();
+        return new Response(scenario.parseThrows ? 'invalid-json' : JSON.stringify(scenario.verify), { status: scenario.verifyStatus || 200 });
+      },
+    });
+    const source = stripTypeScriptTypes(read('src/utils/auth-fetch.ts')).replace('export async function', 'async function');
+    new vm.Script(source + '\nglobalThis.run = authFetch;').runInContext(context);
+    const result = await context.run('https://example.invalid/functions/v1/wolf-provider', {
+      body: { action: 'get_admin_stats', session_token: 'old-session' },
+      signal: controller.signal, onUnauthorized: () => { logouts++; },
+    });
+    assert.equal(result.loggedOut, scenario.expected);
+    assert.equal(logouts, scenario.expected ? 1 : 0);
+    assert.equal(result.ok, !!scenario.ok);
+    assert.equal(requests, scenario.status === 401 ? 2 : 1);
+  });
+}
