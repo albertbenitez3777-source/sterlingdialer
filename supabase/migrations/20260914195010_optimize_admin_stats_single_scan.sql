@@ -1,0 +1,58 @@
+CREATE OR REPLACE FUNCTION public.get_admin_stats()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+DECLARE
+v_et timestamptz;
+v_wk timestamptz;
+v_c  record;
+v_ft jsonb; v_fw jsonb; v_fa jsonb;
+v_er jsonb;
+v_al jsonb[] := ARRAY[]::jsonb[];
+v_ag record;
+v_su jsonb;
+BEGIN
+v_et := date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York';
+v_wk := now() - interval '7 days';
+SELECT * INTO v_c FROM campaigns ORDER BY created_at DESC LIMIT 1;
+
+SELECT
+  jsonb_build_object('calls_attempted',count(*) FILTER(WHERE call_direction='outbound' AND provider_call_id IS NOT NULL AND provider_call_id<>''),'live_humans_reached',count(*) FILTER(WHERE is_live_human),'transfers_requested',count(*) FILTER(WHERE queue='fire_transfer' OR transfer_requested_at IS NOT NULL),'talkroute_answered',count(*) FILTER(WHERE talkroute_answered),'bridge_confirmed',count(*) FILTER(WHERE bridge_confirmed),'likely_real_conversation',count(*) FILTER(WHERE bridge_confirmed AND duration_seconds>=45),'total_minutes',round(COALESCE(sum(duration_seconds),0)::numeric/60,1),'productive_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE bridge_confirmed),0)::numeric/60,1),'wasted_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE queue IN('no_answer','voice_message') OR NOT is_live_human),0)::numeric/60,1),'machines_detected',count(*) FILTER(WHERE queue='voice_message'),'no_answer_count',count(*) FILTER(WHERE queue='no_answer'),'human_drop_count',count(*) FILTER(WHERE queue='human_drop'),'fire_transfer_count',count(*) FILTER(WHERE queue='fire_transfer'),'pending_count',count(*) FILTER(WHERE queue='pending')),
+  jsonb_build_object('calls_attempted',count(*) FILTER(WHERE created_at>=v_et AND call_direction='outbound' AND provider_call_id IS NOT NULL AND provider_call_id<>''),'live_humans_reached',count(*) FILTER(WHERE created_at>=v_et AND is_live_human),'transfers_requested',count(*) FILTER(WHERE created_at>=v_et AND(queue='fire_transfer' OR transfer_requested_at IS NOT NULL)),'talkroute_answered',count(*) FILTER(WHERE created_at>=v_et AND talkroute_answered),'bridge_confirmed',count(*) FILTER(WHERE created_at>=v_et AND bridge_confirmed),'likely_real_conversation',count(*) FILTER(WHERE created_at>=v_et AND bridge_confirmed AND duration_seconds>=45),'total_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_et),0)::numeric/60,1),'productive_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_et AND bridge_confirmed),0)::numeric/60,1),'wasted_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_et AND(queue IN('no_answer','voice_message') OR NOT is_live_human)),0)::numeric/60,1),'machines_detected',count(*) FILTER(WHERE created_at>=v_et AND queue='voice_message'),'no_answer_count',count(*) FILTER(WHERE created_at>=v_et AND queue='no_answer'),'human_drop_count',count(*) FILTER(WHERE created_at>=v_et AND queue='human_drop'),'fire_transfer_count',count(*) FILTER(WHERE created_at>=v_et AND queue='fire_transfer'),'pending_count',count(*) FILTER(WHERE created_at>=v_et AND queue='pending')),
+  jsonb_build_object('calls_attempted',count(*) FILTER(WHERE created_at>=v_wk AND call_direction='outbound' AND provider_call_id IS NOT NULL AND provider_call_id<>''),'live_humans_reached',count(*) FILTER(WHERE created_at>=v_wk AND is_live_human),'transfers_requested',count(*) FILTER(WHERE created_at>=v_wk AND(queue='fire_transfer' OR transfer_requested_at IS NOT NULL)),'talkroute_answered',count(*) FILTER(WHERE created_at>=v_wk AND talkroute_answered),'bridge_confirmed',count(*) FILTER(WHERE created_at>=v_wk AND bridge_confirmed),'likely_real_conversation',count(*) FILTER(WHERE created_at>=v_wk AND bridge_confirmed AND duration_seconds>=45),'total_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_wk),0)::numeric/60,1),'productive_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_wk AND bridge_confirmed),0)::numeric/60,1),'wasted_minutes',round(COALESCE(sum(duration_seconds) FILTER(WHERE created_at>=v_wk AND(queue IN('no_answer','voice_message') OR NOT is_live_human)),0)::numeric/60,1),'machines_detected',count(*) FILTER(WHERE created_at>=v_wk AND queue='voice_message'),'no_answer_count',count(*) FILTER(WHERE created_at>=v_wk AND queue='no_answer'),'human_drop_count',count(*) FILTER(WHERE created_at>=v_wk AND queue='human_drop'),'fire_transfer_count',count(*) FILTER(WHERE created_at>=v_wk AND queue='fire_transfer'),'pending_count',count(*) FILTER(WHERE created_at>=v_wk AND queue='pending'))
+INTO v_fa, v_ft, v_fw FROM calls;
+
+SELECT get_recent_errors(20) INTO v_er;
+
+v_su := jsonb_build_object(
+  'campaign_state',COALESCE(v_c.state,'idle'),'dialer_activated',COALESCE(v_c.dialer_activated,false),
+  'concurrency',COALESCE(v_c.concurrency,1),'provider_call_limit',COALESCE(v_c.provider_call_limit,100),
+  'daily_call_limit',v_c.daily_call_limit,'daily_minute_cap',v_c.daily_call_limit,
+  'leads_remaining',(SELECT count(*) FROM leads WHERE status='new'),
+  'calls_attempted_today',(v_ft->>'calls_attempted')::int,
+  'live_humans_today',(v_ft->>'live_humans_reached')::int,
+  'human_drops_today',(v_ft->>'human_drop_count')::int,
+  'currently_pending',(v_ft->>'pending_count')::int,
+  'active_agent_count',(SELECT count(*) FROM agents WHERE status='active' AND NOT is_owner),
+  'logged_in_count',(SELECT count(*) FROM auth_sessions WHERE expires_at>now()),
+  'currently_receiving',(SELECT count(*) FROM agents WHERE status='active' AND NOT is_owner AND available_for_transfer)
+);
+
+FOR v_ag IN SELECT id,full_name,role,status,available_for_transfer,active_for_dialer,dialer_concurrency,bland_number,talkroute_number,is_owner,agent_direct_number FROM agents WHERE status='active' ORDER BY is_owner DESC,full_name
+LOOP
+  v_al := array_append(v_al, jsonb_build_object(
+    'id',v_ag.id,'full_name',v_ag.full_name,'role',v_ag.role,'status',v_ag.status,
+    'available_for_transfer',v_ag.available_for_transfer,'active_for_dialer',v_ag.active_for_dialer,
+    'dialer_concurrency',v_ag.dialer_concurrency,'bland_number',v_ag.bland_number,
+    'talkroute_number',v_ag.talkroute_number,'is_owner',v_ag.is_owner,
+    'agent_direct_number',v_ag.agent_direct_number,
+    'calls_today',(SELECT count(*) FROM calls c WHERE c.agent_id=v_ag.id AND c.created_at>=v_et AND c.call_direction='outbound'),
+    'humans_today',(SELECT count(*) FROM calls c WHERE c.agent_id=v_ag.id AND c.created_at>=v_et AND c.is_live_human),
+    'transfers_today',(SELECT count(*) FROM calls c WHERE c.agent_id=v_ag.id AND c.created_at>=v_et AND c.bridge_confirmed),
+    'calls_all_time',(SELECT count(*) FROM calls c WHERE c.agent_id=v_ag.id AND c.call_direction='outbound'),
+    'transfers_all_time',(SELECT count(*) FROM calls c WHERE c.agent_id=v_ag.id AND c.bridge_confirmed)
+  ));
+END LOOP;
+
+RETURN jsonb_build_object('summary',v_su,'funnel_today',v_ft,'funnel_week',v_fw,'funnel_all',v_fa,'errors',v_er,'agents',to_jsonb(v_al));
+END;
+$fn$;
