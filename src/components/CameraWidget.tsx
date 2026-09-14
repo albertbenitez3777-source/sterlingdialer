@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, CameraOff, Minimize2, Move, Users, X } from 'lucide-react';
+import { Camera, CameraOff, Minimize2, Users, X } from 'lucide-react';
 
 type CamState = 'prompt' | 'requesting' | 'active' | 'denied' | 'error';
 
@@ -16,10 +16,12 @@ interface AgentCam {
   full_name: string;
   camera_on: boolean;
   last_frame?: string | null;
+  updated_at?: string;
 }
 
 const FRAME_INTERVAL = 3000;
 const POLL_INTERVAL = 3000;
+const STALE_THRESHOLD = 12_000;
 
 function captureFrame(video: HTMLVideoElement): string | null {
   if (!video.videoWidth) return null;
@@ -32,12 +34,31 @@ function captureFrame(video: HTMLVideoElement): string | null {
   return canvas.toDataURL('image/jpeg', 0.4).split(',')[1] || null;
 }
 
+function isStale(updatedAt?: string): boolean {
+  if (!updatedAt) return true;
+  return Date.now() - new Date(updatedAt).getTime() > STALE_THRESHOLD;
+}
+
+function reportSync(providerUrl: string, sessionToken: string, on: boolean) {
+  try {
+    const body = JSON.stringify({ action: 'camera_status', session_token: sessionToken, camera_on: on });
+    if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon(providerUrl, blob);
+    } else {
+      fetch(providerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+    }
+  } catch { /* best effort */ }
+}
+
 export default function CameraWidget({ isOwner, agentId, agentName, sessionToken, providerUrl }: Props) {
   const [cam, setCam] = useState<CamState>('prompt');
   const [minimized, setMinimized] = useState(false);
   const [agents, setAgents] = useState<AgentCam[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const camRef = useRef(cam);
+  camRef.current = cam;
 
   const attachStream = useCallback((el: HTMLVideoElement | null) => {
     if (el && streamRef.current) el.srcObject = streamRef.current;
@@ -53,6 +74,7 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     } catch { /* best-effort */ }
   }, [providerUrl, sessionToken]);
 
+  // Periodically capture + upload frames
   useEffect(() => {
     if (cam !== 'active') return;
     const iv = setInterval(() => {
@@ -83,7 +105,26 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     report(false);
   }, [report]);
 
-  useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
+  // Cleanup on unmount: stop tracks + notify server
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      if (camRef.current === 'active') {
+        reportSync(providerUrl, sessionToken, false);
+      }
+    };
+  }, [providerUrl, sessionToken]);
+
+  // Notify server on tab close / navigate away
+  useEffect(() => {
+    const handler = () => {
+      if (camRef.current === 'active') {
+        reportSync(providerUrl, sessionToken, false);
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [providerUrl, sessionToken]);
 
   // Admin: always poll for agent feeds
   useEffect(() => {
@@ -104,17 +145,20 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     return () => { alive = false; clearInterval(iv); };
   }, [isOwner, providerUrl, sessionToken]);
 
+  // For admin counts, treat stale agents as offline
+  const isAgentLive = (a: AgentCam) => a.camera_on && !isStale(a.updated_at);
+
   // ── Minimized state (both roles) ──
   if (minimized) {
     return (
       <button className="cam-minimized" onClick={() => setMinimized(false)} title="Show camera">
         <Camera size={16} />
-        {isOwner && <span className="cam-minimized-count">{agents.filter(a => a.camera_on).length}</span>}
+        {isOwner && <span className="cam-minimized-count">{agents.filter(isAgentLive).length}</span>}
       </button>
     );
   }
 
-  // ── Own camera tile (shared between admin grid and agent widget) ──
+  // ── Own camera tile ──
   const ownCameraTile = (
     <div className="cam-agent-card self">
       <div className="cam-agent-vid">
@@ -153,29 +197,32 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
         <div className="cam-admin-hdr">
           <Users size={16} />
           <h3>Team Cameras</h3>
-          <span className="cam-admin-online">{agents.filter(a => a.camera_on).length} online</span>
+          <span className="cam-admin-online">{agents.filter(isAgentLive).length} online</span>
           <button onClick={() => setMinimized(true)} title="Minimize"><Minimize2 size={14} /></button>
         </div>
         <div className="cam-admin-grid">
           {ownCameraTile}
-          {others.map(a => (
-            <div key={a.agent_id} className={`cam-agent-card ${a.camera_on ? 'live' : ''}`}>
-              <div className="cam-agent-vid">
-                {a.camera_on && a.last_frame ? (
-                  <img src={`data:image/jpeg;base64,${a.last_frame}`} alt={a.full_name} className="cam-snapshot" />
-                ) : (
-                  <div className="cam-no-feed">
-                    {a.camera_on ? <Camera size={24} /> : <CameraOff size={24} />}
-                    <span>{a.camera_on ? 'Connecting...' : 'Camera off'}</span>
-                  </div>
-                )}
+          {others.map(a => {
+            const live = isAgentLive(a);
+            return (
+              <div key={a.agent_id} className={`cam-agent-card ${live ? 'live' : ''}`}>
+                <div className="cam-agent-vid">
+                  {live && a.last_frame ? (
+                    <img src={`data:image/jpeg;base64,${a.last_frame}`} alt={a.full_name} className="cam-snapshot" />
+                  ) : (
+                    <div className="cam-no-feed">
+                      <CameraOff size={24} />
+                      <span>Camera off</span>
+                    </div>
+                  )}
+                </div>
+                <div className="cam-agent-label">
+                  <span className={`cam-dot ${live ? 'on' : ''}`} />
+                  {a.full_name}
+                </div>
               </div>
-              <div className="cam-agent-label">
-                <span className={`cam-dot ${a.camera_on ? 'on' : ''}`} />
-                {a.full_name}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {others.length === 0 && (
             <div className="cam-agent-card empty">
               <div className="cam-no-feed"><Users size={24} /><span>No agents online yet</span></div>
