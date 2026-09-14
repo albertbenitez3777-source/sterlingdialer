@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, CameraOff, Maximize2, Minimize2, Move, Users, X } from 'lucide-react';
+import { Camera, CameraOff, Minimize2, Move, Users, X } from 'lucide-react';
 
-type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 type CamState = 'prompt' | 'requesting' | 'active' | 'denied' | 'error';
 
 interface Props {
@@ -17,16 +16,7 @@ interface AgentCam {
   full_name: string;
   camera_on: boolean;
   last_frame?: string | null;
-  updated_at?: string;
 }
-
-const CORNERS: Corner[] = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
-const POS: Record<Corner, React.CSSProperties> = {
-  'top-left': { top: 80, left: 16 },
-  'top-right': { top: 80, right: 16 },
-  'bottom-left': { bottom: 80, left: 16 },
-  'bottom-right': { bottom: 80, right: 16 },
-};
 
 const FRAME_INTERVAL = 3000;
 const POLL_INTERVAL = 3000;
@@ -43,42 +33,31 @@ function captureFrame(video: HTMLVideoElement): string | null {
 }
 
 export default function CameraWidget({ isOwner, agentId, agentName, sessionToken, providerUrl }: Props) {
-  const [corner, setCorner] = useState<Corner>('top-left');
   const [cam, setCam] = useState<CamState>('prompt');
-  const [expanded, setExpanded] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [agents, setAgents] = useState<AgentCam[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const expandVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   const attachStream = useCallback((el: HTMLVideoElement | null) => {
     if (el && streamRef.current) el.srcObject = streamRef.current;
   }, []);
 
-  useEffect(() => { attachStream(videoRef.current); }, [cam, expanded, attachStream]);
-  useEffect(() => { if (expanded) attachStream(expandVideoRef.current); }, [expanded, attachStream]);
+  useEffect(() => { attachStream(videoRef.current); }, [cam, attachStream]);
 
   const report = useCallback(async (on: boolean, frame?: string | null) => {
     try {
       const payload: Record<string, unknown> = { action: 'camera_status', session_token: sessionToken, camera_on: on };
       if (frame) payload.frame = frame;
-      await fetch(providerUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await fetch(providerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     } catch { /* best-effort */ }
   }, [providerUrl, sessionToken]);
 
-  // Periodically capture and upload frames while active
   useEffect(() => {
     if (cam !== 'active') return;
     const iv = setInterval(() => {
-      const video = videoRef.current || expandVideoRef.current;
-      if (!video) return;
-      const frame = captureFrame(video);
+      if (!videoRef.current) return;
+      const frame = captureFrame(videoRef.current);
       if (frame) report(true, frame);
     }, FRAME_INTERVAL);
     return () => clearInterval(iv);
@@ -100,22 +79,20 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
-    if (expandVideoRef.current) expandVideoRef.current.srcObject = null;
     setCam('prompt');
     report(false);
   }, [report]);
 
   useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
 
-  // Admin: poll for all agent camera feeds (with frames) when expanded
+  // Admin: always poll for agent feeds
   useEffect(() => {
-    if (!isOwner || !expanded) return;
+    if (!isOwner) return;
     let alive = true;
     const load = async () => {
       try {
         const res = await fetch(providerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'get_camera_statuses', session_token: sessionToken, include_frames: true }),
         });
         const data = await res.json();
@@ -125,133 +102,124 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     load();
     const iv = setInterval(load, POLL_INTERVAL);
     return () => { alive = false; clearInterval(iv); };
-  }, [isOwner, expanded, providerUrl, sessionToken]);
+  }, [isOwner, providerUrl, sessionToken]);
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (!dragStart.current) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    dragStart.current = null;
-    if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
-    const midX = window.innerWidth / 2;
-    const midY = window.innerHeight / 2;
-    setCorner(e.clientY < midY ? (e.clientX < midX ? 'top-left' : 'top-right') : (e.clientX < midX ? 'bottom-left' : 'bottom-right'));
-  };
-
-  const cycleCorner = () => setCorner(CORNERS[(CORNERS.indexOf(corner) + 1) % 4]);
-
+  // ── Minimized state (both roles) ──
   if (minimized) {
     return (
-      <button className="cam-minimized" style={{ position: 'fixed', ...POS[corner], zIndex: 10000 }} onClick={() => setMinimized(false)} title="Show camera">
+      <button className="cam-minimized" onClick={() => setMinimized(false)} title="Show camera">
         <Camera size={16} />
+        {isOwner && <span className="cam-minimized-count">{agents.filter(a => a.camera_on).length}</span>}
       </button>
     );
   }
 
-  if (expanded && isOwner) {
+  // ── Own camera tile (shared between admin grid and agent widget) ──
+  const ownCameraTile = (
+    <div className="cam-agent-card self">
+      <div className="cam-agent-vid">
+        {cam === 'active' ? (
+          <video ref={videoRef} autoPlay muted playsInline />
+        ) : cam === 'requesting' ? (
+          <div className="cam-no-feed"><Camera size={24} className="cam-pulse" /><span>Requesting...</span></div>
+        ) : cam === 'denied' || cam === 'error' ? (
+          <div className="cam-no-feed">
+            <CameraOff size={24} />
+            <span>{cam === 'denied' ? 'Blocked' : 'Error'}</span>
+            <button className="cam-retry-btn" onClick={() => setCam('prompt')}>Retry</button>
+          </div>
+        ) : (
+          <button className="cam-tile-connect" onClick={connect}>
+            <Camera size={28} />
+            <span>Connect Camera</span>
+          </button>
+        )}
+      </div>
+      <div className="cam-agent-label">
+        <span className={`cam-dot ${cam === 'active' ? 'on' : ''}`} />
+        {agentName} (You)
+        {cam === 'active' && (
+          <button className="cam-disconnect-btn" onClick={disconnect} title="Disconnect"><CameraOff size={12} /></button>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── ADMIN / SUPERVISOR: fixed panel with full team grid ──
+  if (isOwner) {
     const others = agents.filter(a => a.agent_id !== agentId);
     return (
-      <div className="cam-expanded-overlay">
-        <div className="cam-expanded">
-          <div className="cam-expanded-hdr">
-            <Users size={18} /> <h3>Team Cameras</h3>
-            <button onClick={() => setExpanded(false)} title="Close"><X size={16} /></button>
-          </div>
-          <div className="cam-expanded-grid">
-            {/* Supervisor's own live feed */}
-            <div className="cam-agent-card self">
+      <div className="cam-admin-panel">
+        <div className="cam-admin-hdr">
+          <Users size={16} />
+          <h3>Team Cameras</h3>
+          <span className="cam-admin-online">{agents.filter(a => a.camera_on).length} online</span>
+          <button onClick={() => setMinimized(true)} title="Minimize"><Minimize2 size={14} /></button>
+        </div>
+        <div className="cam-admin-grid">
+          {ownCameraTile}
+          {others.map(a => (
+            <div key={a.agent_id} className={`cam-agent-card ${a.camera_on ? 'live' : ''}`}>
               <div className="cam-agent-vid">
-                {cam === 'active'
-                  ? <video ref={expandVideoRef} autoPlay muted playsInline />
-                  : <div className="cam-no-feed"><CameraOff size={24} /><span>Your camera is off</span></div>
-                }
+                {a.camera_on && a.last_frame ? (
+                  <img src={`data:image/jpeg;base64,${a.last_frame}`} alt={a.full_name} className="cam-snapshot" />
+                ) : (
+                  <div className="cam-no-feed">
+                    {a.camera_on ? <Camera size={24} /> : <CameraOff size={24} />}
+                    <span>{a.camera_on ? 'Connecting...' : 'Camera off'}</span>
+                  </div>
+                )}
               </div>
               <div className="cam-agent-label">
-                <span className={`cam-dot ${cam === 'active' ? 'on' : ''}`} />
-                {agentName} (You)
+                <span className={`cam-dot ${a.camera_on ? 'on' : ''}`} />
+                {a.full_name}
               </div>
             </div>
-
-            {/* Other agents — show their snapshot frames */}
-            {others.map(a => (
-              <div key={a.agent_id} className="cam-agent-card">
-                <div className="cam-agent-vid">
-                  {a.camera_on && a.last_frame ? (
-                    <img
-                      src={`data:image/jpeg;base64,${a.last_frame}`}
-                      alt={`${a.full_name} camera`}
-                      className="cam-snapshot"
-                    />
-                  ) : (
-                    <div className="cam-no-feed">
-                      {a.camera_on ? <Camera size={24} /> : <CameraOff size={24} />}
-                      <span>{a.camera_on ? 'Connecting...' : 'Camera off'}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="cam-agent-label">
-                  <span className={`cam-dot ${a.camera_on ? 'on' : ''}`} />
-                  {a.full_name}
-                </div>
-              </div>
-            ))}
-
-            {others.length === 0 && (
-              <div className="cam-agent-card empty">
-                <div className="cam-no-feed"><Users size={24} /><span>No other agents online</span></div>
-              </div>
-            )}
-          </div>
+          ))}
+          {others.length === 0 && (
+            <div className="cam-agent-card empty">
+              <div className="cam-no-feed"><Users size={24} /><span>No agents online yet</span></div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  const draggable = cam === 'active';
-
+  // ── AGENT: small floating pip ──
   return (
-    <div className={`cam-widget cam-${cam}`} style={{ position: 'fixed', ...POS[corner], zIndex: 10000 }} onPointerDown={draggable ? onPointerDown : undefined} onPointerUp={draggable ? onPointerUp : undefined}>
-      {cam === 'prompt' && (
-        <button className="cam-connect-btn" onClick={connect}>
-          <Camera size={22} />
-          <span>Connect<br />Camera</span>
-        </button>
-      )}
-
-      {cam === 'requesting' && (
-        <div className="cam-requesting">
-          <Camera size={22} className="cam-pulse" />
-          <span>Allow camera access...</span>
+    <div className="cam-widget-agent">
+      <div className="cam-agent-card self">
+        <div className="cam-agent-vid">
+          {cam === 'active' ? (
+            <>
+              <video ref={videoRef} autoPlay muted playsInline />
+              <span className="cam-live-badge">LIVE</span>
+            </>
+          ) : cam === 'requesting' ? (
+            <div className="cam-no-feed"><Camera size={24} className="cam-pulse" /><span>Requesting...</span></div>
+          ) : cam === 'denied' || cam === 'error' ? (
+            <div className="cam-no-feed">
+              <CameraOff size={24} />
+              <span>{cam === 'denied' ? 'Camera blocked' : 'Camera error'}</span>
+              <button className="cam-retry-btn" onClick={() => setCam('prompt')}>Retry</button>
+            </div>
+          ) : (
+            <button className="cam-tile-connect" onClick={connect}>
+              <Camera size={28} />
+              <span>Connect Camera</span>
+            </button>
+          )}
         </div>
-      )}
-
-      {cam === 'active' && (
-        <>
-          <video ref={videoRef} autoPlay muted playsInline className="cam-video" />
-          <div className="cam-controls">
-            <button onClick={disconnect} title="Turn off"><CameraOff size={12} /></button>
-            <button onClick={cycleCorner} title="Move to next corner"><Move size={12} /></button>
-            {isOwner && <button onClick={() => setExpanded(true)} title="All agents"><Maximize2 size={12} /></button>}
-            <button onClick={() => setMinimized(true)} title="Minimize"><X size={12} /></button>
-          </div>
-          <span className="cam-live-badge">LIVE</span>
-        </>
-      )}
-
-      {(cam === 'denied' || cam === 'error') && (
-        <div className="cam-denied">
-          <CameraOff size={22} />
-          <span>{cam === 'denied' ? 'Camera blocked' : 'Camera error'}</span>
-          <button onClick={() => setCam('prompt')}>Retry</button>
+        <div className="cam-agent-label">
+          <span className={`cam-dot ${cam === 'active' ? 'on' : ''}`} />
+          {agentName}
+          {cam === 'active' && (
+            <button className="cam-disconnect-btn" onClick={disconnect} title="Disconnect"><CameraOff size={12} /></button>
+          )}
+          <button className="cam-minimize-inline" onClick={() => setMinimized(true)} title="Minimize"><X size={12} /></button>
         </div>
-      )}
-
-      {cam === 'active' && <div className="cam-drag-hint"><Move size={9} /> drag to move</div>}
+      </div>
     </div>
   );
 }
