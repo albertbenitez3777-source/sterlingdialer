@@ -641,7 +641,11 @@ export default function App() {
         } else if (d.valid === false) {
           localStorage.removeItem('sterling_session_token');
         }
-      }).catch(() => { localStorage.removeItem('sterling_session_token'); });
+      }).catch(() => {
+        // Keep the saved session when verification is temporarily unavailable.
+        // The server remains authoritative: a successful response with valid=false
+        // removes it, while a network/5xx failure can recover on refresh.
+      });
     return () => { cancelled = true; };
   }, []);
 
