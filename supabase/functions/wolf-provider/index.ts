@@ -204,6 +204,56 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    if (action === "inbound_health") {
+      const { session_token } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) {
+        return new Response(JSON.stringify({ error: "Invalid or expired session" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!isReadAdmin(agent.role)) {
+        return new Response(JSON.stringify({ error: "Administrator access required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase
+        .from("agents")
+        .select("id, full_name, role, status, bland_number, talkroute_number, inbound_configured, transfer_certified, active_for_dialer, talkroute_verified")
+        .eq("status", "active")
+        .not("role", "eq", "owner");
+      if (error) {
+        return new Response(JSON.stringify({ error: "Failed to load agent routes" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const results = (data || []).map((a: Record<string, unknown>) => {
+        const tr = (a.talkroute_number as string) || "";
+        const ready = !!a.active_for_dialer && !!a.transfer_certified && tr.length >= 10 && !!a.talkroute_verified;
+        return {
+          agent_id: a.id,
+          name: a.full_name,
+          full_name: a.full_name,
+          bland_number: a.bland_number,
+          talkroute_number: a.talkroute_number,
+          inbound_configured: a.inbound_configured,
+          selected: !!a.active_for_dialer,
+          agent_ready: ready,
+          configuration_ready: ready,
+        };
+      });
+
+      return new Response(JSON.stringify({ results, checked_at: new Date().toISOString() }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // SYNC_FROM_BLAND: administrator-only, read-only sync
     // Authenticates with secure server credential, retrieves Bland.ai resources,
     // matches to agent's confirmed number, saves provider IDs — NEVER places a call
