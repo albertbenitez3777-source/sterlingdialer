@@ -1,8 +1,8 @@
 /**
  * Centralized authenticated fetch. Enforces:
- * - Exactly one atomic logout on 401 (calls onUnauthorized once, never retries).
+ * - A 401 logs out only after wolf-auth confirms the same saved session is invalid.
  * - 5xx and network errors do NOT log out — caller sees error, keeps session.
- * - No retry loop — single request, single result.
+ * - No action retries; a 401 makes one bounded, read-only session verification.
  * - Loading is caller-managed; this function never throws.
  */
 export interface AuthFetchResult<T = unknown> {
@@ -41,6 +41,32 @@ export async function authFetch<T = unknown>(
     if (controller.signal.aborted) throw new Error('Request cancelled');
 
     if (res.status === 401) {
+      // A feature endpoint (or gateway) can fail independently of authentication.
+      // Never discard a valid login until the authentication service confirms expiry.
+      const token = body.session_token;
+      const authUrl = url.replace(/\/functions\/v1\/[^/?#]+(?:[?#].*)?$/, '/functions/v1/wolf-auth');
+      if (typeof token !== 'string' || !token || authUrl === url) {
+        return { ok: false, status: 401, data: null, error: 'Unable to verify session', loggedOut: false };
+      }
+      const verification = await fetch(authUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', session_token: token }),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) throw new Error('Request cancelled');
+      if (!verification.ok) {
+        return { ok: false, status: 503, data: null, error: 'Session verification temporarily unavailable', loggedOut: false };
+      }
+      const session = await verification.json();
+      if (controller.signal.aborted) throw new Error('Request cancelled');
+      if (session?.valid !== false) {
+        return { ok: false, status: 401, data: null, error: 'Request authorization failed; your login has been kept. Please retry.', loggedOut: false };
+      }
+      // An old request must not sign out an account that logged in while it ran.
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('sterling_session_token') !== token) {
+        return { ok: false, status: 401, data: null, error: 'Previous session expired', loggedOut: false };
+      }
       onUnauthorized();
       return { ok: false, status: 401, data: null, error: 'Session expired', loggedOut: true };
     }
