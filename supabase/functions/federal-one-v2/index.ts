@@ -292,6 +292,21 @@ Deno.serve(async (req: Request) => {
       return error ? json({ error: "Finding could not be saved" }, 500) : json({ finding: data });
     }
 
+    if (action === "camera_status") {
+      const cameraOn = body.camera_on === true;
+      await supabase.from("federal_one_camera_status").upsert({
+        agent_id: agent.id, full_name: agent.full_name, camera_on: cameraOn, updated_at: new Date().toISOString(),
+      }, { onConflict: "agent_id" });
+      return json({ ok: true });
+    }
+
+    if (action === "get_camera_statuses") {
+      if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Admin access required" }, 403);
+      const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+      const { data } = await supabase.from("federal_one_camera_status").select("agent_id,full_name,camera_on,updated_at").gte("updated_at", fiveMinAgo);
+      return json({ cameras: data || [] });
+    }
+
     return json({ error: "Unknown action" }, 400);
   } catch (error) {
     console.error("[federal-one-v2]", error);

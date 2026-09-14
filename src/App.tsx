@@ -16,6 +16,7 @@ import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
 import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
+import CameraWidget from '@/components/CameraWidget';
 import { currentInboundHealth } from '@/utils/inbound-health';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
@@ -3115,6 +3116,7 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
+      <CameraWidget isOwner={isOwner} agentId={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} />
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>

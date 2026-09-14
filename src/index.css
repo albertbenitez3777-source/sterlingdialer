@@ -6113,3 +6113,148 @@ img {
   .extra-info-banner { flex-direction:column; align-items:stretch; }
   .extra-info-home-tile { padding:12px 14px; }
 }
+
+/* ── Camera Widget ─────────────────────────────────────────────────── */
+.cam-widget {
+  width:140px; height:140px; border-radius:14px; overflow:hidden;
+  background:rgba(0,14,8,.92); border:1.5px solid rgba(0,255,140,.2);
+  box-shadow:0 8px 32px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.3);
+  backdrop-filter:blur(12px);
+  display:flex; align-items:center; justify-content:center;
+  cursor:grab; touch-action:none; user-select:none;
+  transition:border-color .3s, box-shadow .3s;
+}
+.cam-widget:active { cursor:grabbing; }
+.cam-widget.cam-active { border-color:rgba(0,255,140,.4); box-shadow:0 8px 32px rgba(0,0,0,.55), 0 0 12px rgba(0,255,140,.1); }
+
+.cam-connect-btn {
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  width:100%; height:100%; border:none; background:transparent;
+  color:#80ffc8; cursor:pointer; font-size:11px; font-weight:600; text-align:center; line-height:1.3;
+  transition:background .2s;
+}
+.cam-connect-btn:hover { background:rgba(0,255,140,.08); }
+.cam-connect-btn svg { opacity:.7; }
+
+.cam-requesting {
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  color:rgba(160,220,190,.6); font-size:11px; text-align:center;
+}
+@keyframes camPulse { 0%,100% { opacity:.4; } 50% { opacity:1; } }
+.cam-pulse { animation:camPulse 1.2s ease-in-out infinite; }
+
+.cam-video {
+  width:100%; height:100%; object-fit:cover; border-radius:12px;
+  transform:scaleX(-1);
+}
+
+.cam-controls {
+  position:absolute; top:4px; right:4px;
+  display:flex; gap:2px; opacity:0; transition:opacity .2s;
+}
+.cam-widget:hover .cam-controls { opacity:1; }
+.cam-controls button {
+  width:22px; height:22px; border-radius:5px; border:none;
+  background:rgba(0,0,0,.65); color:#c0ffe8; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:background .15s;
+}
+.cam-controls button:hover { background:rgba(0,255,140,.25); }
+
+.cam-live-badge {
+  position:absolute; bottom:6px; left:6px;
+  padding:2px 6px; border-radius:4px; font-size:9px; font-weight:700; letter-spacing:1px;
+  background:rgba(255,40,40,.85); color:#fff;
+  animation:camPulse 2s ease-in-out infinite;
+}
+
+.cam-drag-hint {
+  position:absolute; bottom:6px; right:6px;
+  display:flex; align-items:center; gap:3px;
+  font-size:8px; color:rgba(160,220,190,.3);
+  opacity:0; transition:opacity .2s;
+}
+.cam-widget:hover .cam-drag-hint { opacity:1; }
+
+.cam-denied {
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  color:#ff8080; font-size:11px; text-align:center; padding:10px;
+}
+.cam-denied button {
+  padding:4px 12px; border-radius:6px; border:1px solid rgba(255,100,100,.3);
+  background:rgba(255,60,60,.1); color:#ff8080; font-size:10px; cursor:pointer;
+}
+.cam-denied button:hover { background:rgba(255,60,60,.2); }
+
+.cam-minimized {
+  width:36px; height:36px; border-radius:10px;
+  background:rgba(0,14,8,.9); border:1.5px solid rgba(0,255,140,.25);
+  color:#80ffc8; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
+  transition:background .2s, border-color .2s;
+}
+.cam-minimized:hover { background:rgba(0,30,18,.95); border-color:rgba(0,255,140,.45); }
+
+/* ── Camera Expanded (Owner Multi-Agent) ───────────────────────────── */
+.cam-expanded-overlay {
+  position:fixed; inset:0; z-index:10001;
+  background:rgba(0,6,3,.85); backdrop-filter:blur(8px);
+  display:flex; align-items:center; justify-content:center;
+  padding:24px;
+}
+.cam-expanded {
+  width:100%; max-width:900px; max-height:90vh; overflow-y:auto;
+  background:rgba(0,18,10,.95); border:1px solid rgba(0,255,140,.15);
+  border-radius:16px; padding:24px;
+  box-shadow:0 24px 64px rgba(0,0,0,.6);
+}
+.cam-expanded-hdr {
+  display:flex; align-items:center; gap:10px; margin-bottom:20px; color:#c0ffe8;
+}
+.cam-expanded-hdr h3 { flex:1; margin:0; font-size:18px; font-weight:700; }
+.cam-expanded-hdr button {
+  width:32px; height:32px; border-radius:8px; border:1px solid rgba(0,255,140,.2);
+  background:rgba(0,255,140,.06); color:#80ffc8; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.cam-expanded-hdr button:hover { background:rgba(0,255,140,.15); }
+
+.cam-expanded-grid {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:14px;
+}
+.cam-agent-card {
+  border-radius:12px; overflow:hidden;
+  background:rgba(0,30,18,.5); border:1px solid rgba(0,255,140,.1);
+}
+.cam-agent-card.self { border-color:rgba(0,255,140,.3); }
+.cam-agent-card.empty { border-style:dashed; }
+.cam-agent-vid {
+  width:100%; aspect-ratio:4/3; background:#000;
+  display:flex; align-items:center; justify-content:center;
+}
+.cam-agent-vid video {
+  width:100%; height:100%; object-fit:cover; transform:scaleX(-1);
+}
+.cam-no-feed {
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  color:rgba(160,220,190,.35); font-size:12px;
+}
+.cam-agent-label {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px; font-size:12px; font-weight:600; color:#c0ffe8;
+}
+.cam-dot {
+  width:8px; height:8px; border-radius:50%; flex-shrink:0;
+  background:rgba(160,220,190,.2);
+}
+.cam-dot.on { background:#00ff8c; box-shadow:0 0 6px rgba(0,255,140,.4); }
+
+.cam-expanded-note {
+  margin:16px 0 0; font-size:11px; color:rgba(160,220,190,.35); text-align:center;
+}
+
+@media (max-width:600px) {
+  .cam-widget { width:110px; height:110px; border-radius:12px; }
+  .cam-expanded-grid { grid-template-columns:1fr 1fr; }
+}
