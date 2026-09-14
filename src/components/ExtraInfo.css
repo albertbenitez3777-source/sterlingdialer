@@ -1,0 +1,30 @@
+.extra-info { position:relative; z-index:2; max-width:920px; margin:0 auto; padding:8px 0 48px; color:#e9fff6; }
+.extra-info header small { display:block; color:#63efb9; font:800 10px ui-monospace,monospace; letter-spacing:.22em; }
+.extra-info h2 { margin:8px 0 10px; font:600 34px/1.1 ui-sans-serif,system-ui; letter-spacing:-.03em; }
+.extra-info header p { max-width:62ch; color:rgba(219,242,234,.62); font-size:14px; line-height:1.55; }
+.extra-info form, .extra-info .extra-paste { display:grid; gap:10px; margin:22px 0; }
+.extra-info label { display:grid; gap:6px; color:rgba(174,255,225,.62); font:700 10px ui-monospace,monospace; letter-spacing:.12em; }
+.extra-info input, .extra-info textarea {
+  min-height:48px; padding:12px 14px; border:1px solid rgba(78,255,188,.18); border-radius:10px;
+  color:#f1fff9; background:rgba(0,18,14,.72); font:500 15px ui-sans-serif,system-ui;
+}
+.extra-info textarea { min-height:120px; resize:vertical; }
+.extra-info button {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:46px; padding:0 16px;
+  border:1px solid #65f6bd; border-radius:10px; color:#04150e; background:#65f6bd; font-weight:800; cursor:pointer;
+}
+.extra-info button:disabled { opacity:.5; cursor:wait; }
+.extra-open { margin-bottom:14px !important; background:transparent !important; color:#9affd8 !important; }
+.extra-known, .extra-saved { margin:18px 0; padding:16px; border:1px solid rgba(78,255,188,.14); border-radius:14px; background:rgba(0,16,13,.7); }
+.extra-known ul { margin:10px 0 0; padding:0; list-style:none; display:grid; gap:8px; }
+.extra-known li { display:grid; gap:3px; }
+.extra-known span, .extra-saved small, .extra-links small { color:rgba(184,235,217,.4); font:800 8px ui-monospace,monospace; letter-spacing:.12em; }
+.extra-links { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }
+.extra-links a, .extra-saved a {
+  display:flex; justify-content:space-between; gap:10px; padding:12px 14px; border:1px solid rgba(78,255,188,.12);
+  border-radius:12px; color:#eefff8; background:rgba(4,31,25,.72); text-decoration:none;
+}
+.extra-links a:hover, .extra-saved a:hover { border-color:rgba(78,255,188,.4); }
+.extra-notice { color:#9affd8; font-size:13px; }
+.spin { animation: extra-spin .9s linear infinite; }
+@keyframes extra-spin { to { transform: rotate(360deg); } }
