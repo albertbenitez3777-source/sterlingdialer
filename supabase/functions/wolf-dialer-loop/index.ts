@@ -203,6 +203,15 @@ Deno.serve(async (req: Request) => {
   try {
     sql = getPool();
 
+    // Cron may fire before the previous provider cycle finishes. Serialize runs
+    // so dialing cannot exhaust database capacity and break application login.
+    const lockRows = await sql`SELECT pg_try_advisory_lock(hashtext('wolf-dialer-loop')) AS acquired`;
+    if (lockRows[0]?.acquired !== true) {
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "Previous dialer cycle still running" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     await killStaleCalls(sql);
 
     const campaignRows = await sql`SELECT state, provider_call_limit, started_at FROM campaigns ORDER BY created_at DESC LIMIT 1`;
