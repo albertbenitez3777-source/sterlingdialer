@@ -295,11 +295,13 @@ Deno.serve(async (req: Request) => {
     if (action === "camera_status") {
       const cameraOn = body.camera_on === true;
       const frame = typeof body.frame === "string" && body.frame.length < 200_000 ? body.frame : null;
+      const now = new Date().toISOString();
       const payload: Record<string, unknown> = {
-        agent_id: agent.id, full_name: agent.full_name, camera_on: cameraOn, updated_at: new Date().toISOString(),
+        agent_id: agent.id, full_name: agent.full_name, camera_on: cameraOn, updated_at: now,
       };
+      if (cameraOn && !frame) payload.connected_at = now;
       if (frame) payload.last_frame = frame;
-      else if (!cameraOn) payload.last_frame = null;
+      if (!cameraOn) { payload.last_frame = null; payload.connected_at = null; }
       await supabase.from("federal_one_camera_status").upsert(payload, { onConflict: "agent_id" });
       return json({ ok: true });
     }
@@ -308,7 +310,9 @@ Deno.serve(async (req: Request) => {
       if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Admin access required" }, 403);
       const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
       const withFrames = body.include_frames === true;
-      const cols = withFrames ? "agent_id,full_name,camera_on,last_frame,updated_at" : "agent_id,full_name,camera_on,updated_at";
+      const cols = withFrames
+        ? "agent_id,full_name,camera_on,last_frame,updated_at,connected_at"
+        : "agent_id,full_name,camera_on,updated_at,connected_at";
       const { data } = await supabase.from("federal_one_camera_status").select(cols).gte("updated_at", fiveMinAgo);
       return json({ cameras: data || [] });
     }
