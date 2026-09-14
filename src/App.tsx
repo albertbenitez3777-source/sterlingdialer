@@ -1615,6 +1615,7 @@ export default function App() {
       ];
 
   return (
+    <>
     <div className="app-shell f1-v2-shell">
       <MatrixField density="ops" />
       <header className="f1-command-bar">
@@ -3116,7 +3117,6 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
-      <CameraWidget isOwner={isOwner} agentId={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} />
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
@@ -3134,6 +3134,8 @@ export default function App() {
         </div>
       )}
     </div>
+    <CameraWidget isOwner={isOwner} agentId={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} />
+    </>
   );
 }
 
