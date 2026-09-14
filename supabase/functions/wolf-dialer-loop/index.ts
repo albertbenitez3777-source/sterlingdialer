@@ -73,7 +73,7 @@ async function checkBlandBalance(): Promise<{ ok: boolean; balance: number }> {
 // was still ringing the agent — the DB-side "transfer aware" exclusions below
 // only help if a real-time transfer webhook already landed, and Bland's native
 // transfer_phone_number path does not reliably send one before the call ends.
-const STALE_CALL_TIMEOUT_SECONDS = 540;
+const STALE_CALL_TIMEOUT_SECONDS = 210;
 
 async function killStaleCalls(sql: Sql) {
   try {
@@ -165,18 +165,19 @@ RULES — follow exactly, no exceptions:
         task,
         first_sentence: firstSentence,
         wait_for_greeting: true,
+        answered_by_enabled: true,
         record: true,
-        voicemail: { action: "hangup", timeout: 0, sensitive: false },
+        voicemail: { action: "hangup", sensitive: true },
         webhook: webhookUrl,
         webhook_events: ["call", "tool", "post_transfer_transcript"],
-        max_duration: 8,
+        max_duration: 3,
         block_interruptions: false,
         interruption_threshold: 100,
         temperature: 0.05,
         noise_cancellation: true,
         transfer_phone_number: transferNumber,
         block_dtmf: false,
-        sensitive_voicemail_detection: false,
+        sensitive_voicemail_detection: true,
         summary_prompt: `Did the prospect answer? Was the transfer successful?`,
       }),
     });
