@@ -13,7 +13,7 @@ export function createDbClient(_dbUrl: string, supabaseUrl: string, serviceRoleK
     global: {
       fetch: (input, init) => fetch(input, {
         ...init,
-        signal: init?.signal ?? AbortSignal.timeout(12000),
+        signal: init?.signal ?? AbortSignal.timeout(25000),
       }),
     },
   });
