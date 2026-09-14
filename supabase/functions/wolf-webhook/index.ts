@@ -294,11 +294,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // Find existing call record
-    const callRows = await sql`SELECT id, queue, agent_id, lead_id, created_at FROM calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
-    let callInfo: { id: string; queue: string; agent_id: string | null; lead_id: string | null; created: boolean; created_at: string } | null = null;
+    const callRows = await sql`SELECT id, queue, agent_id, lead_id, created_at, call_direction FROM calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
+    let callInfo: { id: string; queue: string; agent_id: string | null; lead_id: string | null; created: boolean; created_at: string; call_direction: string } | null = null;
 
     if (callRows.length > 0) {
-      callInfo = { id: callRows[0].id, queue: callRows[0].queue, agent_id: callRows[0].agent_id, lead_id: callRows[0].lead_id || null, created: false, created_at: String(callRows[0].created_at || "") };
+      callInfo = { id: callRows[0].id, queue: callRows[0].queue, agent_id: callRows[0].agent_id, lead_id: callRows[0].lead_id || null, created: false, created_at: String(callRows[0].created_at || ""), call_direction: String(callRows[0].call_direction || "outbound") };
     } else {
       // Check secretary_calls
       const secRows = await sql`SELECT id, agent_id FROM secretary_calls WHERE provider_call_id = ${blandCallId} LIMIT 1`;
@@ -392,7 +392,7 @@ Deno.serve(async (req: Request) => {
         RETURNING id, queue, agent_id, created_at
       `;
       if (insertRows.length > 0) {
-        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, lead_id: null, created: true, created_at: String(insertRows[0].created_at || new Date().toISOString()) };
+        callInfo = { id: insertRows[0].id, queue: insertRows[0].queue, agent_id: insertRows[0].agent_id, lead_id: null, created: true, created_at: String(insertRows[0].created_at || new Date().toISOString()), call_direction: "inbound" };
         console.log(`[webhook] Created inbound call record ${callInfo.id} for bland_call_id=${blandCallId}`);
       }
     }
@@ -622,8 +622,9 @@ Deno.serve(async (req: Request) => {
       // Check if inbox entry already exists
       const inboxRows = await sql`SELECT id FROM agent_inbox WHERE call_id = ${callInfo.id} LIMIT 1`;
       if (inboxRows.length === 0) {
-        const detailRows = await sql`SELECT consumer_name, consumer_phone, lead_id FROM calls WHERE id = ${callInfo.id} LIMIT 1`;
+        const detailRows = await sql`SELECT consumer_name, consumer_phone, lead_id, consumer_address, consumer_home_value, consumer_income_range, consumer_property_info, consumer_email FROM calls WHERE id = ${callInfo.id} LIMIT 1`;
         const details = detailRows[0];
+        const isOutbound = callInfo.call_direction === "outbound";
 
         let inboxType: string | null = null;
         let inboxTitle = "";
@@ -631,16 +632,29 @@ Deno.serve(async (req: Request) => {
 
         if (transferState === "bridge_confirmed") {
           inboxType = "fire_transfer";
-          inboxTitle = "FIRE TRANSFER: Inbound callback connected";
-          inboxBody = "A customer called your Bland number and was successfully transferred to your Talkroute line.";
+          inboxTitle = isOutbound
+            ? "FIRE TRANSFER: Outbound call connected"
+            : "FIRE TRANSFER: Inbound callback connected";
+          inboxBody = isOutbound
+            ? "An outbound call reached a live human and was successfully transferred to your Talkroute line."
+            : "A customer called your Bland number and was successfully transferred to your Talkroute line.";
         } else if (transferState === "transfer_failed" || (isLiveHuman && newQueue === "human_drop")) {
           inboxType = "callback";
-          inboxTitle = "Callback needed: Inbound callback transfer failed";
-          inboxBody = "A customer called your Bland number but the transfer to your Talkroute line did not connect. Call them back as soon as possible.";
+          if (isOutbound) {
+            inboxTitle = "Callback needed: Live human \u2014 not connected to Talkroute";
+            inboxBody = "An outbound call reached a live human but the transfer to your Talkroute line did not connect. Call them back as soon as possible.";
+          } else {
+            inboxTitle = "Callback needed: Inbound callback transfer failed";
+            inboxBody = "A customer called your Bland number but the transfer to your Talkroute line did not connect. Call them back as soon as possible.";
+          }
         } else if (voicemail && newQueue === "voice_message") {
           inboxType = "voicemail";
-          inboxTitle = "Voicemail: Inbound callback reached voicemail";
-          inboxBody = "A customer called your Bland number and reached voicemail. Consider calling back at a different time.";
+          inboxTitle = isOutbound
+            ? "Voicemail: Outbound call reached voicemail"
+            : "Voicemail: Inbound callback reached voicemail";
+          inboxBody = isOutbound
+            ? "An outbound call reached voicemail. Consider calling back at a different time."
+            : "A customer called your Bland number and reached voicemail. Consider calling back at a different time.";
         }
 
         if (inboxType) {
@@ -648,6 +662,16 @@ Deno.serve(async (req: Request) => {
             INSERT INTO agent_inbox (agent_id, call_id, lead_id, type, title, body, consumer_name, consumer_phone, recording_url, transcript)
             VALUES (${callInfo.agent_id}, ${callInfo.id}, ${details?.lead_id || null}, ${inboxType}, ${inboxTitle}, ${inboxBody}, ${details?.consumer_name || ""}, ${details?.consumer_phone || ""}, ${publicRecordingUrl || ""}, ${transcript || ""})
           `;
+        }
+
+        // Create transfer alert for live human drops that never got a bridge
+        if (isLiveHuman && newQueue === "human_drop" && transferState !== "bridge_confirmed") {
+          try {
+            const leadRows = details?.lead_id ? await sql`SELECT email FROM leads WHERE id = ${details.lead_id} LIMIT 1` : [];
+            const leadEmail = leadRows.length > 0 ? String(leadRows[0].email || "") : "";
+            await sql`SELECT create_transfer_alert(${callInfo.agent_id}::uuid, ${callInfo.id}::uuid, ${details?.lead_id || null}::uuid, ${details?.consumer_name || ''}, ${details?.consumer_phone || ''}, ${details?.consumer_email || leadEmail || ''}, ${details?.consumer_address || ''}, '', ${JSON.stringify({ home_value: details?.consumer_home_value || '', income_range: details?.consumer_income_range || '', property_info: details?.consumer_property_info || '' })}::jsonb, ${callInfo.call_direction || 'outbound'}, 'Live human detected \u2014 transfer not connected', 'human_drop', '[]'::jsonb)`;
+            console.log(`[webhook] Created transfer_alert for human_drop call_id=${callInfo.id}`);
+          } catch (alertErr) { console.error(`[webhook] transfer_alert creation for human_drop failed: ${String(alertErr)}`); }
         }
 
         // Update transfer alert evidence when call completes

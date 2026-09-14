@@ -2780,6 +2780,15 @@ RULES — follow exactly, no exceptions:
 
       const { data, error } = await supabase.rpc("campaign_start", { p_concurrency: 5, p_call_limit: call_limit || 500 });
       if (error) return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      if (blandApiKey) {
+        fetch(`${supabaseUrl}/functions/v1/wolf-dialer-loop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start: true }),
+        }).catch(() => {});
+      }
+
       return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
