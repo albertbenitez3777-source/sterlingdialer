@@ -149,8 +149,10 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     );
   }
 
+  const draggable = cam === 'active';
+
   return (
-    <div className={`cam-widget cam-${cam}`} style={{ position: 'fixed', ...POS[corner], zIndex: 10000 }} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+    <div className={`cam-widget cam-${cam}`} style={{ position: 'fixed', ...POS[corner], zIndex: 10000 }} onPointerDown={draggable ? onPointerDown : undefined} onPointerUp={draggable ? onPointerUp : undefined}>
       {cam === 'prompt' && (
         <button className="cam-connect-btn" onClick={connect}>
           <Camera size={22} />
