@@ -290,3 +290,46 @@ for (const scenario of sessionFailureCases) {
     assert.equal(requests, scenario.status === 401 ? 2 : 1);
   });
 }
+
+for (const scenario of ['recover', 'invalid', 'newer-login', 'cleanup']) {
+  test('saved login restoration: ' + scenario, async () => {
+    let saved = 'old', calls = 0, timer, cleanup, restored = false, removed = 0, resolvePending;
+    const response = valid => ({ ok: true, json: async () => ({ valid, agent: valid ? { role: 'owner' } : undefined }) });
+    const context = vm.createContext({
+      useEffect: fn => { cleanup = fn(); },
+      localStorage: { getItem: () => saved, removeItem: () => { saved = null; removed++; } },
+      loginInFlight: { current: false },
+      setTimeout: fn => { timer = fn; return 1; }, clearTimeout() {},
+      fetchWithRetry: async () => {
+        calls++;
+        if (scenario === 'recover' && calls === 1) throw new Error('offline');
+        if (scenario === 'newer-login' || scenario === 'cleanup') return await new Promise(resolve => { resolvePending = resolve; });
+        return response(scenario !== 'invalid');
+      },
+      AUTH_URL: 'https://example.invalid/functions/v1/wolf-auth',
+      setSession: () => { restored = true; }, setSessionToken() {}, setAgentAvailable() {},
+      setActiveNav() {}, setLoginError() {}, setShowOfflineModal() {},
+      window: { addEventListener() {}, removeEventListener() {} },
+    });
+    const app = read('src/App.tsx');
+    const start = app.indexOf('  // Restore session;');
+    const end = app.indexOf('  // Restore active redials', start);
+    assert.ok(start >= 0 && end > start);
+    new vm.Script(stripTypeScriptTypes(app.slice(start, end))).runInContext(context);
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    await flush();
+    if (scenario === 'recover') {
+      assert.equal(saved, 'old');
+      assert.equal(typeof timer, 'function');
+      timer();
+    }
+    if (scenario === 'newer-login') { saved = 'new'; resolvePending(response(false)); }
+    if (scenario === 'cleanup') { cleanup(); resolvePending(response(true)); }
+    await flush();
+    if (scenario === 'recover') { assert.equal(restored, true); assert.equal(calls, 2); }
+    if (scenario === 'invalid') { assert.equal(removed, 1); assert.equal(restored, false); }
+    if (scenario === 'newer-login') { assert.equal(removed, 0); assert.equal(restored, false); assert.equal(saved, 'new'); }
+    if (scenario === 'cleanup') assert.equal(restored, false);
+    cleanup();
+  });
+}
