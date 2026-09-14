@@ -193,33 +193,7 @@ RULES — follow exactly, no exceptions:
   }
 }
 
-// Keep the delay, request, and retry alive after this invocation responds.
-// waitUntil requires a Promise; a setTimeout handle does not retain the worker.
-function scheduleNextCycle(): void {
-  const continuation = (async () => {
-    await new Promise<void>(resolve => setTimeout(resolve, 20000));
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await fetch(DIALER_FUNCTION_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continue: true }),
-        });
-        if (!response.ok) throw new Error(`Self-chain HTTP ${response.status}`);
-        return;
-      } catch (error) {
-        if (attempt === 1) {
-          console.error("[dialer] Self-chain retry failed", String(error));
-          return;
-        }
-        await new Promise<void>(resolve => setTimeout(resolve, 10000));
-      }
-    }
-  })();
-  try { EdgeRuntime.waitUntil(continuation); }
-  catch { console.warn("[dialer] Background task retention is unavailable in this runtime"); }
-}
-
+// The database cron is the sole scheduler. Do not self-chain this worker.
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -257,10 +231,7 @@ Deno.serve(async (req: Request) => {
     if (availableCount === 0) {
       await sql`UPDATE campaigns SET dialer_status = 'waiting_for_agents', updated_at = now() WHERE id = (SELECT id FROM campaigns ORDER BY created_at DESC LIMIT 1)`;
       console.log("[dialer] GATE: 0 agents available — skipping calls this cycle, keeping loop alive");
-      // Close DB before chaining
-      if (sql) { await sql.end(); sql = null; }
-      scheduleNextCycle();
-      return new Response(JSON.stringify({ success: true, gated: true, reason: "waiting_for_agents", continued: true }), {
+      return new Response(JSON.stringify({ success: true, gated: true, reason: "waiting_for_agents", continued: false }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -387,12 +358,7 @@ Deno.serve(async (req: Request) => {
       } catch { /* ignore */ }
     }
 
-    // Close DB connection BEFORE chaining — prevents connection pool exhaustion
-    if (sql) { await sql.end(); sql = null; }
-
-    scheduleNextCycle();
-
-    return new Response(JSON.stringify({ success: true, continued: true }), {
+    return new Response(JSON.stringify({ success: true, continued: false }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
