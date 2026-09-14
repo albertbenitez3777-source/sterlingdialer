@@ -43,7 +43,8 @@ function createColumns(width: number, height: number): Column[] {
   return cols;
 }
 
-function MatrixFieldImpl() {
+function MatrixFieldImpl({ density = 'full' }: { density?: 'full' | 'ops' }) {
+  const isOps = density === 'ops';
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const columnsRef = useRef<Column[]>([]);
@@ -88,7 +89,8 @@ function MatrixFieldImpl() {
       ctx!.clearRect(0, 0, w, h);
 
       const cols = columnsRef.current;
-      const speedMul = reducedMotion.current ? 0.15 : 1;
+      const speedMul = reducedMotion.current ? 0.15 : isOps ? 0.5 : 1;
+      const alphaMul = isOps ? 0.35 : 1;
 
       for (let c = 0; c < cols.length; c++) {
         const col = cols[c];
@@ -113,18 +115,18 @@ function MatrixFieldImpl() {
           const ratio = j / col.trail;
           if (j === 0) {
             ctx!.font = `bold ${col.fontSize + 2}px monospace`;
-            ctx!.fillStyle = `rgba(200, 255, 230, ${col.brightness})`;
+            ctx!.fillStyle = `rgba(200, 255, 230, ${col.brightness * alphaMul})`;
             ctx!.shadowColor = '#00ff9a';
             ctx!.shadowBlur = 18;
           } else if (j < 3) {
             ctx!.font = `bold ${col.fontSize}px monospace`;
-            ctx!.fillStyle = `rgba(50, 255, 170, ${col.brightness * (1 - ratio * 0.3)})`;
+            ctx!.fillStyle = `rgba(50, 255, 170, ${col.brightness * (1 - ratio * 0.3) * alphaMul})`;
             ctx!.shadowColor = '#00ff9a';
             ctx!.shadowBlur = 8;
           } else {
             ctx!.font = `${col.fontSize}px monospace`;
             const fade = Math.max(0, col.brightness * (1 - ratio));
-            ctx!.fillStyle = `rgba(0, 255, 140, ${fade * 0.7})`;
+            ctx!.fillStyle = `rgba(0, 255, 140, ${fade * 0.7 * alphaMul})`;
             ctx!.shadowColor = 'transparent';
             ctx!.shadowBlur = 0;
           }
@@ -144,10 +146,10 @@ function MatrixFieldImpl() {
       window.removeEventListener('resize', resize);
       mq.removeEventListener('change', handler);
     };
-  }, []);
+  }, [isOps]);
 
   return (
-    <div className="matrix-field-v2" aria-hidden="true">
+    <div className={`matrix-field-v2${isOps ? ' matrix-field-ops' : ''}`} aria-hidden="true">
       <canvas ref={canvasRef} className="matrix-rain-canvas" />
       <div className="matrix-floor-grid" />
       <div className="matrix-bloom" />

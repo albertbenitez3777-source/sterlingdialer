@@ -202,34 +202,7 @@ const CINEMATIC_HERO = {
   agentMomentum: '/wolf-agent-momentum.webp',
 };
 
-import { MatrixField as MatrixFieldCanvas } from '@/components/MatrixField';
-
-const MATRIX_COLUMNS_LEGACY = Array.from({ length: 48 }, (_, index) => ({
-  left: `${(index * 2.11 + (index % 5) * 0.37) % 100}%`,
-  delay: `${-((index * 0.73) % 8)}s`,
-  duration: `${5.8 + (index % 7) * 0.72}s`,
-  opacity: 0.2 + (index % 6) * 0.09,
-  text: `${index % 2 ? '01' : '10'}${(index * 731).toString(2).padStart(14, '0')}010110100110101001011001`,
-}));
-
-function MatrixFieldLegacy() {
-  return (
-    <div className="matrix-field" aria-hidden="true">
-      <div className="matrix-tunnel">{Array.from({ length: 8 }, (_, index) => <i key={index} style={{ animationDelay: `${index * -.55}s` }} />)}</div>
-      <div className="matrix-perspective-grid" />
-      <div className="matrix-columns">
-        {MATRIX_COLUMNS_LEGACY.map((column, index) => (
-          <span key={index} style={{ left: column.left, animationDelay: column.delay, animationDuration: column.duration, opacity: column.opacity }}>{column.text}</span>
-        ))}
-      </div>
-      <div className="matrix-horizontal matrix-horizontal-a">101101001&nbsp;&nbsp;011010110&nbsp;&nbsp;101001101&nbsp;&nbsp;010011101&nbsp;&nbsp;10110010</div>
-      <div className="matrix-horizontal matrix-horizontal-b">01010011&nbsp;&nbsp;11001010&nbsp;&nbsp;011101001&nbsp;&nbsp;00101101&nbsp;&nbsp;10010110</div>
-      <div className="matrix-diagonal matrix-diagonal-a">010010101101001101011010010101101001011010011010110100</div>
-      <div className="matrix-diagonal matrix-diagonal-b">101101001011010010100110101101001011010010110100101101</div>
-      <div className="matrix-core" />
-    </div>
-  );
-}
+import { MatrixField } from '@/components/MatrixField';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function fmtTime(iso: string | null | undefined): string {
@@ -1571,9 +1544,9 @@ export default function App() {
   if (ownerNeedsSetup) {
     return (
       <div className="matrix-access-page">
-        <MatrixFieldCanvas />
+        <MatrixField />
         <main className="matrix-access-card setup-card">
-          <span className="matrix-access-title">FEDERAL ONE</span>
+          <p className="matrix-access-brand">FEDERAL ONE</p>
           <span className="matrix-access-kicker">INITIALIZE ACCESS</span>
           <div className="matrix-access-form stacked">
             <label>CREATE 4-DIGIT PIN</label>
@@ -1597,9 +1570,10 @@ export default function App() {
   if (!session?.valid) {
     return (
       <div className="matrix-access-page">
-        <MatrixFieldCanvas />
+        <MatrixField />
         <main className={`matrix-access-card ${loginError ? 'has-error' : ''}`}>
-          <span className="matrix-access-title">FEDERAL ONE</span>
+          <p className="matrix-access-brand">FEDERAL ONE</p>
+          <span className="matrix-access-kicker">SECURE ACCESS</span>
           <div className="matrix-access-form">
             <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
             {loginError && <div className="matrix-access-error">{loginError}</div>}
@@ -1637,7 +1611,7 @@ export default function App() {
 
   return (
     <div className="app-shell f1-v2-shell">
-      <MatrixFieldLegacy />
+      <MatrixField density="ops" />
       <header className="f1-command-bar">
         <button className="f1-command-identity" onClick={() => setActiveNav('dashboard')} aria-label="Open home">
           <span className="f1-command-orb">01</span>
