@@ -618,35 +618,56 @@ export default function App() {
       .then(r => r.json()).then(d => { if (d.needs_setup) setOwnerNeedsSetup(true); }).catch(() => {});
   }, []);
 
-  // Restore session
+  // Restore session; retry temporary outages without asking for another PIN.
   useEffect(() => {
     const token = localStorage.getItem('sterling_session_token');
     if (!token) return;
     let cancelled = false;
-    fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token })
-      .then(async r => {
-        if (!r.ok) throw new Error('Session verification unavailable');
-        return r.json();
-      }).then(d => {
-        if (cancelled || loginInFlight.current || localStorage.getItem('sterling_session_token') !== token) return;
-        if (d.valid && d.agent) {
-          setSession(d);
+    let pending = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const stillCurrent = () => !cancelled && !loginInFlight.current
+      && localStorage.getItem('sterling_session_token') === token;
+    const restore = async () => {
+      if (pending || !stillCurrent()) return;
+      clearTimeout(retryTimer);
+      pending = true;
+      try {
+        const response = await fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token });
+        if (!response.ok) throw new Error('Session verification unavailable');
+        const data = await response.json();
+        if (!stillCurrent()) return;
+        if (data.valid === true && data.agent) {
+          setSession(data);
           setSessionToken(token);
-          setAgentAvailable(!!d.agent.available_for_transfer);
-          if (d.agent.role === 'owner' || d.agent.role === 'supervisor') setActiveNav('dashboard');
-          else {
-            setActiveNav('dashboard');
-            if (!d.agent.available_for_transfer) setShowOfflineModal(true);
+          setAgentAvailable(!!data.agent.available_for_transfer);
+          setActiveNav('dashboard');
+          setLoginError('');
+          if (data.agent.role !== 'owner' && data.agent.role !== 'supervisor' && !data.agent.available_for_transfer) {
+            setShowOfflineModal(true);
           }
-        } else if (d.valid === false) {
+        } else if (data.valid === false) {
           localStorage.removeItem('sterling_session_token');
+          setLoginError('Session expired. Enter your PIN to sign in.');
+        } else {
+          throw new Error('Session verification unavailable');
         }
-      }).catch(() => {
-        // Keep the saved session when verification is temporarily unavailable.
-        // The server remains authoritative: a successful response with valid=false
-        // removes it, while a network/5xx failure can recover on refresh.
-      });
-    return () => { cancelled = true; };
+      } catch {
+        if (stillCurrent()) {
+          setLoginError('Connection interrupted. Reconnecting your saved login…');
+          retryTimer = setTimeout(() => { void restore(); }, 10000);
+        }
+      } finally {
+        pending = false;
+      }
+    };
+    const reconnect = () => { void restore(); };
+    void restore();
+    window.addEventListener('online', reconnect);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+      window.removeEventListener('online', reconnect);
+    };
   }, []);
 
   // Restore active redials from localStorage on page load (survives refresh)
