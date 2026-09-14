@@ -121,6 +121,9 @@ function CallRow({ call, expanded, onToggle, onPhoneClick, onSave, saving, selec
             </button>
             <span className="ws-call-time">{fmtTimeET(call.created_at)}</span>
           </div>
+          {call.consumer_custom_fields && typeof call.consumer_custom_fields === 'object' && 'email' in call.consumer_custom_fields && Boolean(call.consumer_custom_fields.email) && (
+            <div className="ws-call-email"><Mail size={10} /> {String(call.consumer_custom_fields.email).split(';')[0].trim()}</div>
+          )}
         </div>
         <div className="ws-call-right">
           <CallBadges call={call} isLive={isLive} />
@@ -141,7 +144,7 @@ function CallRow({ call, expanded, onToggle, onPhoneClick, onSave, saving, selec
       {expanded && (
         <div className="ws-call-detail">
           {call.consumer_custom_fields && typeof call.consumer_custom_fields === 'object' && 'email' in call.consumer_custom_fields && Boolean(call.consumer_custom_fields.email) && (
-            <div className="ws-detail-row ws-detail-email"><Mail size={12} /><span>Email</span><strong>{String(call.consumer_custom_fields.email)}</strong></div>
+            <div className="ws-detail-row ws-detail-email"><Mail size={12} /><span>All Emails</span><strong>{String(call.consumer_custom_fields.email)}</strong></div>
           )}
           {call.consumer_address && <div className="ws-detail-row"><span>Address</span><strong>{call.consumer_address}</strong></div>}
           {call.consumer_income_range && <div className="ws-detail-row"><span>Income</span><strong>{call.consumer_income_range}</strong></div>}
