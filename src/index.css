@@ -6236,6 +6236,10 @@ img {
 .cam-agent-vid video {
   width:100%; height:100%; object-fit:cover; transform:scaleX(-1);
 }
+.cam-agent-vid .cam-snapshot {
+  width:100%; height:100%; object-fit:cover; transform:scaleX(-1);
+  image-rendering:auto;
+}
 .cam-no-feed {
   display:flex; flex-direction:column; align-items:center; gap:6px;
   color:rgba(160,220,190,.35); font-size:12px;
@@ -6250,9 +6254,7 @@ img {
 }
 .cam-dot.on { background:#00ff8c; box-shadow:0 0 6px rgba(0,255,140,.4); }
 
-.cam-expanded-note {
-  margin:16px 0 0; font-size:11px; color:rgba(160,220,190,.35); text-align:center;
-}
+
 
 @media (max-width:600px) {
   .cam-widget { width:110px; height:110px; border-radius:12px; }
