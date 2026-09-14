@@ -874,8 +874,11 @@ export default function App() {
         if (!mounted || ownerPollingRef.current) return;
         ownerPollingRef.current = true;
         try {
+          // Load the screen's essential data first so the dashboard becomes usable
+          // before slower secondary reports finish.
+          await loadAdminStats(token);
+          if (!mounted) return;
           await Promise.allSettled([
-            loadAdminStats(token),
             loadLeadPool(token),
             loadLiveActivity(token),
             loadRedialStats(token),
@@ -889,7 +892,7 @@ export default function App() {
         }
       };
       tick();
-      const interval = setInterval(tick, 8000);
+      const interval = setInterval(tick, 30000);
       return () => { mounted = false; clearInterval(interval); };
     } else {
       let mounted = true;
@@ -897,8 +900,10 @@ export default function App() {
         if (!mounted || agentPollingRef.current) return;
         agentPollingRef.current = true;
         try {
+          // Show the agent's call workspace first; refresh secondary panels after it.
+          await loadQueues(token);
+          if (!mounted) return;
           await Promise.allSettled([
-            loadQueues(token),
             loadSecretaryCalls(token),
             loadSavedTransfers(token),
             loadActiveTransfers(token),
@@ -909,7 +914,7 @@ export default function App() {
         }
       };
       tick();
-      const interval = setInterval(tick, 8000);
+      const interval = setInterval(tick, 30000);
       return () => { mounted = false; clearInterval(interval); };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
