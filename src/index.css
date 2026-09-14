@@ -6000,9 +6000,116 @@ img {
 @keyframes spin { to { transform:rotate(360deg); } }
 .spin { animation:spin .8s linear infinite; }
 
+/* ── Turn 3: Extra Info quick-access elements ─────────────────────── */
+
+/* Command-bar green button */
+.f1-extra-info-quick {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:5px 12px; border-radius:6px; font-size:12px; font-weight:600;
+  background:rgba(0,255,140,.12); color:#80ffc8;
+  border:1px solid rgba(0,255,140,.3); cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.f1-extra-info-quick:hover { background:rgba(0,255,140,.22); border-color:rgba(0,255,140,.5); }
+
+/* Owner dashboard tile */
+.extra-info-home-tile {
+  display:flex; align-items:center; gap:14px;
+  width:100%; padding:16px 18px; border-radius:12px;
+  background:linear-gradient(135deg, rgba(0,60,35,.55), rgba(0,40,22,.65));
+  border:1px solid rgba(0,255,140,.2); color:#c0ffe8;
+  font-size:14px; cursor:pointer; text-align:left;
+  transition:background .2s, border-color .2s, transform .15s;
+}
+.extra-info-home-tile:hover { background:linear-gradient(135deg, rgba(0,80,45,.6), rgba(0,55,30,.7)); border-color:rgba(0,255,140,.4); transform:translateY(-1px); }
+.extra-info-home-tile small { display:block; font-size:11px; color:rgba(160,220,190,.55); font-weight:400; margin-top:2px; }
+.extra-info-home-tile span { flex:1; }
+.extra-info-home-tile > svg:first-child { color:rgba(0,255,140,.6); flex-shrink:0; }
+.extra-info-home-tile > svg:last-child { color:rgba(160,220,190,.3); flex-shrink:0; }
+
+/* Banner above Find a Client */
+.extra-info-banner {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:10px 16px; border-radius:10px; margin-bottom:16px;
+  background:rgba(0,255,140,.06); border:1px solid rgba(0,255,140,.15);
+}
+.extra-info-banner-text { flex:1; min-width:200px; }
+.extra-info-banner-text strong { display:block; font-size:13px; font-weight:600; color:#80ffc8; }
+.extra-info-banner-text small { font-size:11px; color:rgba(160,220,190,.5); }
+.extra-info-banner-btn {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:6px 14px; border-radius:7px; font-size:12px; font-weight:600;
+  background:rgba(0,255,140,.12); color:#80ffc8;
+  border:1px solid rgba(0,255,140,.3); cursor:pointer;
+  transition:background .15s;
+}
+.extra-info-banner-btn:hover { background:rgba(0,255,140,.22); }
+
+/* Agent cockpit tile */
+.extra-info-cockpit {
+  border-color:rgba(0,255,140,.25) !important;
+  background:rgba(0,40,25,.45) !important;
+}
+.extra-info-cockpit:hover {
+  border-color:rgba(0,255,140,.4) !important;
+  background:rgba(0,60,35,.55) !important;
+}
+
+/* Main paste textarea (new single-box design) */
+.extra-info-paste-box { margin-bottom:16px; }
+.extra-info-main-input {
+  width:100%; min-height:56px; max-height:120px; resize:vertical;
+  padding:12px 14px; border-radius:10px; font-size:14px; line-height:1.5;
+  font-family:inherit; color:#e0fff0;
+  background:rgba(0,20,12,.65); border:1.5px solid rgba(0,255,140,.18);
+  transition:border-color .2s, box-shadow .2s;
+}
+.extra-info-main-input:focus {
+  outline:none; border-color:rgba(0,255,140,.45);
+  box-shadow:0 0 0 3px rgba(0,255,140,.08);
+}
+.extra-info-main-input::placeholder { color:rgba(120,200,170,.35); }
+
+/* Parsed contact chips */
+.extra-info-parsed {
+  display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;
+}
+.extra-info-parsed-item {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:4px 10px; border-radius:6px; font-size:12px;
+  background:rgba(0,255,140,.08); border:1px solid rgba(0,255,140,.15);
+  color:#c0ffe8;
+}
+.extra-info-parsed-item strong { font-weight:600; color:#e0fff0; }
+.extra-info-parsed-item svg { color:rgba(0,255,140,.5); flex-shrink:0; }
+
+/* IncomingCallAlert Extra Info button */
+.ica-extra-info-btn {
+  background:rgba(0,255,140,.1) !important;
+  border-color:rgba(0,255,140,.3) !important;
+  color:#80ffc8 !important;
+}
+.ica-extra-info-btn:hover {
+  background:rgba(0,255,140,.2) !important;
+  border-color:rgba(0,255,140,.5) !important;
+}
+
+/* IncomingTransferPanel Extra Info button */
+.itp-extra-info {
+  background:rgba(0,255,140,.1) !important;
+  border-color:rgba(0,255,140,.3) !important;
+  color:#80ffc8 !important;
+}
+.itp-extra-info:hover {
+  background:rgba(0,255,140,.2) !important;
+  border-color:rgba(0,255,140,.5) !important;
+}
+
 @media (max-width:600px) {
   .extra-info-fields { grid-template-columns:1fr; }
   .extra-info-known-grid { grid-template-columns:1fr; }
   .extra-info-links { grid-template-columns:1fr; }
   .extra-info-actions { flex-direction:column; }
+  .extra-info-banner { flex-direction:column; align-items:stretch; }
+  .extra-info-home-tile { padding:12px 14px; }
 }

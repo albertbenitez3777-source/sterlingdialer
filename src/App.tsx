@@ -1594,21 +1594,21 @@ export default function App() {
   const navItems = isOwner
     ? [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'contacts', label: 'Find a Client', icon: Search },
         { id: 'calls', label: 'All Calls', icon: Phone },
         { id: 'opportunities', label: 'Call Backs', icon: Users },
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
-        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'leads', label: 'Add Leads', icon: Upload },
         { id: 'system', label: 'System', icon: Settings },
       ]
     : [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'inbox', label: 'New Calls', icon: Inbox },
         { id: 'opportunities', label: 'People to Call', icon: Users },
         { id: 'calls', label: 'My Calls', icon: Flame },
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
-        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'secretary', label: 'Ask Elizabeth', icon: Send },
         { id: 'contacts', label: 'Find a Client', icon: Search },
       ];
@@ -1652,6 +1652,7 @@ export default function App() {
         <div className="topbar f1-status-strip">
           <div className="breadcrumbs"><strong>{navItems.find(n => n.id === activeNav)?.label}</strong></div>
           <div className="top-actions">
+            <button className="f1-extra-info-quick" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={14} /> Extra Info</button>
             {adminStats && (
               <div className={`dialer-indicator ${adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'waiting' : 'running') : 'stopped'}`}>
                 <div className={`dialer-spinner ${adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'waiting' : 'running') : 'stopped'}`}></div>
@@ -1742,6 +1743,7 @@ export default function App() {
                 <p>Calls, team connections, transfer evidence, and reports are below.</p>
               </div>
               <div className="f1-simple-actions">
+                <button className="extra-info-home-tile" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={25} /><span><strong>Extra Info</strong><small>Find more on a live call</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('contacts')}><Search size={25} /><span><strong>Find a Client</strong><small>Name, phone, email, address, and more</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('calls')}><Phone size={25} /><span><strong>See Calls</strong><small>Live calls, results, recordings, and notes</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('opportunities')}><Users size={25} /><span><strong>Call Backs</strong><small>People who need attention</small></span><ChevronRight size={18} /></button>
@@ -2814,6 +2816,7 @@ export default function App() {
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
+              onNavTo={setActiveNav}
             />
           )}
 
@@ -2824,6 +2827,7 @@ export default function App() {
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
+              onNavTo={setActiveNav}
             />
           )}
 
@@ -2965,6 +2969,7 @@ export default function App() {
               onAcknowledge={handleAlertAcknowledge}
               onScheduleCallback={handleAlertSchedule}
               onDismiss={handleAlertDismiss}
+              onExtraInfo={(name, phone, address) => { setExtraInfoPrefill({ name, phone, address }); setActiveNav('extra'); }}
               sessionToken={sessionToken}
               onUnauthorized={handleLogout}
               agentName={session?.agent?.full_name ?? 'Agent'}
@@ -2980,6 +2985,7 @@ export default function App() {
               sessionToken={sessionToken}
               onUnauthorized={handleLogout}
               onDismiss={(id) => setDismissedTransferIds(prev => new Set(prev).add(id))}
+              onExtraInfo={(name, phone, address) => { setExtraInfoPrefill({ name, phone, address }); setActiveNav('extra'); }}
             />
           )}
 
@@ -3565,15 +3571,23 @@ function CallLogView({ expandedCall, setExpandedCall, sessionToken, onUnauthoriz
 
 // ── Contacts Search View ─────────────────────────────────────────────────
 function ContactsView({ searchQuery, searchResults, searching, searchError, searchTotal, hasMore,
-  onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized,
+  onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized, onNavTo,
 }: ReturnType<typeof useContactSearch<ContactResult>> & {
   expandedContact: string | null; setExpandedContact: (v: string | null) => void;
   sessionToken: string; onPhoneClick: (name: string, phone: string, email?: string, address?: string) => void;
-  onUnauthorized: () => void;
+  onUnauthorized: () => void; onNavTo?: (tab: string) => void;
 }) {
   return (
     <>
       <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="CLIENT SEARCH" title="Find a Client" subtitle="Find saved clients, then search public sources for more possible information." />
+
+      <div className="extra-info-banner">
+        <div className="extra-info-banner-text">
+          <strong>Extra client information</strong>
+          <span>Paste name, phone, address — no file search needed</span>
+        </div>
+        <button className="extra-info-banner-btn" onClick={() => onNavTo?.('extra')}><FileText size={14} /> Open Extra Info</button>
+      </div>
       <div className="hero-row">
         <div>
           <div className="eyebrow"><Search size={12} /> ALL CLIENTS</div>

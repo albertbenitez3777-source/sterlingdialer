@@ -58,7 +58,7 @@ function CustomFields({ fields }: { fields: Record<string, unknown> | null }) {
   );
 }
 
-function TransferCard({ transfer, onDismiss, sessionToken, onUnauthorized }: { transfer: ActiveTransfer; onDismiss: (id: string) => void; sessionToken: string; onUnauthorized: () => void }) {
+function TransferCard({ transfer, onDismiss, onExtraInfo, sessionToken, onUnauthorized }: { transfer: ActiveTransfer; onDismiss: (id: string) => void; onExtraInfo?: (name: string, phone: string, address: string) => void; sessionToken: string; onUnauthorized: () => void }) {
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(timeAgo(transfer.created_at));
@@ -124,6 +124,11 @@ function TransferCard({ transfer, onDismiss, sessionToken, onUnauthorized }: { t
             <FileText size={12} /> {copied === 'all' ? 'Copied!' : 'Copy All'}
           </button>
         )}
+        {onExtraInfo && (
+          <button className="itp-action-btn itp-extra-info" onClick={() => onExtraInfo(transfer.consumer_name || '', transfer.phone_normalized || '', transfer.consumer_address || '')}>
+            <FileText size={12} /> Extra Info
+          </button>
+        )}
       </div>
 
       {expanded && !phoneOnly && (
@@ -145,7 +150,7 @@ function TransferCard({ transfer, onDismiss, sessionToken, onUnauthorized }: { t
   );
 }
 
-export function IncomingTransferPanel({ transfers, loading, error, onDismiss, sessionToken, onUnauthorized }: IncomingTransferPanelProps) {
+export function IncomingTransferPanel({ transfers, loading, error, onDismiss, onExtraInfo, sessionToken, onUnauthorized }: IncomingTransferPanelProps & { onExtraInfo?: (name: string, phone: string, address: string) => void }) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const handleDismiss = (id: string) => { setDismissed(prev => new Set(prev).add(id)); onDismiss(id); };
   const visible = transfers.filter(t => !dismissed.has(t.id));
@@ -163,7 +168,7 @@ export function IncomingTransferPanel({ transfers, loading, error, onDismiss, se
       </div>
       {error && <div className="itp-error"><AlertTriangle size={13} /> {error}</div>}
       <div className="itp-cards">
-        {visible.map(t => <TransferCard key={t.id} transfer={t} onDismiss={handleDismiss} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />)}
+        {visible.map(t => <TransferCard key={t.id} transfer={t} onDismiss={handleDismiss} onExtraInfo={onExtraInfo} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />)}
       </div>
     </div>
   );

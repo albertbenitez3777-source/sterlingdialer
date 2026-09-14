@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, Flame,
+  Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, FileText, Flame,
   Inbox, MessageSquare, Pause, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
   Search, Send, ShieldCheck, Sparkles, Users, Video, XCircle,
 } from 'lucide-react';
@@ -245,6 +245,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
           {(workspace.client_notes || []).slice(0, 2).map(note => <p className="f1-mobile-note-row" key={note.id}>{note.body}</p>)}
         </div> : <div className="f1-mobile-active-client empty"><strong>No client open</strong><span>Open a client on your computer and it will appear here.</span></div>}
         <div className="f1-mobile-actions">
+          <button onClick={() => onNavTo('extra')}><FileText size={18} /><span>Extra Info</span><ArrowUpRight size={16} /></button>
           <button onClick={() => onNavTo('contacts')}><Search size={18} /><span>Find a client</span><ArrowUpRight size={16} /></button>
           <button onClick={() => onNavTo('inbox')}><Inbox size={18} /><span>Incoming alerts</span><ArrowUpRight size={16} /></button>
           <button onClick={() => onNavTo('saved')}><Clock size={18} /><span>Callbacks & saved</span><ArrowUpRight size={16} /></button>
@@ -284,6 +285,9 @@ export function AgentCockpit(props: AgentCockpitProps) {
       <div className="f1-command-grid">
         <main className="f1-command-main">
           <div className="f1-primary-actions">
+            <button className="f1-primary-action extra-info-cockpit" onClick={() => onNavTo('extra')}>
+              <span className="f1-action-icon"><FileText size={24} /></span><div><small>RESEARCH</small><strong>Extra Info</strong><p>Find more on a live call</p></div><ArrowUpRight size={18} />
+            </button>
             <button className="f1-primary-action dialer" onClick={() => onNavTo('calls')}>
               <span className="f1-action-icon"><Flame size={24} /></span><div><small>CALLS</small><strong>My Calls</strong><p>See live calls and history</p></div><ArrowUpRight size={18} />
             </button>

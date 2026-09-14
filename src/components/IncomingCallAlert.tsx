@@ -37,6 +37,7 @@ interface IncomingCallAlertProps {
   onAcknowledge: (alertId: string, outcome: string, notes: string) => Promise<boolean>;
   onScheduleCallback: (alertId: string, callbackAt: string, notes: string) => Promise<boolean>;
   onDismiss: (alertId: string) => void;
+  onExtraInfo?: (name: string, phone: string, address: string) => void;
   sessionToken: string;
   onUnauthorized: () => void;
   agentName: string;
@@ -66,12 +67,13 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 function AlertCard({
-  alert, onAcknowledge, onScheduleCallback, onDismiss,
+  alert, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo,
 }: {
   alert: TransferAlert;
   onAcknowledge: IncomingCallAlertProps['onAcknowledge'];
   onScheduleCallback: IncomingCallAlertProps['onScheduleCallback'];
   onDismiss: IncomingCallAlertProps['onDismiss'];
+  onExtraInfo?: IncomingCallAlertProps['onExtraInfo'];
 }) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -167,6 +169,11 @@ function AlertCard({
               <button className="ica-copy-btn" onClick={copyPhone} title="Copy phone">
                 {copied ? <Check size={13} /> : <Copy size={13} />}
               </button>
+              {onExtraInfo && (
+                <button className="ica-copy-btn ica-extra-info-btn" onClick={() => onExtraInfo(alert.consumer_name || '', alert.consumer_phone || '', alert.consumer_address || '')} title="Extra Info">
+                  <FileText size={13} /> Extra Info
+                </button>
+              )}
             </div>
             <div className="ica-client-details">
               {alert.consumer_address && (
@@ -268,7 +275,7 @@ function AlertCard({
 }
 
 export function IncomingCallAlert({
-  alerts, onAcknowledge, onScheduleCallback, onDismiss, agentName,
+  alerts, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo, agentName,
 }: IncomingCallAlertProps) {
   const [audioOn, setAudioOn] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -321,6 +328,7 @@ export function IncomingCallAlert({
             onAcknowledge={onAcknowledge}
             onScheduleCallback={onScheduleCallback}
             onDismiss={onDismiss}
+            onExtraInfo={onExtraInfo}
           />
         ))}
       </div>
