@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import postgres from "npm:postgres@3.4.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,6 +9,7 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? "";
 
 const UPSTREAM_TIMEOUT_MS = 8000;
 
@@ -35,45 +37,45 @@ function safeLog(correlationId: string, action: string, message: string, extra?:
 }
 
 async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationId: string, action: string): Promise<{ ok: boolean; status: number; data: unknown }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  if (!dbUrl) {
+    safeLog(correlationId, action, "database URL missing");
+    return { ok: false, status: 0, data: null };
+  }
+
+  const sql = postgres(dbUrl, {
+    max: 1,
+    idle_timeout: 1,
+    connect_timeout: 10,
+    ssl: { rejectUnauthorized: false },
+    connection: { application_name: "wolf-auth-isolated", statement_timeout: "10000" },
+  });
   const start = Date.now();
 
   try {
-    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${spec.rpc}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": serviceRoleKey,
-        "Authorization": `Bearer ${serviceRoleKey}`,
-      },
-      body: JSON.stringify(args),
-      signal: controller.signal,
-    });
-
-    const elapsed = Date.now() - start;
-    safeLog(correlationId, action, "upstream responded", { upstreamStatus: res.status, elapsedMs: elapsed });
-
-    if (!res.ok) {
-      return { ok: false, status: res.status, data: null };
+    let rows;
+    if (spec.rpc === "agent_login") {
+      rows = await sql`SELECT agent_login(${args.p_pin}, ${args.p_ip}) AS data`;
+    } else if (spec.rpc === "agent_logout") {
+      await sql`SELECT agent_logout(${args.p_session_token})`;
+      safeLog(correlationId, action, "database responded", { elapsedMs: Date.now() - start });
+      return { ok: true, status: 200, data: null };
+    } else if (spec.rpc === "verify_session") {
+      rows = await sql`SELECT verify_session(${args.p_session_token}) AS data`;
+    } else if (spec.rpc === "owner_setup_pin") {
+      rows = await sql`SELECT owner_setup_pin(${args.p_pin}) AS data`;
+    } else if (spec.rpc === "owner_needs_setup") {
+      rows = await sql`SELECT owner_needs_setup() AS data`;
+    } else {
+      return { ok: false, status: 400, data: null };
     }
 
-    const responseBody = await res.text();
-    if (!responseBody.trim()) {
-      // agent_logout returns void: PostgREST may send HTTP 204 with no JSON.
-      // All other RPCs still require a response body.
-      return { ok: spec.rpc === "agent_logout", status: res.status, data: null };
-    }
-    const data = JSON.parse(responseBody);
-    return { ok: true, status: res.status, data };
+    safeLog(correlationId, action, "database responded", { elapsedMs: Date.now() - start });
+    return { ok: true, status: 200, data: rows[0]?.data ?? null };
   } catch (err) {
-    const elapsed = Date.now() - start;
-    const isAbort = err instanceof DOMException && err.name === "AbortError";
-    const code = isAbort ? "TIMEOUT" : "FETCH_ERROR";
-    safeLog(correlationId, action, "upstream failed", { code, elapsedMs: elapsed });
+    safeLog(correlationId, action, "database failed", { code: "DB_ERROR", elapsedMs: Date.now() - start, error: String(err).slice(0, 160) });
     return { ok: false, status: 0, data: null };
   } finally {
-    clearTimeout(timeout);
+    await sql.end({ timeout: 1 }).catch(() => {});
   }
 }
 
