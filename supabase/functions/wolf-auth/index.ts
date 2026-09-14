@@ -18,6 +18,7 @@ const UPSTREAM_TIMEOUT_MS = 8000;
 type RpcSpec = { rpc: string; args: string[] };
 const RPC_ALLOWLIST: Record<string, RpcSpec> = {
   login: { rpc: "agent_login", args: ["p_pin", "p_ip"] },
+  login_by_token: { rpc: "agent_login_by_token", args: ["p_token", "p_ip"] },
   logout: { rpc: "agent_logout", args: ["p_session_token"] },
   verify: { rpc: "verify_session", args: ["p_session_token"] },
   owner_setup: { rpc: "owner_setup_pin", args: ["p_pin"] },
@@ -55,6 +56,8 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
     let rows;
     if (spec.rpc === "agent_login") {
       rows = await sql`SELECT agent_login(${args.p_pin}, ${args.p_ip}) AS data`;
+    } else if (spec.rpc === "agent_login_by_token") {
+      rows = await sql`SELECT agent_login_by_token(${args.p_token}, ${args.p_ip}) AS data`;
     } else if (spec.rpc === "agent_logout") {
       await sql`SELECT agent_logout(${args.p_session_token})`;
       safeLog(correlationId, action, "database responded", { elapsedMs: Date.now() - start });
@@ -110,6 +113,24 @@ Deno.serve(async (req: Request) => {
       const data = result.data as Record<string, unknown> | null;
       if (!data || !data.success) {
         return jsonResponse(data || { success: false, error: "Authentication failed" }, 401);
+      }
+      return jsonResponse(data, 200);
+    }
+
+    if (action === "login_by_token") {
+      const token = String(body.token || "");
+      if (!token || token.length < 30) {
+        return jsonResponse({ success: false, error: "Invalid token" }, 400);
+      }
+      const ip = req.headers.get("x-forwarded-for") || "unknown";
+      const spec = RPC_ALLOWLIST.login_by_token;
+      const result = await callRpc(spec, { p_token: token, p_ip: ip }, correlationId, action);
+      if (!result.ok) {
+        return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
+      }
+      const data = result.data as Record<string, unknown> | null;
+      if (!data || !data.success) {
+        return jsonResponse(data || { success: false, error: "Invalid or expired link" }, 401);
       }
       return jsonResponse(data, 200);
     }

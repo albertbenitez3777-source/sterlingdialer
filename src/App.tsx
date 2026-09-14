@@ -673,6 +673,36 @@ export default function App() {
     };
   }, []);
 
+  // Auto-login via URL token (?key=TOKEN) — bypasses PIN screen
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('key');
+    if (!token || token.length < 30) return;
+    // Clear the token from the URL immediately so it's not visible/bookmarkable with token
+    window.history.replaceState({}, '', window.location.pathname);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWithRetry(AUTH_URL, { action: 'login_by_token', token });
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data.success && data.session_token && data.agent) {
+          localStorage.setItem('sterling_session_token', data.session_token);
+          setSessionToken(data.session_token);
+          setSession({ valid: true, agent: data.agent });
+          setAgentAvailable(!!data.agent.available_for_transfer);
+          setActiveNav('dashboard');
+          if (data.agent.role !== 'owner' && data.agent.role !== 'supervisor' && !data.agent.available_for_transfer) setShowOfflineModal(true);
+        } else {
+          setLoginError(data.error || 'Invalid or expired link');
+        }
+      } catch {
+        if (!cancelled) setLoginError('Connection error. Please try the link again.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Restore active redials from localStorage on page load (survives refresh)
   useEffect(() => {
     if (!session?.valid || !sessionToken) return;
