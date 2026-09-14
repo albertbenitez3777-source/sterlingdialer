@@ -2844,6 +2844,7 @@ export default function App() {
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
               onNavTo={setActiveNav}
+              onExtraInfo={(p) => { setExtraInfoPrefill(p); setActiveNav('extra'); }}
             />
           )}
 
@@ -2855,6 +2856,7 @@ export default function App() {
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
               onUnauthorized={() => atomicLogoutRef.current?.()}
               onNavTo={setActiveNav}
+              onExtraInfo={(p) => { setExtraInfoPrefill(p); setActiveNav('extra'); }}
             />
           )}
 
@@ -3600,11 +3602,13 @@ function CallLogView({ expandedCall, setExpandedCall, sessionToken, onUnauthoriz
 
 // ── Contacts Search View ─────────────────────────────────────────────────
 function ContactsView({ searchQuery, searchResults, searching, searchError, searchTotal, hasMore,
-  onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized, onNavTo,
+  onSearchChange, onSearchKeyDown, loadMore, expandedContact, setExpandedContact, sessionToken, onPhoneClick, onUnauthorized, onNavTo, onExtraInfo,
 }: ReturnType<typeof useContactSearch<ContactResult>> & {
   expandedContact: string | null; setExpandedContact: (v: string | null) => void;
   sessionToken: string; onPhoneClick: (name: string, phone: string, email?: string, address?: string) => void;
   onUnauthorized: () => void; onNavTo?: (tab: string) => void;
+  onExtraInfo?: (prefill: { name?: string; phone?: string; address?: string; email?: string }) => void;
+
 }) {
   return (
     <>
@@ -3769,7 +3773,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                       <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Talkroute · Find More Information</small></span><ChevronDown size={15} />
                     </button>
                   )}
-                  <button className="contact-intelligence-action extra-info-card-btn" onClick={() => { setExtraInfoPrefill({ name: contact.consumer_name || '', phone: contact.phone_normalized || contact.phone || '', address: contact.address || '', email: contactEmails(contact)[0] || '' }); setActiveNav('extra'); }}>
+                  <button className="contact-intelligence-action extra-info-card-btn" onClick={() => { onExtraInfo?.({ name: contact.consumer_name || '', phone: contact.phone_normalized || contact.phone || '', address: contact.address || '', email: contactEmails(contact)[0] || '' }); }}>
                     <FileText size={16} /><span><strong>Extra Info</strong><small>That's Them · People Search · Save findings</small></span><ChevronDown size={15} />
                   </button>
                   <RecordingPlayer url={contact.recording_url} callId={contact.source === 'call' ? contact.id : undefined} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
