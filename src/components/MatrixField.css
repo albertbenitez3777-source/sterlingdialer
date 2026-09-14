@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+.matrix-corridor {
+  position: absolute;
+  inset: -4%;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #010605;
+  perspective: 880px;
+}
+.matrix-corridor-ops { opacity: .42; filter: saturate(.85) brightness(.72); }
+.matrix-rain {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 2;
+}
+.matrix-ceiling {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  top: -8%;
+  height: 42%;
+  z-index: 1;
+  transform: rotateX(68deg);
+  transform-origin: center bottom;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,255,160,.07) 0 1px, transparent 1px 42px),
+    linear-gradient(180deg, rgba(0,255,170,.08), transparent);
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+.matrix-floor {
+  position: absolute;
+  left: -30%;
+  right: -30%;
+  bottom: -38%;
+  height: 78%;
+  z-index: 3;
+  transform: rotateX(68deg);
+  transform-origin: center top;
+  pointer-events: none;
+}
+.matrix-floor-grid {
+  width: 100%;
+  height: 100%;
+  background-image:
+    linear-gradient(rgba(0,255,160,.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,160,.16) 1px, transparent 1px),
+    radial-gradient(circle at 50% 0%, rgba(0,255,170,.35), transparent 42%);
+  background-size: 46px 46px, 46px 46px, 100% 100%;
+  box-shadow: inset 0 90px 120px #010605;
+  animation: matrix-floor-drift 28s linear infinite;
+}
+.matrix-wall {
+  position: absolute;
+  top: 0;
+  width: 28%;
+  height: 100%;
+  z-index: 1;
+  opacity: .28;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0 10px,
+    rgba(0,255,160,.07) 10px 11px
+  );
+}
+.matrix-wall-left { left: 0; transform: perspective(600px) rotateY(38deg); mask-image: linear-gradient(to right, black, transparent); }
+.matrix-wall-right { right: 0; transform: perspective(600px) rotateY(-38deg); mask-image: linear-gradient(to left, black, transparent); }
+.matrix-scan {
+  position: absolute;
+  z-index: 4;
+  width: 160%;
+  left: -30%;
+  color: rgba(92, 255, 198, .38);
+  text-shadow: 0 0 8px #00e991, 0 0 22px rgba(0,255,160,.55);
+  font: 800 13px "Share Tech Mono", ui-monospace, monospace;
+  letter-spacing: .42em;
+  white-space: nowrap;
+}
+.matrix-scan-a { top: 26%; animation: matrix-scan-right 16s linear infinite; }
+.matrix-scan-b { bottom: 22%; animation: matrix-scan-left 21s linear infinite; }
+.matrix-bloom {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: min(58vw, 720px);
+  aspect-ratio: 1;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(0,255,170,.28), rgba(0,180,110,.08) 28%, transparent 68%);
+  filter: blur(22px);
+  animation: matrix-core-pulse 5s ease-in-out infinite;
+}
+.matrix-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background:
+    radial-gradient(ellipse at 50% 48%, transparent 12%, rgba(0,8,6,.28) 48%, rgba(0,2,2,.92) 100%);
+}
+
+.matrix-access-page .matrix-corridor { z-index: 0; }
+.matrix-access-card {
+  background: linear-gradient(160deg, rgba(1, 18, 14, .38), rgba(0, 8, 7, .22)) !important;
+  border-color: rgba(120, 255, 210, .22) !important;
+  box-shadow: 0 0 0 1px rgba(0,255,160,.06) inset, 0 30px 90px rgba(0,0,0,.45), 0 0 80px rgba(0,255,160,.12) !important;
+  backdrop-filter: blur(18px) saturate(1.2) !important;
+}
+.matrix-access-brand {
+  margin: 0 0 6px;
+  color: #d9ffe9;
+  font: 800 22px "Share Tech Mono", ui-monospace, monospace;
+  letter-spacing: .42em;
+  text-shadow: 0 0 18px rgba(70,255,190,.55);
+}
+.matrix-access-kicker { letter-spacing: .38em !important; }
+
+@keyframes matrix-floor-drift {
+  from { background-position: 0 0, 0 0, 0 0; }
+  to { background-position: 0 46px, 46px 0, 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matrix-floor-grid, .matrix-scan, .matrix-bloom { animation: none !important; }
+}
