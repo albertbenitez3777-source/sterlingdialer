@@ -2823,12 +2823,13 @@ RULES — follow exactly, no exceptions:
     // ============================================================
 
     if (action === "start_campaign") {
-      const { session_token, call_limit } = body;
+      const { session_token, call_limit, concurrency: reqConc } = body;
       const agent = await verifySession(session_token);
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (agent.role !== "owner" && agent.role !== "administrator") return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-      const { data, error } = await supabase.rpc("campaign_start", { p_concurrency: 5, p_call_limit: call_limit || 500 });
+      const concurrency = (Number.isInteger(reqConc) && reqConc >= 3 && reqConc <= 12) ? reqConc : 5;
+      const { data, error } = await supabase.rpc("campaign_start", { p_concurrency: concurrency, p_call_limit: call_limit || 500 });
       if (error) return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       if (blandApiKey) {
@@ -2851,6 +2852,49 @@ RULES — follow exactly, no exceptions:
       const { data, error } = await supabase.rpc("campaign_stop");
       if (error) return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // SET_DIALER_SPEED — owner-only global speed multiplier (1×–4×, base concurrency 3)
+    if (action === "set_dialer_speed") {
+      const { session_token, multiplier } = body;
+      const agent = await verifySession(session_token);
+      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (agent.role !== "owner" && agent.role !== "administrator") return new Response(JSON.stringify({ error: "Owner or administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      const m = Number(multiplier);
+      if (!Number.isInteger(m) || m < 1 || m > 4) return new Response(JSON.stringify({ error: "Multiplier must be an integer from 1 to 4" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      const newConcurrency = m * 3;
+
+      const { data: campaign, error: fetchErr } = await supabase
+        .from("campaigns")
+        .select("id, concurrency, state")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchErr || !campaign) return new Response(JSON.stringify({ error: "No campaign found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      const previousConcurrency = campaign.concurrency;
+
+      const { error: updateErr } = await supabase
+        .from("campaigns")
+        .update({ concurrency: newConcurrency, updated_at: new Date().toISOString() })
+        .eq("id", campaign.id);
+
+      if (updateErr) {
+        return new Response(JSON.stringify({ error: `Database rejected update: ${updateErr.message}`, constraint: updateErr.code || null }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      await supabase.from("audit_logs").insert({
+        actor_id: agent.id,
+        action: "set_dialer_speed",
+        entity_type: "campaign",
+        entity_id: campaign.id,
+        metadata: { multiplier: m, previous_concurrency: previousConcurrency, new_concurrency: newConcurrency, campaign_state: campaign.state },
+      }).catch(() => {});
+
+      return new Response(JSON.stringify({ success: true, multiplier: m, concurrency: newConcurrency, previous_concurrency: previousConcurrency }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ============================================================

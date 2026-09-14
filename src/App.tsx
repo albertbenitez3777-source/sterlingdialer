@@ -335,6 +335,9 @@ export default function App() {
   const [teamHealth, setTeamHealth] = useState<TeamHealth | null>(null);
   const [, setLoadingAdmin] = useState(false);
   const [callLimit, setCallLimit] = useState(500);
+  const [dialerSpeed, setDialerSpeed] = useState(1);
+  const [savingSpeed, setSavingSpeed] = useState(false);
+  const [speedNotice, setSpeedNotice] = useState<string | null>(null);
   const [minuteCap, setMinuteCap] = useState<number | null>(null);
   const [savingCap, setSavingCap] = useState(false);
   // Heartbeat-driven attendance
@@ -722,6 +725,8 @@ export default function App() {
         const summary = s.summary as Record<string, unknown> | undefined;
         if (summary?.provider_call_limit) setCallLimit(summary.provider_call_limit as number);
         if (summary?.daily_minute_cap !== undefined) setMinuteCap(summary.daily_minute_cap as number);
+        const conc = summary?.concurrency as number | undefined;
+        if (conc && conc > 0) setDialerSpeed(Math.max(1, Math.min(4, Math.round(conc / 3))));
         setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
         const healthResult = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
           body: { action: 'get_team_status', session_token: token },
@@ -1286,7 +1291,7 @@ export default function App() {
       }
       const res = await providerFetch(PROVIDER_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start_campaign', session_token: sessionToken, call_limit: callLimit }),
+        body: JSON.stringify({ action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerSpeed * 3 }),
       });
       const data = await res.json();
       if (data.success) {
@@ -1366,6 +1371,30 @@ export default function App() {
       setNotice('Network error — could not set concurrency');
       setTimeout(() => setNotice(''), 3000);
     } finally { setSettingConcurrency(null); }
+  };
+
+  const handleDialerSpeed = async (m: number) => {
+    if (savingSpeed || m < 1 || m > 4) return;
+    setSavingSpeed(true);
+    setSpeedNotice(null);
+    try {
+      const res = await providerFetch(PROVIDER_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_dialer_speed', session_token: sessionToken, multiplier: m }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDialerSpeed(m);
+        setSpeedNotice(`Speed set to ${m}x (${m * 3} lines)`);
+      } else {
+        setSpeedNotice(data.error || 'Failed to set speed');
+      }
+    } catch {
+      setSpeedNotice('Network error — could not set speed');
+    } finally {
+      setSavingSpeed(false);
+      setTimeout(() => setSpeedNotice(null), 4000);
+    }
   };
 
   const saveMinuteCap = async () => {
@@ -1689,6 +1718,23 @@ export default function App() {
               <div className={`dialer-indicator ${adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'waiting' : 'running') : 'stopped'}`}>
                 <div className={`dialer-spinner ${adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'waiting' : 'running') : 'stopped'}`}></div>
                 <b>{adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'WAITING FOR AGENTS' : 'DIALER ACTIVE') : 'DIALER STOPPED'}</b>
+              </div>
+            )}
+            {isOwner && adminStats && (
+              <div className="dialer-speed-control">
+                <span className="dialer-speed-label">SPEED</span>
+                {[1, 2, 3, 4].map(m => (
+                  <button
+                    key={m}
+                    className={`dialer-speed-btn ${dialerSpeed === m ? 'active' : ''}`}
+                    disabled={savingSpeed}
+                    onClick={() => handleDialerSpeed(m)}
+                  >
+                    {savingSpeed && dialerSpeed !== m ? '...' : `${m}x`}
+                  </button>
+                ))}
+                <span className="dialer-speed-lines">{dialerSpeed * 3} lines</span>
+                {speedNotice && <span className={`dialer-speed-notice ${speedNotice.includes('error') || speedNotice.includes('Failed') ? 'error' : 'success'}`}>{speedNotice}</span>}
               </div>
             )}
             <div className="market-indicator">
