@@ -14,6 +14,7 @@ import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
+import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import { currentInboundHealth } from '@/utils/inbound-health';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
@@ -1596,6 +1597,7 @@ export default function App() {
         { id: 'calls', label: 'All Calls', icon: Phone },
         { id: 'opportunities', label: 'Call Backs', icon: Users },
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
+        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'leads', label: 'Add Leads', icon: Upload },
         { id: 'system', label: 'System', icon: Settings },
       ]
@@ -1605,6 +1607,7 @@ export default function App() {
         { id: 'opportunities', label: 'People to Call', icon: Users },
         { id: 'calls', label: 'My Calls', icon: Flame },
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
+        { id: 'extra', label: 'Extra Info', icon: FileText },
         { id: 'secretary', label: 'Ask Elizabeth', icon: Send },
         { id: 'contacts', label: 'Find a Client', icon: Search },
       ];
@@ -3065,6 +3068,10 @@ export default function App() {
               setExpandedCall={setExpandedCall}
               error={allSavedTransfersError}
             />
+          )}
+
+          {activeNav === 'extra' && (
+            <ExtraInfo sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
           )}
         </div>
       </div>

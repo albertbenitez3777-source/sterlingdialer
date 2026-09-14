@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.wolf-webhook]
 verify_jwt = false
+
+[functions.federal-one-v2]
+verify_jwt = false
