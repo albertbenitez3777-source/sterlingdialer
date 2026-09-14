@@ -1,3 +1,4 @@
+export { MatrixField } from './MatrixField';
 export { AnimatedBackground } from './AnimatedBackground';
 export { GlassCard } from './GlassCard';
 export { GlowButton } from './GlowButton';
