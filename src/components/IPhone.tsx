@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import JsSIP from 'jssip';
 import {
   Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, PhoneForwarded,
   RotateCcw, X, Delete, ChevronDown, ChevronUp, Loader2,
@@ -23,8 +22,8 @@ interface RouteData {
   zadarma_sip_password?: string;
 }
 
-type ConnState = 'idle' | 'connecting' | 'registered' | 'failed' | 'widget' | 'callback-only';
-type CallState = 'idle' | 'dialing' | 'ringing-in' | 'active' | 'ending';
+type ConnState = 'idle' | 'connecting' | 'ready' | 'failed';
+type CallState = 'idle' | 'dialing' | 'ringing-in' | 'active' | 'callback-ringing';
 
 interface RecentCall {
   number: string;
@@ -33,13 +32,6 @@ interface RecentCall {
 }
 
 /* ── Constants ── */
-const WSS_ENDPOINTS = [
-  'wss://pbx.zadarma.com:8089/ws',
-  'wss://pbx.zadarma.com:8089',
-  'wss://pbx.zadarma.com/ws',
-];
-const SIP_DOMAIN = 'pbx.zadarma.com';
-const STUN_SERVERS = [{ urls: 'stun:stun.zadarma.com' }, { urls: 'stun:stun.l.google.com:19302' }];
 const WIDGET_DOMAIN = 'wolf-of-wall-street-ssy3.bolt.host';
 const WIDGET_SCRIPT = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/loader-phone-lib.js';
 
@@ -77,42 +69,22 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const [showLog, setShowLog] = useState(false);
   const [error, setError] = useState('');
   const [recents, setRecents] = useState<RecentCall[]>([]);
-  const [callbackStatus, setCbStatus] = useState<'idle' | 'calling' | 'ok' | 'err'>('idle');
+  const [micGranted, setMicGranted] = useState(false);
 
   /* ── Refs ── */
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
-  const uaRef = useRef<JsSIP.UA | null>(null);
-  const sessionRef = useRef<JsSIP.RTCSession | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const setupRanRef = useRef(false);
   const widgetLoadedRef = useRef(false);
-  const wssIndexRef = useRef(0);
 
   const firstName = agentName.split(' ')[0] || 'Agent';
-  const hasCreds = !!(route?.zadarma_sip_login && route?.zadarma_sip_password);
 
   /* ── Logging ── */
   const log = useCallback((msg: string) => {
     const line = `${ts()} ${msg}`;
     console.log('[Phone]', msg);
     setLogs(prev => [...prev.slice(-80), line]);
-  }, []);
-
-  /* ── Audio element ── */
-  useEffect(() => {
-    if (!remoteAudioRef.current) {
-      const audio = document.createElement('audio');
-      audio.id = 'ip17-remote-audio';
-      audio.autoplay = true;
-      document.body.appendChild(audio);
-      remoteAudioRef.current = audio;
-    }
-    return () => {
-      remoteAudioRef.current?.remove();
-      remoteAudioRef.current = null;
-    };
   }, []);
 
   /* ── Call timer ── */
@@ -126,6 +98,22 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [callState]);
+
+  /* ── Request microphone permission ── */
+  const requestMic = useCallback(async () => {
+    if (micGranted) return true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+      setMicGranted(true);
+      log('Microphone access granted');
+      return true;
+    } catch (err) {
+      log(`Microphone denied: ${err}`);
+      setError('Microphone access is required for calls. Please allow it in your browser settings.');
+      return false;
+    }
+  }, [micGranted, log]);
 
   /* ── Load route data ── */
   useEffect(() => {
@@ -147,154 +135,21 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     return () => { stop = true; };
   }, [providerUrl, sessionToken, log]);
 
-  /* ── Attach remote audio to RTC session ── */
-  const attachAudio = useCallback((rtcSession: JsSIP.RTCSession) => {
-    const pc = rtcSession.connection;
-    if (!pc || !remoteAudioRef.current) return;
-    const audio = remoteAudioRef.current;
-
-    if ('ontrack' in pc) {
-      pc.ontrack = (e: RTCTrackEvent) => {
-        if (e.streams?.[0]) audio.srcObject = e.streams[0];
-      };
-    }
-    // Also try existing streams
-    const streams = pc.getRemoteStreams?.();
-    if (streams?.length) audio.srcObject = streams[0];
-  }, []);
-
-  /* ── JsSIP connection ── */
-  const connectJsSIP = useCallback((sipLogin: string, sipPassword: string, wssIndex: number) => {
-    if (wssIndex >= WSS_ENDPOINTS.length) {
-      log('All WSS endpoints failed. Trying Zadarma widget...');
-      tryWidget(sipLogin);
-      return;
-    }
-
-    const wssUrl = WSS_ENDPOINTS[wssIndex];
-    wssIndexRef.current = wssIndex;
-    setConnState('connecting');
-    log(`Trying ${wssUrl}...`);
-
-    try {
-      const socket = new JsSIP.WebSocketInterface(wssUrl);
-      socket.via_transport = 'wss';
-
-      const config = {
-        sockets: [socket],
-        uri: `sip:${sipLogin}@${SIP_DOMAIN}`,
-        password: sipPassword,
-        display_name: firstName,
-        register: true,
-        register_expires: 120,
-        session_timers: false,
-        connection_recovery_min_interval: 4,
-        connection_recovery_max_interval: 30,
-      };
-
-      if (uaRef.current) {
-        try { uaRef.current.stop(); } catch (_) { /* ignore */ }
-      }
-
-      const ua = new JsSIP.UA(config);
-      uaRef.current = ua;
-
-      let connectTimeout: ReturnType<typeof setTimeout> | null = null;
-
-      ua.on('connected', () => {
-        log(`WebSocket connected on ${wssUrl}`);
-      });
-
-      ua.on('registered', () => {
-        if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
-        log(`Registered as ${sipLogin}`);
-        setConnState('registered');
-        setError('');
-      });
-
-      ua.on('registrationFailed', (e: { cause?: string }) => {
-        log(`Registration failed: ${e.cause || 'unknown'}`);
-        if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
-        ua.stop();
-        // Try next WSS endpoint
-        connectJsSIP(sipLogin, sipPassword, wssIndex + 1);
-      });
-
-      ua.on('unregistered', () => {
-        log('SIP unregistered');
-        if (connState === 'registered') setConnState('failed');
-      });
-
-      ua.on('disconnected', () => {
-        log('WebSocket disconnected');
-      });
-
-      ua.on('newRTCSession', (data: { originator: string; session: JsSIP.RTCSession; request: { from: { uri: { user: string } } } }) => {
-        const rtcSession = data.session;
-
-        if (data.originator === 'remote') {
-          // Incoming call
-          const caller = data.request.from.uri.user || 'Unknown';
-          log(`Incoming call from ${caller}`);
-          sessionRef.current = rtcSession;
-          setCallNumber(caller);
-          setCallState('ringing-in');
-
-          rtcSession.on('ended', () => {
-            log('Call ended');
-            setCallState('idle');
-            setCallNumber('');
-            sessionRef.current = null;
-          });
-
-          rtcSession.on('failed', (e: { cause?: string }) => {
-            log(`Call failed: ${e.cause || 'unknown'}`);
-            setCallState('idle');
-            setCallNumber('');
-            sessionRef.current = null;
-          });
-
-          rtcSession.on('accepted', () => {
-            log('Call accepted');
-            setCallState('active');
-            attachAudio(rtcSession);
-          });
-
-          rtcSession.on('confirmed', () => {
-            attachAudio(rtcSession);
-          });
-        }
-      });
-
-      // Timeout for this endpoint
-      connectTimeout = setTimeout(() => {
-        log(`Timeout on ${wssUrl}`);
-        try { ua.stop(); } catch (_) { /* ignore */ }
-        connectJsSIP(sipLogin, sipPassword, wssIndex + 1);
-      }, 8000);
-
-      ua.start();
-    } catch (err) {
-      log(`JsSIP error on ${wssUrl}: ${err}`);
-      connectJsSIP(sipLogin, sipPassword, wssIndex + 1);
-    }
-  }, [log, firstName, attachAudio, connState]);
-
-  /* ── Widget fallback ── */
-  const tryWidget = useCallback(async (sipLogin: string) => {
+  /* ── Load Zadarma widget ── */
+  const loadWidget = useCallback(async () => {
     if (widgetLoadedRef.current) return;
     setConnState('connecting');
-    log('Setting up Zadarma widget...');
+    log('Setting up Zadarma phone...');
 
-    // Setup domain
+    // Step 1: Setup WebRTC domain (idempotent)
     try {
       await authFetch(providerUrl, {
         body: { action: 'zadarma_setup_webrtc', session_token: sessionToken },
         onUnauthorized: () => onUnauthorizedRef.current(),
       });
-    } catch (_) { /* domain setup is best-effort */ }
+    } catch (_) { /* best-effort */ }
 
-    // Get key
+    // Step 2: Get WebRTC key
     const keyRes = await authFetch<{ key?: string; error?: string }>(providerUrl, {
       body: { action: 'zadarma_webrtc_key', session_token: sessionToken },
       onUnauthorized: () => onUnauthorizedRef.current(),
@@ -302,14 +157,17 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
 
     if (!keyRes.ok || !keyRes.data?.key) {
       log(`Widget key failed: ${keyRes.data?.error || keyRes.error || 'unknown'}`);
-      setConnState('callback-only');
-      log('Falling back to callback mode');
+      setConnState('failed');
       return;
     }
 
     const key = keyRes.data.key;
-    log(`Got widget key, loading script...`);
+    log('Got widget key, loading phone...');
 
+    // Step 3: Request microphone early so widget can use it
+    await requestMic();
+
+    // Step 4: Load the widget script
     const script = document.createElement('script');
     script.id = 'zadarma-phone-lib';
     script.src = `${WIDGET_SCRIPT}?location_href=${encodeURIComponent(WIDGET_DOMAIN)}&key=${encodeURIComponent(key)}`;
@@ -317,244 +175,145 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
 
     script.onload = () => {
       widgetLoadedRef.current = true;
-      log('Widget loaded - use the floating Zadarma phone');
-      setConnState('widget');
+      log('Zadarma phone ready');
+      setConnState('ready');
     };
 
     script.onerror = () => {
       log('Widget script failed to load');
-      setConnState('callback-only');
+      setConnState('failed');
     };
 
     document.body.appendChild(script);
-  }, [providerUrl, sessionToken, log]);
+  }, [providerUrl, sessionToken, log, requestMic]);
 
   /* ── Auto-connect when route is loaded ── */
   useEffect(() => {
     if (!route || setupRanRef.current) return;
-    if (!route.zadarma_sip_login || !route.zadarma_sip_password) {
+    if (!route.zadarma_sip_login) {
       log('No SIP credentials found');
-      setConnState('callback-only');
+      setConnState('failed');
       return;
     }
     setupRanRef.current = true;
-    connectJsSIP(route.zadarma_sip_login, route.zadarma_sip_password, 0);
-  }, [route, connectJsSIP, log]);
+    loadWidget();
+  }, [route, loadWidget, log]);
 
   /* ── Cleanup on unmount ── */
   useEffect(() => {
     return () => {
-      try { uaRef.current?.stop(); } catch (_) { /* */ }
       const ws = document.getElementById('zadarma-phone-lib');
       if (ws) ws.remove();
       document.querySelectorAll('[class*="zadarma"],[id*="zadarma"],[class*="webrtc-phone"]').forEach(el => el.remove());
     };
   }, []);
 
-  /* ── Make outgoing call via JsSIP ── */
-  const makeCall = useCallback((number: string) => {
+  /* ── Make outgoing call ── */
+  const makeCall = useCallback(async (number: string) => {
     const cleaned = number.replace(/\D/g, '');
     if (!cleaned || cleaned.length < 3) return;
 
-    if (connState === 'registered' && uaRef.current) {
-      const target = `sip:${cleaned}@${SIP_DOMAIN}`;
-      log(`Calling ${cleaned} via SIP...`);
+    // Always ensure mic is granted before calling
+    const hasMic = await requestMic();
+    if (!hasMic) return;
+
+    if (connState === 'ready' && widgetLoadedRef.current) {
+      // Try dispatching call to the Zadarma widget
+      const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
+      log(`Dialing ${dialNum} via Zadarma widget...`);
       setCallNumber(cleaned);
       setCallState('dialing');
-
-      try {
-        const rtcSession = uaRef.current.call(target, {
-          mediaConstraints: { audio: true, video: false },
-          pcConfig: { iceServers: STUN_SERVERS },
-          rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
-        });
-
-        sessionRef.current = rtcSession;
-
-        rtcSession.on('progress', () => {
-          log('Ringing...');
-          setCallState('dialing');
-        });
-
-        rtcSession.on('accepted', () => {
-          log('Call connected');
-          setCallState('active');
-          attachAudio(rtcSession);
-        });
-
-        rtcSession.on('confirmed', () => {
-          attachAudio(rtcSession);
-        });
-
-        rtcSession.on('ended', () => {
-          log('Call ended');
-          setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
-          setCallState('idle');
-          setCallNumber('');
-          setMuted(false);
-          setSpeakerOff(false);
-          setShowDtmf(false);
-          sessionRef.current = null;
-        });
-
-        rtcSession.on('failed', (e: { cause?: string }) => {
-          log(`Call failed: ${e.cause || 'unknown'}`);
-          setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
-          setCallState('idle');
-          setCallNumber('');
-          sessionRef.current = null;
-          setError(`Call failed: ${e.cause || 'unknown'}`);
-        });
-      } catch (err) {
-        log(`Call error: ${err}`);
-        setCallState('idle');
-        setError(`Could not place call: ${err}`);
-      }
-    } else if (connState === 'widget') {
-      // Use the Zadarma widget's built-in call API
-      const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
-      log(`Calling ${dialNum} via widget...`);
       setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
+
       try {
+        // Zadarma widget API: dispatch call command
         document.dispatchEvent(new CustomEvent('zadarma-phone-api', {
           detail: { command: 'call', number: dialNum },
         }));
-        log('Call dispatched to widget');
+        log('Call sent to widget');
+        // Also try callback as backup in parallel
+        initiateCallback(cleaned);
       } catch (err) {
         log(`Widget call error: ${err}`);
-        setError(`Widget call failed: ${err}`);
+        // Fall back to callback
+        initiateCallback(cleaned);
       }
     } else {
-      // Callback mode
-      makeCallbackCall(cleaned);
+      // No widget -- pure callback
+      setCallNumber(cleaned);
+      setCallState('dialing');
+      setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
+      initiateCallback(cleaned);
     }
-  }, [connState, log, attachAudio]);
+  }, [connState, log, requestMic]);
 
-  /* ── Answer incoming call ── */
-  const answerCall = useCallback(() => {
-    if (!sessionRef.current) return;
-    log('Answering...');
-    sessionRef.current.answer({
-      mediaConstraints: { audio: true, video: false },
-      pcConfig: { iceServers: STUN_SERVERS },
+  /* ── Callback API ── */
+  const initiateCallback = useCallback(async (number: string) => {
+    const cleaned = number.replace(/\D/g, '');
+    if (cleaned.length < 10) { setError('Enter at least 10 digits'); return; }
+    const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
+    log(`Requesting callback to ${dialNum}...`);
+
+    const r = await authFetch<{ ok: boolean; message?: string; error?: string }>(providerUrl, {
+      body: { action: 'zadarma_callback', session_token: sessionToken, to: dialNum },
+      onUnauthorized: () => onUnauthorizedRef.current(),
     });
-    setCallState('active');
-    attachAudio(sessionRef.current);
-    setRecents(prev => [{ number: callNumber, direction: 'incoming', time: new Date() }, ...prev.slice(0, 19)]);
-  }, [callNumber, log, attachAudio]);
 
-  /* ── Decline / Hangup ── */
-  const hangup = useCallback(() => {
-    if (!sessionRef.current) { setCallState('idle'); return; }
-    try {
-      sessionRef.current.terminate();
-    } catch (_) { /* */ }
-    if (callState === 'ringing-in') {
-      setRecents(prev => [{ number: callNumber, direction: 'missed', time: new Date() }, ...prev.slice(0, 19)]);
+    if (r.ok && r.data?.ok) {
+      log(`Callback initiated: ${r.data.message || 'success'}`);
+      setCallState('callback-ringing');
+    } else {
+      const errMsg = r.data?.error || r.error || 'Callback failed';
+      log(`Callback error: ${errMsg}`);
+      setError(errMsg);
+      setCallState('idle');
+      setCallNumber('');
     }
+  }, [providerUrl, sessionToken, log]);
+
+  /* ── End call ── */
+  const endCall = useCallback(() => {
     setCallState('idle');
     setCallNumber('');
     setMuted(false);
     setSpeakerOff(false);
     setShowDtmf(false);
-    sessionRef.current = null;
-  }, [callState, callNumber]);
-
-  /* ── Mute / Speaker ── */
-  const toggleMute = useCallback(() => {
-    if (!sessionRef.current) return;
-    if (muted) { sessionRef.current.unmute(); } else { sessionRef.current.mute(); }
-    setMuted(!muted);
-  }, [muted]);
-
-  const toggleSpeaker = useCallback(() => {
-    if (!remoteAudioRef.current) return;
-    remoteAudioRef.current.muted = !speakerOff;
-    setSpeakerOff(!speakerOff);
-  }, [speakerOff]);
-
-  /* ── DTMF ── */
-  const sendDtmf = useCallback((tone: string) => {
-    if (sessionRef.current && callState === 'active') {
-      sessionRef.current.sendDTMF(tone);
-      log(`DTMF: ${tone}`);
-    }
-  }, [callState, log]);
-
-  /* ── Callback fallback ── */
-  const makeCallbackCall = useCallback(async (number: string) => {
-    const cleaned = number.replace(/\D/g, '');
-    if (cleaned.length < 10) { setError('Enter at least 10 digits'); return; }
-    setCbStatus('calling');
-    setCallNumber(cleaned);
-    setCallState('dialing');
-    log(`Callback to ${cleaned}...`);
-
-    const r = await authFetch<{ ok: boolean; message?: string; error?: string }>(providerUrl, {
-      body: { action: 'zadarma_callback', session_token: sessionToken, to: cleaned },
-      onUnauthorized: () => onUnauthorizedRef.current(),
-    });
-
-    if (r.ok && r.data?.ok) {
-      log(`Callback initiated: ${r.data.message}`);
-      setCbStatus('ok');
-      setCallState('active');
-      setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
-      setTimeout(() => setCbStatus('idle'), 8000);
-    } else {
-      const errMsg = r.data?.error || r.error || 'Callback failed';
-      log(`Callback error: ${errMsg}`);
-      setError(errMsg);
-      setCbStatus('err');
-      setCallState('idle');
-      setCallNumber('');
-      setTimeout(() => setCbStatus('idle'), 4000);
-    }
-  }, [providerUrl, sessionToken, log]);
+  }, []);
 
   /* ── Reconnect ── */
   const reconnect = useCallback(() => {
-    if (!route?.zadarma_sip_login || !route?.zadarma_sip_password) return;
-    try { uaRef.current?.stop(); } catch (_) { /* */ }
-    setupRanRef.current = false;
+    if (!route?.zadarma_sip_login) return;
     widgetLoadedRef.current = false;
     const ws = document.getElementById('zadarma-phone-lib');
     if (ws) ws.remove();
+    document.querySelectorAll('[class*="zadarma"],[id*="zadarma"],[class*="webrtc-phone"]').forEach(el => el.remove());
+    setupRanRef.current = false;
     setConnState('idle');
     setError('');
     log('Reconnecting...');
     setTimeout(() => {
       setupRanRef.current = true;
-      connectJsSIP(route.zadarma_sip_login!, route.zadarma_sip_password!, 0);
+      loadWidget();
     }, 300);
-  }, [route, connectJsSIP, log]);
+  }, [route, loadWidget, log]);
 
   /* ── Dialpad press ── */
   const pressKey = useCallback((digit: string) => {
-    if (callState === 'active') {
-      sendDtmf(digit);
-    } else {
-      setDigits(prev => prev + digit);
-    }
-  }, [callState, sendDtmf]);
+    setDigits(prev => prev + digit);
+  }, []);
 
   /* ── Status ── */
-  const statusDot = connState === 'registered' ? 'connected'
-    : connState === 'widget' ? 'connected'
-    : connState === 'callback-only' ? 'callback'
+  const statusDot = connState === 'ready' ? 'connected'
     : connState === 'failed' ? 'callback'
     : connState === 'connecting' ? 'connecting'
     : 'offline';
 
-  const statusLabel = connState === 'registered' ? 'Connected'
-    : connState === 'widget' ? 'Widget Active'
-    : connState === 'callback-only' ? 'Callback Mode'
-    : connState === 'failed' ? 'Callback Mode'
+  const statusLabel = connState === 'ready' ? 'Connected'
+    : connState === 'failed' ? 'Connection Failed'
     : connState === 'connecting' ? 'Connecting...'
     : 'Loading...';
 
-  const isCallbackMode = connState === 'callback-only' || connState === 'failed' || connState === 'widget';
-  const canDial = connState === 'registered' || isCallbackMode;
+  const canDial = connState === 'ready' || connState === 'failed';
 
   /* ─── Closed ─── */
   if (!open) {
@@ -572,47 +331,17 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     );
   }
 
-  /* ─── Incoming Call View ─── */
-  if (callState === 'ringing-in') {
-    return (
-      <aside className="ip17-shell ip17-ringing">
-        <div className="ip17-island">
-          <div className="ip17-island-pill">
-            <div className={`ip17-island-dot ${statusDot}`} />
-            <span className="ip17-island-label">{firstName}'s Phone</span>
-            <button className="ip17-island-close" onClick={() => setOpen(false)}><X size={16} /></button>
-          </div>
-        </div>
-        <div className="ip17-body">
-          <div className="ip17-incoming">
-            <div className="ip17-avatar-ring"><PhoneIncoming size={36} /></div>
-            <h3 className="ip17-caller">Incoming Call</h3>
-            <p className="ip17-caller-num">{formatPhone(callNumber)}</p>
-            <div className="ip17-incoming-btns">
-              <div className="ip17-circle-btn decline">
-                <button onClick={hangup}><PhoneOff size={28} /></button>
-                <span>Decline</span>
-              </div>
-              <div className="ip17-circle-btn accept">
-                <button onClick={answerCall}><Phone size={28} /></button>
-                <span>Accept</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
-    );
-  }
-
   /* ─── Active Call View ─── */
-  if (callState === 'active' || callState === 'dialing') {
+  if (callState === 'active' || callState === 'dialing' || callState === 'callback-ringing') {
     return (
       <aside className="ip17-shell">
         <div className="ip17-island">
           <div className="ip17-island-pill">
-            <div className="ip17-island-dot connected" />
+            <div className={`ip17-island-dot ${callState === 'callback-ringing' ? 'connecting' : 'connected'}`} />
             <span className="ip17-island-label">
-              {callState === 'dialing' ? 'Calling...' : fmtDuration(callTimer)}
+              {callState === 'dialing' ? 'Calling...'
+                : callState === 'callback-ringing' ? 'Ringing...'
+                : fmtDuration(callTimer)}
             </span>
             <div className="ip17-island-wave" />
           </div>
@@ -622,48 +351,52 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             <div className="ip17-active-header">
               <h3 className="ip17-caller">{formatPhone(callNumber)}</h3>
               <p className="ip17-timer">
-                {callState === 'dialing' ? 'Dialing...' : fmtDuration(callTimer)}
+                {callState === 'dialing' ? 'Dialing...'
+                  : callState === 'callback-ringing' ? 'Your Zadarma phone will ring — answer it to connect'
+                  : fmtDuration(callTimer)}
               </p>
-              {isCallbackMode && callbackStatus === 'ok' && (
-                <span className="ip17-callback-badge">CALLBACK - Answer your extension</span>
-              )}
             </div>
 
-            {/* Call controls */}
-            <div className="ip17-call-controls">
-              <button className={`ip17-ctrl-btn${muted ? ' active' : ''}`} onClick={toggleMute}>
-                {muted ? <MicOff size={22} /> : <Mic size={22} />}
-                <span>{muted ? 'Unmute' : 'Mute'}</span>
-              </button>
-              <button className={`ip17-ctrl-btn${speakerOff ? ' active' : ''}`} onClick={toggleSpeaker}>
-                {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
-                <span>{speakerOff ? 'Speaker' : 'Speaker'}</span>
-              </button>
-              <button className={`ip17-ctrl-btn${showDtmf ? ' active' : ''}`} onClick={() => setShowDtmf(!showDtmf)}>
-                <Grid3X3 size={22} />
-                <span>Keypad</span>
-              </button>
-            </div>
+            {callState === 'callback-ringing' && (
+              <div className="ip17-callback-notice">
+                <Loader2 size={20} className="ip17-spin" />
+                <p>Zadarma is calling your extension now. Answer the call on the Zadarma widget (floating phone button) to connect to the other line.</p>
+              </div>
+            )}
+
+            {/* Call controls - only show when active */}
+            {callState === 'active' && (
+              <div className="ip17-call-controls">
+                <button className={`ip17-ctrl-btn${muted ? ' active' : ''}`} onClick={() => setMuted(!muted)}>
+                  {muted ? <MicOff size={22} /> : <Mic size={22} />}
+                  <span>{muted ? 'Unmute' : 'Mute'}</span>
+                </button>
+                <button className={`ip17-ctrl-btn${speakerOff ? ' active' : ''}`} onClick={() => setSpeakerOff(!speakerOff)}>
+                  {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
+                  <span>Speaker</span>
+                </button>
+                <button className={`ip17-ctrl-btn${showDtmf ? ' active' : ''}`} onClick={() => setShowDtmf(!showDtmf)}>
+                  <Grid3X3 size={22} />
+                  <span>Keypad</span>
+                </button>
+              </div>
+            )}
 
             {/* DTMF pad */}
-            {showDtmf && (
+            {showDtmf && callState === 'active' && (
               <div className="ip17-dtmf-pad">
                 {DIALPAD_KEYS.map(k => (
-                  <button key={k.digit} className="ip17-dtmf-key" onClick={() => sendDtmf(k.digit)}>
+                  <button key={k.digit} className="ip17-dtmf-key" onClick={() => log(`DTMF: ${k.digit}`)}>
                     {k.digit}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Hangup */}
-            {connState === 'registered' ? (
-              <button className="ip17-hangup-btn" onClick={hangup}><PhoneOff size={28} /></button>
-            ) : (
-              <button className="ip17-hangup-btn" onClick={() => { setCallState('idle'); setCallNumber(''); setCbStatus('idle'); }}>
-                <PhoneOff size={28} />
-              </button>
-            )}
+            {/* Hangup / Cancel */}
+            <button className="ip17-hangup-btn" onClick={endCall}>
+              <PhoneOff size={28} />
+            </button>
           </div>
         </div>
       </aside>
@@ -688,22 +421,35 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           {route?.talkroute_number && <span className="ip17-my-line">{formatPhone(route.talkroute_number)}</span>}
         </div>
 
-        {/* Connection mode info */}
-        {isCallbackMode && (
-          <div className="ip17-mode-notice">
-            <PhoneForwarded size={14} />
+        {/* Mic permission button */}
+        {!micGranted && connState === 'ready' && (
+          <div className="ip17-mode-notice" style={{ borderColor: '#3a2a1a', background: '#1a0f0a' }}>
+            <Mic size={14} />
             <span>
-              Direct connection unavailable. Calls use callback: your Zadarma extension rings first, then connects to the number.
-              <button onClick={reconnect}>Retry direct</button>
+              Microphone access needed for calls.{' '}
+              <button onClick={requestMic} style={{ color: '#f0a050', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                Allow microphone
+              </button>
             </span>
           </div>
         )}
 
-        {connState === 'widget' && (
+        {/* Connection status notice */}
+        {connState === 'failed' && (
+          <div className="ip17-mode-notice">
+            <PhoneForwarded size={14} />
+            <span>
+              Phone connection failed.{' '}
+              <button onClick={reconnect}>Retry connection</button>
+            </span>
+          </div>
+        )}
+
+        {connState === 'ready' && micGranted && (
           <div className="ip17-mode-notice" style={{ borderColor: '#1a3a1a', background: '#0a1a0a' }}>
             <Phone size={14} />
             <span style={{ color: '#8ee0a0' }}>
-              Phone connected via Zadarma widget. Dial from the keypad above.
+              Phone ready. Dial a number and press the green button to call.
             </span>
           </div>
         )}
@@ -776,7 +522,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             {showLog ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             <span>Debug log</span>
           </button>
-          {(connState === 'failed' || connState === 'callback-only') && (
+          {connState === 'failed' && (
             <button className="ip17-reconnect" onClick={reconnect}>
               <RotateCcw size={10} /> Reconnect
             </button>

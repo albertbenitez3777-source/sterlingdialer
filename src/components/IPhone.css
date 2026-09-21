@@ -457,6 +457,21 @@
 
 .ip17-mode-notice button:hover { text-decoration: underline; }
 
+.ip17-callback-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0a1a2a;
+  border: 1px solid #1a3a5a;
+  color: #8eb8e0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ip17-callback-notice p { margin: 0; }
+
 .ip17-callback-badge {
   display: inline-block;
   margin-top: 6px;
