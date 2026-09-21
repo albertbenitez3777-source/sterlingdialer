@@ -173,6 +173,10 @@
   outline: none;
 }
 
+.ip17-shell .ip17-enable { background: #34c759; color: #06140b; font-weight: 700; }
+.ip17-mic-status { display: flex; align-items: center; justify-content: center; gap: 5px; color: #a1d8af; font-size: 11px; margin: 6px 0; }
+.ip17-mode-notice a { color: #8cf2be; text-decoration: underline; }
+
 /* ─── Dynamic Island ─── */
 .ip17-island {
   display: flex;

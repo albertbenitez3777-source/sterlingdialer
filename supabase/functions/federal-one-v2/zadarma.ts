@@ -64,43 +64,19 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
       return respond({ ok: true, domain: DOMAIN });
     }
     if (action === 'zadarma_check_incoming') {
-      const numbers = await request('/v1/direct_numbers/');
-      let scenarios: unknown = null;
-      try { scenarios = await request('/v1/pbx/incoming/'); } catch (_) { /* may 404 if none exist */ }
-      let pbxInfo: unknown = null;
-      try { pbxInfo = await request('/v1/pbx/internal/'); } catch (_) { /* best effort */ }
-      return respond({ numbers, scenarios, pbx_extensions: pbxInfo, domain: DOMAIN });
+      const [numbers, menus, pbxInfo] = await Promise.all([
+        request('/v1/direct_numbers/'), request('/v1/pbx/ivr/'), request('/v1/pbx/internal/'),
+      ]);
+      const scenarios = await request('/v1/pbx/ivr/scenario/', { menu_id: '0' });
+      return respond({ numbers, menus, scenarios, pbx_extensions: pbxInfo, domain: DOMAIN });
     }
     if (action === 'zadarma_setup_incoming') {
-      const did = String(body.did || '').replace(/\D/g, '');
-      const extension = String(body.extension || '');
-      if (!did || !extension) return respond({ error: 'Provide did (virtual number digits) and extension (e.g. 100).' }, 400);
-      const results: Record<string, unknown> = {};
-      // Method 1: Update number to route to PBX via /v1/phone/number_lookup/ or direct endpoint
-      try {
-        results.redirection = await request('/v1/pbx/redirection/', {
-          pbx_number: extension,
-          type: 'phone',
-          destination: did,
-          condition: 'always',
-          status: 'on',
-        }, 'POST');
-      } catch (e) { results.redirection_error = e instanceof Error ? e.message : String(e); }
-      // Method 2: Set virtual number to route to PBX internal number
-      try {
-        results.number_update = await request('/v1/direct_numbers/', {
-          number: did,
-          sip: `566918-${extension}`,
-        }, 'PUT');
-      } catch (e) { results.number_update_error = e instanceof Error ? e.message : String(e); }
-      // Method 3: Create incoming call scenario
-      try {
-        results.incoming = await request('/v1/pbx/incoming/', {
-          caller_id: did,
-          pbx_call_to: extension,
-        }, 'POST');
-      } catch (e) { results.incoming_error = e instanceof Error ? e.message : String(e); }
-      return respond(results);
+      // /pbx/redirection/ forwards FROM an extension; it does not route a DID
+      // TO that extension. Forwarding to its own DID can loop calls.
+      // The documented IVR creation endpoint is rejecting this account's requests.
+      // Require a verified provider setup instead of reporting guessed mutations as success.
+      return respond({ ok: false, code: 'INCOMING_ROUTE_SETUP_REQUIRED',
+        error: 'Incoming routes need to be configured in the Zadarma PBX dashboard. Route each public number to its assigned extension, then verify an inbound call. Extension forwarding is not an incoming route.' }, 409);
     }
     const sip = String(route.zadarma_sip_login || '');
     if (!/^\d+(?:-\d{3})?$/.test(sip)) return respond({ error: 'A valid Zadarma extension must be assigned to this agent.' }, 409);

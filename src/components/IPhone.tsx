@@ -11,6 +11,7 @@ interface Caller { name?: string; phone?: string; address?: string; summary?: st
 interface RecentCall { number: string; name?: string; direction: 'outgoing' | 'incoming' | 'missed'; time: Date }
 type Connection = 'idle' | 'connecting' | 'ready' | 'failed';
 const CHANNEL = 'wolf-zadarma-v1';
+const CALLING_URL = 'https://wolf-of-wall-street-ssy3.bolt.host/';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 const LETTERS = ['', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS', 'TUV', 'WXYZ', '', '+', ''];
 const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -43,6 +44,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const credentialsRef = useRef<{ key: string; sip: string } | null>(null);
   const phoneIdentityRef = useRef(0);
   const companionOnly = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const inPreview = window.location.hostname !== 'wolf-of-wall-street-ssy3.bolt.host';
 
   const command = useCallback((command: string, extra: Record<string, unknown> = {}) => {
     frameRef.current?.contentWindow?.postMessage({ channel: CHANNEL, command, ...extra }, window.location.origin);
@@ -59,7 +61,11 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       setMicGranted(true); return true;
     } catch (e) {
       setMicGranted(false);
-      setError(e instanceof Error && e.name === 'NotAllowedError' ? 'Allow the microphone for this website, then press Enable phone.' : e instanceof Error ? e.message : 'The microphone is unavailable.');
+      setConnection('failed');
+      setError(e instanceof Error && e.name === 'NotAllowedError'
+        ? window.self !== window.top ? 'Open the calling app in its own tab, then allow microphone access.' : 'Microphone access is blocked. Allow it in this website’s browser settings, then retry.'
+        : e instanceof Error && e.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or headset, then retry.'
+        : e instanceof Error ? e.message : 'The microphone is unavailable.');
       return false;
     }
   }, []);
@@ -193,7 +199,9 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
           {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
           {companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
-            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : 'Enable phone'}</button>}
+            {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
+            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
+            {micGranted && !active && <div className="ip17-mic-status"><Mic size={13} />Microphone allowed</div>}
             {connection === 'ready' && !micGranted && <button className="ip17-enable" onClick={() => { unlockAudio(); void requestMic(); }}>Enable microphone and sound</button>}
             {active ? <div className="ip17-active">
               <div className="ip17-active-header"><h3 className="ip17-caller">{caller?.name || formatPhone(callNumber)}</h3>{caller?.name && <p>{formatPhone(callNumber)}</p>}<p className="ip17-timer" aria-live="polite">{callState === 'ringing-in' ? 'Incoming call' : callState === 'dialing' ? 'Calling…' : callState === 'answering' ? 'Connecting call…' : callState === 'ending' ? 'Ending call…' : `${held ? 'On hold · ' : ''}${duration(seconds)}`}</p></div>

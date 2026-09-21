@@ -12,6 +12,7 @@ interface Sdk extends PhoneApi {
   init(options: Record<string, unknown>): unknown;
   reg(sip: string): unknown;
   unreg(): void;
+  unreg_flag: boolean;
   zadarmaCallbackCall(data: unknown): void;
   zadarmaCallbackAnswer(data: unknown): void;
 }
@@ -26,7 +27,9 @@ const host = window as PhoneWindow;
 let controller: CallController | undefined;
 let initialized = false;
 let speakerMuted = false;
-let authorizationFailed = false;
+let connectionFailed = false;
+let providerApi: Sdk | undefined;
+const sockets = new Set<Socket>();
 let connectionTimer: ReturnType<typeof setTimeout>;
 let callTimer: ReturnType<typeof setTimeout>;
 const emit = (event: PhoneEvent) => {
@@ -34,6 +37,19 @@ const emit = (event: PhoneEvent) => {
 };
 const fail = (message: string) => emit({ type: 'error', message });
 const remote = () => document.getElementById('zdrm-webRTCRemoteView') as HTMLMediaElement;
+
+function failConnection(message: string) {
+  if (connectionFailed) return;
+  connectionFailed = true;
+  clearTimeout(connectionTimer);
+  if (controller) controller.ready = false;
+  // Stop the vendor's automatic reconnect loop before closing its socket.
+  // A rejected authorization must remain failed until the agent retries.
+  if (providerApi) { providerApi.unreg_flag = true; providerApi.unreg(); }
+  for (const socket of sockets) socket.close();
+  emit({ type: 'connection', state: 'failed' });
+  fail(message);
+}
 
 function createMedia() {
   const container = document.getElementById('phone-media')!;
@@ -118,36 +134,34 @@ async function connect(key: string, sip: string) {
     const originalIo = host.io;
     host.io = Object.assign((url: string, options: unknown) => {
       const socket = originalIo(url, options);
+      sockets.add(socket);
       socket.on('init', () => {
-        if (authorizationFailed) return;
+        if (connectionFailed) return;
         clearTimeout(connectionTimer);
         if (controller) controller.ready = true;
         emit({ type: 'connection', state: 'ready' });
       });
       socket.on('disconnect', () => {
+        if (connectionFailed) return;
         if (controller) controller.ready = false;
         emit({ type: 'connection', state: 'connecting' });
         clearTimeout(connectionTimer);
         connectionTimer = setTimeout(() => {
-          if (!controller?.ready) { emit({ type: 'connection', state: 'failed' }); fail('Phone disconnected. Press Enable phone to reconnect.'); }
+          if (!controller?.ready) failConnection('Phone disconnected. Press Retry connection.');
         }, 20000);
       });
       socket.on('connect_error', () => {
-        if (controller) controller.ready = false;
-        emit({ type: 'connection', state: 'failed' });
-        fail('Cannot connect to Zadarma. Check the network and retry.');
+        failConnection('Cannot connect to Zadarma. Check the network and retry.');
       });
       socket.on('update', (message: { error?: unknown; errorCode?: unknown }) => {
         if (message?.error || message?.errorCode) {
-          authorizationFailed = true;
-          if (controller) controller.ready = false;
-          emit({ type: 'connection', state: 'failed' });
-          fail('Zadarma rejected the phone connection. Check the extension and authorized website.');
+          failConnection('Zadarma rejected the phone connection. Check the extension and authorized website.');
         }
       });
       return socket;
     }, originalIo) as IoFactory;
     const api = new host.ZadarmaWebphoneAPI();
+    providerApi = api;
     controller = new CallController(api, emit);
     let currentSession: PhoneSession | null = null;
     Object.defineProperty(api, 'webCallSession', {
@@ -163,9 +177,25 @@ async function connect(key: string, sip: string) {
         if (controller?.state === expected) original(data);
       };
     }
-    api.init({ key, sip, type: 'CRM', language: 'en',
-      getSipsCallback: (_sips: unknown, code: unknown) => {
-        if (code) { authorizationFailed = true; if (controller) controller.ready = false; emit({ type: 'connection', state: 'failed' }); fail('Zadarma could not authorize this extension.'); }
+    connectionTimer = setTimeout(() => {
+      if (!controller?.ready) failConnection('Zadarma did not confirm the connection. Press Retry connection.');
+    }, 20000);
+    // /v1/webrtc/get_key/ issues a website widget key, not a CRM integration key.
+    // CRM mode rejects this valid key with integrationDisabled.
+    api.init({ key, sip, type: 'site', language: 'en',
+      getSipsCallback: (sips: { all?: Array<{ name: string }> } | undefined, code: unknown) => {
+        if (connectionFailed) return;
+        if (code) {
+          const detail = String(code).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60);
+          failConnection(`Zadarma authorization failed${detail ? ` (${detail})` : ''}. Open the published website and retry.`);
+          return;
+        }
+        if (!sips?.all?.some(item => item.name === sip)) {
+          failConnection('Zadarma did not authorize your assigned extension. Ask your supervisor to check the phone assignment.');
+          return;
+        }
+        // Only open the push connection after the assigned extension is authorized.
+        api.reg(sip);
       },
       callbackGetPrice: () => {}, callbackEndCall: endCall,
       getStatusMessage: (status: string, data?: { caller?: string; callername?: string }) => {
@@ -173,16 +203,12 @@ async function connect(key: string, sip: string) {
         if (['canceled', 'busy', 'rejected'].includes(status)) {
           endCall(); if (status !== 'canceled') fail(status === 'busy' ? 'The number is busy.' : 'The call was rejected.');
         }
-        if (status === 'BROWSER_NOT_SUPPORTED') { emit({ type: 'connection', state: 'failed' }); fail('Use a current desktop browser with microphone access.'); }
+        if (status === 'BROWSER_NOT_SUPPORTED') failConnection('Use a current desktop browser with microphone access.');
         // 'registered', 'connected' and 'accepted' are optimistic SDK UI messages.
         // Readiness uses the authenticated push handshake; answer uses SIP confirmed.
       },
     });
-    connectionTimer = setTimeout(() => {
-      if (!controller?.ready) { emit({ type: 'connection', state: 'failed' }); fail('Zadarma did not confirm the connection. Retry your phone.'); }
-    }, 20000);
-    api.reg(sip);
-  } catch (error) { emit({ type: 'connection', state: 'failed' }); fail(error instanceof Error ? error.message : 'Phone setup failed.'); }
+  } catch (error) { failConnection(error instanceof Error ? error.message : 'Phone setup failed.'); }
 }
 
 window.addEventListener('message', event => {
