@@ -317,10 +317,8 @@ Deno.serve(async (req: Request) => {
       return json({ cameras: data || [] });
     }
 
-    if (action === "zadarma_callback") {
-      const to = clean(body.to, 20).replace(/\D/g, "");
-      if (!to || to.length < 10) return json({ error: "Invalid phone number" }, 400);
-
+    // ── Zadarma API helpers ──
+    if (action === "zadarma_callback" || action === "zadarma_webrtc_key") {
       const { data: agentRow } = await supabase
         .from("agents")
         .select("zadarma_sip_login")
@@ -328,34 +326,58 @@ Deno.serve(async (req: Request) => {
         .single();
       if (!agentRow?.zadarma_sip_login) return json({ error: "No SIP extension configured" }, 400);
 
-      const zadarmaKey = Deno.env.get("ZADARMA_API_KEY") || "";
-      const zadarmaSecret = Deno.env.get("ZADARMA_API_SECRET") || "";
+      // Read API credentials from system_config
+      const { data: cfgRows } = await supabase
+        .from("system_config")
+        .select("key,value")
+        .in("key", ["zadarma_api_key", "zadarma_api_secret"]);
+      const cfg = Object.fromEntries((cfgRows || []).map((r: { key: string; value: string }) => [r.key, r.value]));
+      const zadarmaKey = cfg.zadarma_api_key || "";
+      const zadarmaSecret = cfg.zadarma_api_secret || "";
       if (!zadarmaKey || !zadarmaSecret) return json({ error: "Zadarma API not configured" }, 503);
 
       const sipLogin = agentRow.zadarma_sip_login;
-      const extension = sipLogin.includes("-") ? sipLogin.split("-").pop()! : sipLogin;
 
-      const apiMethod = "/v1/request/callback/";
-      const params: Record<string, string> = { from: extension, to };
-      const sortedKeys = Object.keys(params).sort();
-      const paramsString = sortedKeys.map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
-
-      const md5Buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(paramsString));
-      const paramsHash = Array.from(new Uint8Array(md5Buf)).map(b => b.toString(16).padStart(2, "0")).join("");
-
-      const signString = apiMethod + paramsString + paramsHash;
-      const hmacKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(zadarmaSecret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-      const sig = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(signString));
-      const signature = btoa(String.fromCharCode(...new Uint8Array(sig)));
-
-      const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
-      const zRes = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
-      const zData = await zRes.json();
-
-      if (zData.status === "success") {
-        return json({ ok: true, message: `Calling extension ${extension}, then connecting to ${to}` });
+      // HMAC signature helper for Zadarma API
+      async function zadarmaSign(apiMethod: string, params: Record<string, string>) {
+        const sortedKeys = Object.keys(params).sort();
+        const paramsString = sortedKeys.map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
+        const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(paramsString));
+        const paramsHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+        const signString = apiMethod + paramsString + paramsHash;
+        const hmacKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(zadarmaSecret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+        const sig = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(signString));
+        return { paramsString, signature: btoa(String.fromCharCode(...new Uint8Array(sig))) };
       }
-      return json({ error: zData.message || "Zadarma callback failed" }, 502);
+
+      if (action === "zadarma_webrtc_key") {
+        const apiMethod = "/v1/webrtc/get_key/";
+        const params: Record<string, string> = { sip: sipLogin };
+        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
+        const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
+        const zRes = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
+        const zData = await zRes.json();
+        if (zData.status === "success" && zData.key) {
+          return json({ key: zData.key, sip: sipLogin });
+        }
+        return json({ error: zData.message || "Failed to get WebRTC key" }, 502);
+      }
+
+      if (action === "zadarma_callback") {
+        const to = clean(body.to, 20).replace(/\D/g, "");
+        if (!to || to.length < 10) return json({ error: "Invalid phone number" }, 400);
+        const extension = sipLogin.includes("-") ? sipLogin.split("-").pop()! : sipLogin;
+        const apiMethod = "/v1/request/callback/";
+        const params: Record<string, string> = { from: extension, to };
+        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
+        const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
+        const zRes = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
+        const zData = await zRes.json();
+        if (zData.status === "success") {
+          return json({ ok: true, message: `Calling extension ${extension}, then connecting to ${to}` });
+        }
+        return json({ error: zData.message || "Zadarma callback failed" }, 502);
+      }
     }
 
     return json({ error: "Unknown action" }, 400);
