@@ -318,14 +318,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Zadarma API helpers ──
-    if (action === "zadarma_callback" || action === "zadarma_webrtc_key") {
-      const { data: agentRow } = await supabase
-        .from("agents")
-        .select("zadarma_sip_login")
-        .eq("id", agent.id)
-        .single();
-      if (!agentRow?.zadarma_sip_login) return json({ error: "No SIP extension configured" }, 400);
-
+    if (["zadarma_callback", "zadarma_webrtc_key", "zadarma_setup_webrtc"].includes(action)) {
       // Read API credentials from system_config
       const { data: cfgRows } = await supabase
         .from("system_config")
@@ -335,8 +328,6 @@ Deno.serve(async (req: Request) => {
       const zadarmaKey = cfg.zadarma_api_key || "";
       const zadarmaSecret = cfg.zadarma_api_secret || "";
       if (!zadarmaKey || !zadarmaSecret) return json({ error: "Zadarma API not configured" }, 503);
-
-      const sipLogin = agentRow.zadarma_sip_login;
 
       // HMAC signature helper for Zadarma API
       async function zadarmaSign(apiMethod: string, params: Record<string, string>) {
@@ -350,33 +341,79 @@ Deno.serve(async (req: Request) => {
         return { paramsString, signature: btoa(String.fromCharCode(...new Uint8Array(sig))) };
       }
 
-      if (action === "zadarma_webrtc_key") {
-        const apiMethod = "/v1/webrtc/get_key/";
-        const params: Record<string, string> = { sip: sipLogin };
+      async function zadarmaGet(apiMethod: string, params: Record<string, string>) {
         const { paramsString, signature } = await zadarmaSign(apiMethod, params);
         const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
-        const zRes = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
-        const zData = await zRes.json();
+        const res = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
+        return res.json();
+      }
+
+      async function zadarmaPost(apiMethod: string, params: Record<string, string>) {
+        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
+        const url = `https://api.zadarma.com${apiMethod}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `${zadarmaKey}:${signature}`, "Content-Type": "application/x-www-form-urlencoded" },
+          body: paramsString,
+        });
+        return res.json();
+      }
+
+      if (action === "zadarma_setup_webrtc") {
+        const domain = "wolf-of-wall-street-ssy3.bolt.host";
+        const results: Record<string, unknown> = {};
+        // Step 1: create widget integration (idempotent)
+        try {
+          const createRes = await zadarmaPost("/v1/webrtc/create/", { shape: "square", position: "bottom_right" });
+          results.create = createRes;
+        } catch (e) {
+          results.create = { error: String(e) };
+        }
+        // Step 2: add domain
+        try {
+          const domainRes = await zadarmaPost("/v1/webrtc/domain/", { domain });
+          results.domain = domainRes;
+        } catch (e) {
+          results.domain = { error: String(e) };
+        }
+        // Step 3: check current state
+        try {
+          const infoRes = await zadarmaGet("/v1/webrtc/", {});
+          results.info = infoRes;
+        } catch (e) {
+          results.info = { error: String(e) };
+        }
+        const ok = (results.domain as Record<string, unknown>)?.status === "success" ||
+                   (results.info as Record<string, unknown>)?.status === "success";
+        return json({ ok, domain, results });
+      }
+
+      // These actions need the agent's SIP login
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("zadarma_sip_login")
+        .eq("id", agent.id)
+        .single();
+      if (!agentRow?.zadarma_sip_login) return json({ error: "No SIP extension configured" }, 400);
+      const sipLogin = agentRow.zadarma_sip_login;
+
+      if (action === "zadarma_webrtc_key") {
+        const zData = await zadarmaGet("/v1/webrtc/get_key/", { sip: sipLogin });
         if (zData.status === "success" && zData.key) {
           return json({ key: zData.key, sip: sipLogin });
         }
-        return json({ error: zData.message || "Failed to get WebRTC key" }, 502);
+        return json({ error: zData.message || "Failed to get WebRTC key", raw: zData }, 502);
       }
 
       if (action === "zadarma_callback") {
         const to = clean(body.to, 20).replace(/\D/g, "");
         if (!to || to.length < 10) return json({ error: "Invalid phone number" }, 400);
         const extension = sipLogin.includes("-") ? sipLogin.split("-").pop()! : sipLogin;
-        const apiMethod = "/v1/request/callback/";
-        const params: Record<string, string> = { from: extension, to };
-        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
-        const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
-        const zRes = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
-        const zData = await zRes.json();
+        const zData = await zadarmaGet("/v1/request/callback/", { from: extension, to });
         if (zData.status === "success") {
           return json({ ok: true, message: `Calling extension ${extension}, then connecting to ${to}` });
         }
-        return json({ error: zData.message || "Zadarma callback failed" }, 502);
+        return json({ error: zData.message || "Zadarma callback failed", raw: zData }, 502);
       }
     }
 

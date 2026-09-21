@@ -744,6 +744,83 @@
   margin: 8px auto 0;
 }
 
+/* ─── Spin animation ─── */
+@keyframes ip17spin {
+  to { transform: rotate(360deg); }
+}
+.ip17-spin { animation: ip17spin 1s linear infinite; }
+
+/* ─── Callback section ─── */
+.ip17-callback-section {
+  padding: 12px 20px;
+  border-top: 1px solid #2a2a2e;
+}
+.ip17-callback-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e5ea;
+  margin: 0 0 4px;
+}
+.ip17-callback-desc {
+  font-size: 11px;
+  color: #8e8e93;
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+.ip17-callback-row {
+  display: flex;
+  gap: 8px;
+}
+.ip17-callback-input {
+  flex: 1;
+  background: #1c1c1e;
+  border: 1px solid #3a3a3c;
+  border-radius: 10px;
+  color: #e5e5ea;
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+}
+.ip17-callback-input:focus { border-color: #0a84ff; }
+.ip17-callback-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #34c759;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.2s;
+}
+.ip17-callback-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ip17-callback-msg {
+  font-size: 11px;
+  margin-top: 8px;
+  text-align: center;
+}
+.ip17-callback-msg.success { color: #34c759; }
+
+/* ─── Retry button ─── */
+.ip17-retry-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 20px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #1c1c1e;
+  border: 1px solid #3a3a3c;
+  color: #0a84ff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.ip17-retry-btn:hover { background: #2c2c2e; }
+
 /* ─── Responsive ─── */
 @media (max-width: 600px) {
   .ip17-shell {
