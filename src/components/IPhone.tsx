@@ -1,548 +1,227 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, PhoneForwarded,
-  RotateCcw, X, Delete, ChevronDown, ChevronUp, Loader2,
-  Mic, MicOff, Volume2, VolumeX, Grid3X3,
-} from 'lucide-react';
+import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mic, MicOff, Volume2, VolumeX, Grid3X3, Pause, Play } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
+import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
 import './IPhone.css';
 
-/* ── Types ── */
-interface IPhoneProps {
-  agentName: string;
-  sessionToken: string;
-  providerUrl: string;
-  onUnauthorized: () => void;
-}
+interface IPhoneProps { agentName: string; sessionToken: string; providerUrl: string; onUnauthorized: () => void }
+interface RouteData { talkroute_number?: string; zadarma_number?: string; zadarma_sip_login?: string }
+interface Caller { name?: string; phone?: string; address?: string; summary?: string; transcript?: string; fields?: Record<string, unknown> }
+interface RecentCall { number: string; name?: string; direction: 'outgoing' | 'incoming' | 'missed'; time: Date }
+type Connection = 'idle' | 'connecting' | 'ready' | 'failed';
+const CHANNEL = 'wolf-zadarma-v1';
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
+const LETTERS = ['', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS', 'TUV', 'WXYZ', '', '+', ''];
+const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
-interface RouteData {
-  talkroute_number?: string;
-  zadarma_sip_login?: string;
-  zadarma_sip_password?: string;
-}
-
-type ConnState = 'idle' | 'connecting' | 'ready' | 'failed';
-type CallState = 'idle' | 'dialing' | 'ringing-in' | 'active' | 'callback-ringing';
-
-interface RecentCall {
-  number: string;
-  direction: 'outgoing' | 'incoming' | 'missed';
-  time: Date;
-}
-
-/* ── Constants ── */
-const WIDGET_DOMAIN = 'wolf-of-wall-street-ssy3.bolt.host';
-const WIDGET_SCRIPT = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/loader-phone-lib.js';
-
-const DIALPAD_KEYS = [
-  { digit: '1', sub: '' }, { digit: '2', sub: 'ABC' }, { digit: '3', sub: 'DEF' },
-  { digit: '4', sub: 'GHI' }, { digit: '5', sub: 'JKL' }, { digit: '6', sub: 'MNO' },
-  { digit: '7', sub: 'PQRS' }, { digit: '8', sub: 'TUV' }, { digit: '9', sub: 'WXYZ' },
-  { digit: '*', sub: '' }, { digit: '0', sub: '+' }, { digit: '#', sub: '' },
-];
-
-function ts() {
-  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(sec: number) {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-/* ══════════════════════════════════════════════════════════════════════ */
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
-  /* ── State ── */
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [route, setRoute] = useState<RouteData | null>(null);
-  const [connState, setConnState] = useState<ConnState>('idle');
-  const [callState, setCallState] = useState<CallState>('idle');
+  const [connection, setConnection] = useState<Connection>('idle');
+  const [callState, setCallState] = useState<PhoneState>('idle');
   const [digits, setDigits] = useState('');
   const [callNumber, setCallNumber] = useState('');
-  const [callTimer, setCallTimer] = useState(0);
+  const [caller, setCaller] = useState<Caller | null>(null);
+  const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [held, setHeld] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
   const [showDtmf, setShowDtmf] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [showLog, setShowLog] = useState(false);
   const [error, setError] = useState('');
-  const [recents, setRecents] = useState<RecentCall[]>([]);
   const [micGranted, setMicGranted] = useState(false);
+  const [frameVersion, setFrameVersion] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
+  const [recents, setRecents] = useState<RecentCall[]>([]);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const unauthorizedRef = useRef(onUnauthorized); unauthorizedRef.current = onUnauthorized;
+  const startingRef = useRef(false);
+  const pendingCallRef = useRef(false);
+  const callRef = useRef<{ number: string; name?: string; direction: 'incoming' | 'outgoing'; answered: boolean } | null>(null);
+  const lookupSequence = useRef(0);
+  const stateRef = useRef(callState); stateRef.current = callState;
+  const credentialsRef = useRef<{ key: string; sip: string } | null>(null);
+  const phoneIdentityRef = useRef(0);
+  const companionOnly = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  /* ── Refs ── */
-  const onUnauthorizedRef = useRef(onUnauthorized);
-  onUnauthorizedRef.current = onUnauthorized;
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const setupRanRef = useRef(false);
-  const widgetLoadedRef = useRef(false);
-
-  const firstName = agentName.split(' ')[0] || 'Agent';
-
-  /* ── Logging ── */
-  const log = useCallback((msg: string) => {
-    const line = `${ts()} ${msg}`;
-    console.log('[Phone]', msg);
-    setLogs(prev => [...prev.slice(-80), line]);
+  const command = useCallback((command: string, extra: Record<string, unknown> = {}) => {
+    frameRef.current?.contentWindow?.postMessage({ channel: CHANNEL, command, ...extra }, window.location.origin);
   }, []);
-
-  /* ── Call timer ── */
-  useEffect(() => {
-    if (callState === 'active') {
-      setCallTimer(0);
-      timerRef.current = setInterval(() => setCallTimer(t => t + 1), 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [callState]);
-
-  /* ── Request microphone permission ── */
+  const unlockAudio = useCallback(() => {
+    const phone = frameRef.current?.contentWindow as (Window & { wolfPhone?: { unlockAudio: () => void } }) | null;
+    phone?.wolfPhone?.unlockAudio();
+  }, []);
   const requestMic = useCallback(async () => {
-    if (micGranted) return true;
     try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open the published HTTPS website to use the microphone.');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop());
-      setMicGranted(true);
-      log('Microphone access granted');
-      return true;
-    } catch (err) {
-      log(`Microphone denied: ${err}`);
-      setError('Microphone access is required for calls. Please allow it in your browser settings.');
+      stream.getTracks().forEach(track => track.stop());
+      setMicGranted(true); return true;
+    } catch (e) {
+      setMicGranted(false);
+      setError(e instanceof Error && e.name === 'NotAllowedError' ? 'Allow the microphone for this website, then press Enable phone.' : e instanceof Error ? e.message : 'The microphone is unavailable.');
       return false;
     }
-  }, [micGranted, log]);
+  }, []);
 
-  /* ── Load route data ── */
   useEffect(() => {
-    let stop = false;
-    (async () => {
-      const r = await authFetch<{ route: RouteData }>(providerUrl, {
-        body: { action: 'get_federal_one_v2', session_token: sessionToken },
-        onUnauthorized: () => onUnauthorizedRef.current(),
-      });
-      if (stop) return;
-      if (r.ok && r.data?.route) {
-        setRoute(r.data.route);
-        if (r.data.route.zadarma_sip_login) log(`SIP: ${r.data.route.zadarma_sip_login}`);
-      } else {
-        log(`Route load failed: ${r.error || 'unknown'}`);
-        setError('Could not load phone settings');
+    const abort = new AbortController();
+    void authFetch<{ route: RouteData }>(providerUrl, {
+      body: { action: 'get_federal_one_v2', session_token: sessionToken }, signal: abort.signal,
+      onUnauthorized: () => unauthorizedRef.current(),
+    }).then(result => {
+      if (abort.signal.aborted) return;
+      if (result.ok && result.data) setRoute(result.data.route);
+      else setError(result.error || 'Could not load phone settings.');
+    });
+    return () => { abort.abort(); phoneIdentityRef.current++; credentialsRef.current = null; };
+  }, [providerUrl, sessionToken]);
+
+  const lookupCaller = useCallback(async (phone: string) => {
+    const sequence = ++lookupSequence.current;
+    const result = await authFetch<{ caller: Caller | null }>(providerUrl, {
+      body: { action: 'zadarma_caller_context', session_token: sessionToken, phone },
+      onUnauthorized: () => unauthorizedRef.current(),
+    });
+    if (sequence === lookupSequence.current && result.ok && result.data?.caller) setCaller(result.data.caller);
+  }, [providerUrl, sessionToken]);
+
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow || event.data?.channel !== CHANNEL) return;
+      const data = event.data;
+      if (data.type === 'frame-ready') setFrameReady(true);
+      if (data.type === 'connection') {
+        setConnection(data.state); startingRef.current = data.state === 'connecting';
+        if (data.state === 'ready') setError('');
       }
-    })();
-    return () => { stop = true; };
-  }, [providerUrl, sessionToken, log]);
+      if (data.type === 'error') { setError(String(data.message)); pendingCallRef.current = false; }
+      if (data.type === 'incoming' || data.type === 'outgoing') {
+        const number = String(data.number || 'Unknown caller');
+        const name = typeof data.name === 'string' ? data.name : undefined;
+        callRef.current = { number, name, direction: data.type === 'incoming' ? 'incoming' : 'outgoing', answered: false };
+        setCallNumber(number); setCaller(name ? { name } : null); setOpen(true);
+        void lookupCaller(number);
+      }
+      if (data.type === 'call-state') {
+        const next = data.state as PhoneState;
+        stateRef.current = next; setCallState(next);
+        if (next === 'active' && callRef.current) callRef.current.answered = true;
+        if (next === 'idle') {
+          pendingCallRef.current = false; lookupSequence.current++;
+          const call = callRef.current;
+          if (call) setRecents(previous => [{ number: call.number, name: call.name, time: new Date(), direction: call.direction === 'incoming' && !call.answered ? 'missed' as const : call.direction }, ...previous].slice(0, 20));
+          callRef.current = null; setCaller(null); setCallNumber(''); setShowDtmf(false); setSpeakerOff(false); setSeconds(0);
+        }
+      }
+      if (data.type === 'controls') {
+        if (typeof data.muted === 'boolean') setMuted(data.muted);
+        if (typeof data.held === 'boolean') setHeld(data.held);
+        if (typeof data.speakerOff === 'boolean') setSpeakerOff(data.speakerOff);
+      }
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, [lookupCaller]);
 
-  /* ── Load Zadarma widget ── */
-  const loadWidget = useCallback(async () => {
-    if (widgetLoadedRef.current) return;
-    setConnState('connecting');
-    log('Setting up Zadarma phone...');
+  useEffect(() => {
+    if (!frameReady || !credentialsRef.current) return;
+    command('connect', credentialsRef.current);
+  }, [frameReady, frameVersion, command]);
 
-    // Step 1: Setup WebRTC domain (idempotent)
-    try {
-      await authFetch(providerUrl, {
-        body: { action: 'zadarma_setup_webrtc', session_token: sessionToken },
-        onUnauthorized: () => onUnauthorizedRef.current(),
-      });
-    } catch (_) { /* best-effort */ }
+  useEffect(() => {
+    if (callState !== 'active') return;
+    const started = Date.now(); setSeconds(0);
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [callState]);
 
-    // Step 2: Get WebRTC key
-    const keyRes = await authFetch<{ key?: string; error?: string }>(providerUrl, {
+  const enable = useCallback(async () => {
+    if (companionOnly || !route?.zadarma_sip_login || startingRef.current || stateRef.current !== 'idle') return;
+    const identity = phoneIdentityRef.current;
+    startingRef.current = true; setError(''); unlockAudio();
+    if (!await requestMic()) { startingRef.current = false; return; }
+    if (identity !== phoneIdentityRef.current) return;
+    setConnection('connecting');
+    const result = await authFetch<{ key: string; sip: string }>(providerUrl, {
       body: { action: 'zadarma_webrtc_key', session_token: sessionToken },
-      onUnauthorized: () => onUnauthorizedRef.current(),
+      onUnauthorized: () => unauthorizedRef.current(),
     });
+    if (identity !== phoneIdentityRef.current) return;
+    if (!result.ok || !result.data?.key) { startingRef.current = false; setConnection('failed'); setError(result.error || 'Zadarma authorization failed.'); return; }
+    const reconnecting = credentialsRef.current !== null;
+    credentialsRef.current = result.data;
+    if (reconnecting) { setFrameReady(false); setFrameVersion(version => version + 1); }
+    else if (frameReady) command('connect', result.data);
+  }, [companionOnly, route, unlockAudio, requestMic, providerUrl, sessionToken, frameReady, command]);
 
-    if (!keyRes.ok || !keyRes.data?.key) {
-      log(`Widget key failed: ${keyRes.data?.error || keyRes.error || 'unknown'}`);
-      setConnState('failed');
-      return;
-    }
+  const dial = useCallback(async (number: string) => {
+    setOpen(true); setError(''); unlockAudio();
+    if (companionOnly) { setError('Use your desktop to make and receive calls.'); return; }
+    if (connection !== 'ready') { setDigits(number); setError('Press Enable phone and wait for Ready, then press Call.'); return; }
+    if (stateRef.current !== 'idle' || pendingCallRef.current) { setError('Finish the current call first.'); return; }
+    try {
+      const normalized = normalizeDialNumber(number);
+      pendingCallRef.current = true;
+      if (!await requestMic()) { pendingCallRef.current = false; return; }
+      command('dial', { number: normalized });
+    } catch (e) { pendingCallRef.current = false; setError(e instanceof Error ? e.message : 'Invalid number.'); }
+  }, [companionOnly, connection, command, requestMic, unlockAudio]);
 
-    const key = keyRes.data.key;
-    log('Got widget key, loading phone...');
-
-    // Step 3: Request microphone early so widget can use it
-    await requestMic();
-
-    // Step 4: Load the widget script
-    const script = document.createElement('script');
-    script.id = 'zadarma-phone-lib';
-    script.src = `${WIDGET_SCRIPT}?location_href=${encodeURIComponent(WIDGET_DOMAIN)}&key=${encodeURIComponent(key)}`;
-    script.async = true;
-
-    script.onload = () => {
-      widgetLoadedRef.current = true;
-      log('Zadarma phone ready');
-      setConnState('ready');
-    };
-
-    script.onerror = () => {
-      log('Widget script failed to load');
-      setConnState('failed');
-    };
-
-    document.body.appendChild(script);
-  }, [providerUrl, sessionToken, log, requestMic]);
-
-  /* ── Auto-connect when route is loaded ── */
   useEffect(() => {
-    if (!route || setupRanRef.current) return;
-    if (!route.zadarma_sip_login) {
-      log('No SIP credentials found');
-      setConnState('failed');
-      return;
-    }
-    setupRanRef.current = true;
-    loadWidget();
-  }, [route, loadWidget, log]);
-
-  /* ── Cleanup on unmount ── */
-  useEffect(() => {
-    return () => {
-      const ws = document.getElementById('zadarma-phone-lib');
-      if (ws) ws.remove();
-      document.querySelectorAll('[class*="zadarma"],[id*="zadarma"],[class*="webrtc-phone"]').forEach(el => el.remove());
+    const handle = (event: Event) => {
+      const detail = (event as CustomEvent<{ phone: string }>).detail;
+      if (detail?.phone) void dial(detail.phone);
     };
-  }, []);
+    window.addEventListener('wolf:phone:dial', handle);
+    return () => window.removeEventListener('wolf:phone:dial', handle);
+  }, [dial]);
 
-  /* ── Make outgoing call ── */
-  const makeCall = useCallback(async (number: string) => {
-    const cleaned = number.replace(/\D/g, '');
-    if (!cleaned || cleaned.length < 3) return;
+  const answer = async () => { unlockAudio(); if (await requestMic()) command('answer'); };
+  const status = connection === 'ready' ? 'Ready' : connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Not connected' : 'Enable phone';
+  const dot = connection === 'ready' ? 'connected' : connection === 'connecting' ? 'connecting' : 'offline';
+  const myNumber = route?.zadarma_number || route?.talkroute_number;
+  const active = callState !== 'idle';
+  const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
 
-    // Always ensure mic is granted before calling
-    const hasMic = await requestMic();
-    if (!hasMic) return;
-
-    if (connState === 'ready' && widgetLoadedRef.current) {
-      // Try dispatching call to the Zadarma widget
-      const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
-      log(`Dialing ${dialNum} via Zadarma widget...`);
-      setCallNumber(cleaned);
-      setCallState('dialing');
-      setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
-
-      try {
-        // Zadarma widget API: dispatch call command
-        document.dispatchEvent(new CustomEvent('zadarma-phone-api', {
-          detail: { command: 'call', number: dialNum },
-        }));
-        log('Call sent to widget');
-        // Also try callback as backup in parallel
-        initiateCallback(cleaned);
-      } catch (err) {
-        log(`Widget call error: ${err}`);
-        // Fall back to callback
-        initiateCallback(cleaned);
-      }
-    } else {
-      // No widget -- pure callback
-      setCallNumber(cleaned);
-      setCallState('dialing');
-      setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
-      initiateCallback(cleaned);
-    }
-  }, [connState, log, requestMic]);
-
-  /* ── Callback API ── */
-  const initiateCallback = useCallback(async (number: string) => {
-    const cleaned = number.replace(/\D/g, '');
-    if (cleaned.length < 10) { setError('Enter at least 10 digits'); return; }
-    const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
-    log(`Requesting callback to ${dialNum}...`);
-
-    const r = await authFetch<{ ok: boolean; message?: string; error?: string }>(providerUrl, {
-      body: { action: 'zadarma_callback', session_token: sessionToken, to: dialNum },
-      onUnauthorized: () => onUnauthorizedRef.current(),
-    });
-
-    if (r.ok && r.data?.ok) {
-      log(`Callback initiated: ${r.data.message || 'success'}`);
-      setCallState('callback-ringing');
-    } else {
-      const errMsg = r.data?.error || r.error || 'Callback failed';
-      log(`Callback error: ${errMsg}`);
-      setError(errMsg);
-      setCallState('idle');
-      setCallNumber('');
-    }
-  }, [providerUrl, sessionToken, log]);
-
-  /* ── End call ── */
-  const endCall = useCallback(() => {
-    setCallState('idle');
-    setCallNumber('');
-    setMuted(false);
-    setSpeakerOff(false);
-    setShowDtmf(false);
-  }, []);
-
-  /* ── Reconnect ── */
-  const reconnect = useCallback(() => {
-    if (!route?.zadarma_sip_login) return;
-    widgetLoadedRef.current = false;
-    const ws = document.getElementById('zadarma-phone-lib');
-    if (ws) ws.remove();
-    document.querySelectorAll('[class*="zadarma"],[id*="zadarma"],[class*="webrtc-phone"]').forEach(el => el.remove());
-    setupRanRef.current = false;
-    setConnState('idle');
-    setError('');
-    log('Reconnecting...');
-    setTimeout(() => {
-      setupRanRef.current = true;
-      loadWidget();
-    }, 300);
-  }, [route, loadWidget, log]);
-
-  /* ── Dialpad press ── */
-  const pressKey = useCallback((digit: string) => {
-    setDigits(prev => prev + digit);
-  }, []);
-
-  /* ── Status ── */
-  const statusDot = connState === 'ready' ? 'connected'
-    : connState === 'failed' ? 'callback'
-    : connState === 'connecting' ? 'connecting'
-    : 'offline';
-
-  const statusLabel = connState === 'ready' ? 'Connected'
-    : connState === 'failed' ? 'Connection Failed'
-    : connState === 'connecting' ? 'Connecting...'
-    : 'Loading...';
-
-  const canDial = connState === 'ready' || connState === 'failed';
-
-  /* ─── Closed ─── */
-  if (!open) {
-    return (
-      <aside className={`ip17-shell ip17-closed${callState === 'ringing-in' ? ' ip17-ringing' : ''}`} aria-label="Open phone">
-        <button className="ip17-trigger" onClick={() => setOpen(true)}>
-          <div className="ip17-trigger-icon">
-            <Phone size={26} />
-            <div className="ip17-trigger-waves"><span /><span /><span /></div>
-          </div>
-          <div className={`ip17-trigger-sip-dot ${statusDot}`} />
-          {callState === 'ringing-in' && <div className="ip17-trigger-badge" />}
-        </button>
-      </aside>
-    );
-  }
-
-  /* ─── Active Call View ─── */
-  if (callState === 'active' || callState === 'dialing' || callState === 'callback-ringing') {
-    return (
-      <aside className="ip17-shell">
-        <div className="ip17-island">
-          <div className="ip17-island-pill">
-            <div className={`ip17-island-dot ${callState === 'callback-ringing' ? 'connecting' : 'connected'}`} />
-            <span className="ip17-island-label">
-              {callState === 'dialing' ? 'Calling...'
-                : callState === 'callback-ringing' ? 'Ringing...'
-                : fmtDuration(callTimer)}
-            </span>
-            <div className="ip17-island-wave" />
-          </div>
-        </div>
+  return <>
+    {frame}
+    <aside className={`ip17-shell${!open ? ' ip17-closed' : ''}${callState === 'ringing-in' ? ' ip17-ringing' : ''}`} aria-label={`${agentName}'s Zadarma phone`}>
+      {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} /></button> : <>
+        <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
-          <div className="ip17-active">
-            <div className="ip17-active-header">
-              <h3 className="ip17-caller">{formatPhone(callNumber)}</h3>
-              <p className="ip17-timer">
-                {callState === 'dialing' ? 'Dialing...'
-                  : callState === 'callback-ringing' ? 'Your Zadarma phone will ring — answer it to connect'
-                  : fmtDuration(callTimer)}
-              </p>
-            </div>
-
-            {callState === 'callback-ringing' && (
-              <div className="ip17-callback-notice">
-                <Loader2 size={20} className="ip17-spin" />
-                <p>Zadarma is calling your extension now. Answer the call on the Zadarma widget (floating phone button) to connect to the other line.</p>
-              </div>
-            )}
-
-            {/* Call controls - only show when active */}
-            {callState === 'active' && (
-              <div className="ip17-call-controls">
-                <button className={`ip17-ctrl-btn${muted ? ' active' : ''}`} onClick={() => setMuted(!muted)}>
-                  {muted ? <MicOff size={22} /> : <Mic size={22} />}
-                  <span>{muted ? 'Unmute' : 'Mute'}</span>
-                </button>
-                <button className={`ip17-ctrl-btn${speakerOff ? ' active' : ''}`} onClick={() => setSpeakerOff(!speakerOff)}>
-                  {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
-                  <span>Speaker</span>
-                </button>
-                <button className={`ip17-ctrl-btn${showDtmf ? ' active' : ''}`} onClick={() => setShowDtmf(!showDtmf)}>
-                  <Grid3X3 size={22} />
-                  <span>Keypad</span>
-                </button>
-              </div>
-            )}
-
-            {/* DTMF pad */}
-            {showDtmf && callState === 'active' && (
-              <div className="ip17-dtmf-pad">
-                {DIALPAD_KEYS.map(k => (
-                  <button key={k.digit} className="ip17-dtmf-key" onClick={() => log(`DTMF: ${k.digit}`)}>
-                    {k.digit}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Hangup / Cancel */}
-            <button className="ip17-hangup-btn" onClick={endCall}>
-              <PhoneOff size={28} />
-            </button>
-          </div>
-        </div>
-      </aside>
-    );
-  }
-
-  /* ─── Idle View (Dialpad) ─── */
-  return (
-    <aside className="ip17-shell">
-      <div className="ip17-island">
-        <div className="ip17-island-pill">
-          <div className={`ip17-island-dot ${statusDot}`} />
-          <span className="ip17-island-label">{firstName}'s Phone</span>
-          <button className="ip17-island-close" onClick={() => setOpen(false)}><X size={16} /></button>
-        </div>
-      </div>
-
-      <div className="ip17-body">
-        {/* Status bar */}
-        <div className="ip17-statusbar">
-          <span className={`ip17-sip-badge ${statusDot}`}>{statusLabel}</span>
-          {route?.talkroute_number && <span className="ip17-my-line">{formatPhone(route.talkroute_number)}</span>}
-        </div>
-
-        {/* Mic permission button */}
-        {!micGranted && connState === 'ready' && (
-          <div className="ip17-mode-notice" style={{ borderColor: '#3a2a1a', background: '#1a0f0a' }}>
-            <Mic size={14} />
-            <span>
-              Microphone access needed for calls.{' '}
-              <button onClick={requestMic} style={{ color: '#f0a050', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                Allow microphone
-              </button>
-            </span>
-          </div>
-        )}
-
-        {/* Connection status notice */}
-        {connState === 'failed' && (
-          <div className="ip17-mode-notice">
-            <PhoneForwarded size={14} />
-            <span>
-              Phone connection failed.{' '}
-              <button onClick={reconnect}>Retry connection</button>
-            </span>
-          </div>
-        )}
-
-        {connState === 'ready' && micGranted && (
-          <div className="ip17-mode-notice" style={{ borderColor: '#1a3a1a', background: '#0a1a0a' }}>
-            <Phone size={14} />
-            <span style={{ color: '#8ee0a0' }}>
-              Phone ready. Dial a number and press the green button to call.
-            </span>
-          </div>
-        )}
-
-        {/* Number display */}
-        <div className="ip17-idle">
-          <div className="ip17-display">
-            <input
-              type="text"
-              value={digits}
-              onChange={e => setDigits(e.target.value.replace(/[^0-9*#+]/g, ''))}
-              placeholder="Enter number"
-              autoComplete="off"
-            />
-            {digits && (
-              <button className="ip17-backspace" onClick={() => setDigits(d => d.slice(0, -1))}>
-                <Delete size={20} />
-              </button>
-            )}
-          </div>
-
-          {/* Dialpad */}
-          <div className="ip17-dialpad">
-            {DIALPAD_KEYS.map(k => (
-              <button key={k.digit} className="ip17-key" onClick={() => pressKey(k.digit)}>
-                <span className="ip17-key-digit">{k.digit}</span>
-                {k.sub && <span className="ip17-key-sub">{k.sub}</span>}
-              </button>
-            ))}
-          </div>
-
-          {/* Dial button */}
-          <div className="ip17-dial-row">
-            <button
-              className="ip17-dial-btn"
-              disabled={!canDial || digits.replace(/\D/g, '').length < 3}
-              onClick={() => makeCall(digits)}
-            >
-              <Phone size={28} />
-            </button>
-          </div>
-        </div>
-
-        {/* Recents */}
-        {recents.length > 0 && (
-          <div className="ip17-recent">
-            <div className="ip17-recent-title">Recents</div>
-            {recents.slice(0, 8).map((r, i) => (
-              <div key={i} className="ip17-recent-row">
-                <div className={`ip17-recent-icon ${r.direction}`}>
-                  {r.direction === 'outgoing' ? <PhoneOutgoing size={14} /> :
-                   r.direction === 'incoming' ? <PhoneIncoming size={14} /> :
-                   <PhoneOff size={14} />}
+          <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
+          {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
+          {companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
+            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : 'Enable phone'}</button>}
+            {connection === 'ready' && !micGranted && <button className="ip17-enable" onClick={() => { unlockAudio(); void requestMic(); }}>Enable microphone and sound</button>}
+            {active ? <div className="ip17-active">
+              <div className="ip17-active-header"><h3 className="ip17-caller">{caller?.name || formatPhone(callNumber)}</h3>{caller?.name && <p>{formatPhone(callNumber)}</p>}<p className="ip17-timer" aria-live="polite">{callState === 'ringing-in' ? 'Incoming call' : callState === 'dialing' ? 'Calling…' : callState === 'answering' ? 'Connecting call…' : callState === 'ending' ? 'Ending call…' : `${held ? 'On hold · ' : ''}${duration(seconds)}`}</p></div>
+              {caller?.address && <p className="ip17-caller-detail">{caller.address}</p>}
+              {caller?.summary && <p className="ip17-caller-detail">{caller.summary}</p>}
+              {caller?.fields && Object.keys(caller.fields).length > 0 && <details className="ip17-caller-detail"><summary>Client details</summary>{Object.entries(caller.fields).map(([key, value]) => <p key={key}><strong>{key.replace(/_/g, ' ')}:</strong> {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}</p>)}</details>}
+              {caller?.transcript && <details className="ip17-caller-detail"><summary>AI conversation</summary><p>{caller.transcript}</p></details>}
+              {callState === 'active' && <>
+                <div className="ip17-call-controls">
+                  <button className={`ip17-ctrl-btn${muted ? ' active' : ''}`} aria-pressed={muted} onClick={() => command('mute')}>{muted ? <MicOff size={22} /> : <Mic size={22} />}<span>{muted ? 'Unmute' : 'Mute'}</span></button>
+                  <button className={`ip17-ctrl-btn${held ? ' active' : ''}`} aria-pressed={held} onClick={() => command('hold')}>{held ? <Play size={22} /> : <Pause size={22} />}<span>{held ? 'Resume' : 'Hold'}</span></button>
+                  <button className={`ip17-ctrl-btn${speakerOff ? ' active' : ''}`} aria-pressed={speakerOff} onClick={() => command('speaker')}>{speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}<span>{speakerOff ? 'Sound on' : 'Sound off'}</span></button>
+                  <button className="ip17-ctrl-btn" onClick={() => setShowDtmf(value => !value)}><Grid3X3 size={22} /><span>Keypad</span></button>
+                  <button className="ip17-ctrl-btn" onClick={unlockAudio}><Volume2 size={22} /><span>Enable sound</span></button>
                 </div>
-                <div className="ip17-recent-info">
-                  <strong>{formatPhone(r.number)}</strong>
-                  <time>{r.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-                </div>
-                <button className="ip17-callback" onClick={() => { setDigits(r.number); }}>
-                  <Phone size={14} />
-                </button>
+                {showDtmf && <div className="ip17-dtmf-pad">{KEYS.map(key => <button key={key} className="ip17-dtmf-key" onClick={() => command('dtmf', { tone: key })}>{key}</button>)}</div>}
+              </>}
+              <div className="ip17-answer-row">{callState === 'ringing-in' && <button className="ip17-dial-btn" aria-label="Answer call" onClick={() => void answer()}><Phone size={28} /></button>}<button className="ip17-hangup-btn" disabled={callState === 'ending'} aria-label={callState === 'ringing-in' ? 'Decline call' : 'End call'} onClick={() => command('hangup')}><PhoneOff size={28} /></button></div>
+            </div> : <>
+              <div className="ip17-idle"><div className="ip17-display"><input aria-label="Number to call" value={digits} onChange={event => setDigits(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void dial(digits); }} placeholder="Enter number" type="tel" autoComplete="off" />{digits && <button className="ip17-backspace" aria-label="Delete digit" onClick={() => setDigits(value => value.slice(0, -1))}><Delete size={20} /></button>}</div>
+                <div className="ip17-dialpad">{KEYS.map((key, index) => <button key={key} className="ip17-key" onClick={() => setDigits(value => value + key)}><span className="ip17-key-digit">{key}</span><span className="ip17-key-sub">{LETTERS[index]}</span></button>)}</div>
+                <div className="ip17-dial-row"><button className="ip17-dial-btn" aria-label="Call number" disabled={connection !== 'ready' || !digits.trim()} onClick={() => void dial(digits)}><Phone size={28} /></button></div>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* Debug log */}
-        <div className="ip17-log-toggle">
-          <button onClick={() => setShowLog(!showLog)}>
-            {showLog ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            <span>Debug log</span>
-          </button>
-          {connState === 'failed' && (
-            <button className="ip17-reconnect" onClick={reconnect}>
-              <RotateCcw size={10} /> Reconnect
-            </button>
-          )}
+              {recents.length > 0 && <div className="ip17-recent"><div className="ip17-recent-title">Recent calls</div>{recents.slice(0, 8).map((call, index) => <div className="ip17-recent-row" key={`${call.time.getTime()}-${index}`}><div className={`ip17-recent-icon ${call.direction}`}>{call.direction === 'outgoing' ? <PhoneOutgoing size={14} /> : call.direction === 'incoming' ? <PhoneIncoming size={14} /> : <PhoneOff size={14} />}</div><div className="ip17-recent-info"><strong>{call.name || formatPhone(call.number)}</strong><time>{call.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div><button className="ip17-callback" aria-label={`Call back ${call.number}`} disabled={connection !== 'ready'} onClick={() => void dial(call.number)}><Phone size={14} /></button></div>)}</div>}
+            </>}
+          </>}
         </div>
-
-        {showLog && (
-          <div className="ip17-debug-log">
-            {logs.length === 0 ? (
-              <div className="ip17-log-line">Waiting...</div>
-            ) : logs.map((line, i) => (
-              <div key={i} className="ip17-log-line">{line}</div>
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <div className="ip17-error">{error}<button onClick={() => setError('')}>&times;</button></div>
-        )}
-      </div>
+      </>}
     </aside>
-  );
+  </>;
 }

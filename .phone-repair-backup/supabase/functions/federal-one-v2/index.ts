@@ -1,7 +1,7 @@
 import { whatsUp } from "./whatsup.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { zadarma } from "./zadarma.ts";
+import { createHash, createHmac } from "node:crypto";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,7 +140,7 @@ Deno.serve(async (req: Request) => {
 
     if (action === "get_federal_one_v2") {
       const [{ data: route, error: routeError }, { data: settings }, { data: messages }, { data: activeClient }] = await Promise.all([
-        supabase.from("agents").select("bland_number,talkroute_number,transfer_certified,inbound_configured,zadarma_sip_login").eq("id", agent.id).single(),
+        supabase.from("agents").select("bland_number,talkroute_number,transfer_certified,inbound_configured,zadarma_sip_login,zadarma_sip_password").eq("id", agent.id).single(),
         supabase.from("federal_one_agent_settings").select("personal_dialer_state,number_certification_state,camera_state,camera_verified_at,mobile_companion_only").eq("agent_id", agent.id).maybeSingle(),
         supabase.from("federal_one_chat_messages").select("id,sender_agent_id,sender_name,message_kind,body,created_at").eq("room_key", "team").order("created_at", { ascending: false }).limit(50),
         supabase.from("federal_one_active_clients").select("contact_key,client_name,client_phone,client_snapshot,updated_at").eq("agent_id", agent.id).maybeSingle(),
@@ -151,7 +151,7 @@ Deno.serve(async (req: Request) => {
         const { data } = await supabase.from("federal_one_client_notes").select("id,agent_id,client_name,body,created_at").eq("contact_key", activeClient.contact_key).eq("agent_id", agent.id).order("created_at", { ascending: false }).limit(20);
         clientNotes = data || [];
       }
-      return json({ route: { ...route, zadarma_number: route?.talkroute_number }, settings, messages: (messages || []).reverse(), active_client: activeClient || null, client_notes: clientNotes });
+      return json({ route, settings, messages: (messages || []).reverse(), active_client: activeClient || null, client_notes: clientNotes });
     }
 
     if (action === "set_federal_one_camera_state") {
@@ -226,7 +226,7 @@ Deno.serve(async (req: Request) => {
       if (!clientName || !clientPhone) return json({ error: "Client and phone are required" }, 400);
       const { data, error } = await supabase.from("federal_one_direct_calls").insert({
         agent_id: agent.id, contact_key: contactKey(clientName, clientPhone), client_name: clientName,
-        client_phone: clientPhone, route: "zadarma", outcome: "opened",
+        client_phone: clientPhone, route: "talkroute", outcome: "opened",
       }).select("id,opened_at").single();
       return error ? json({ error: "Call launch could not be logged" }, 500) : json({ success: true, direct_call: data });
     }
@@ -318,9 +318,108 @@ Deno.serve(async (req: Request) => {
       return json({ cameras: data || [] });
     }
 
-    if (action.startsWith("zadarma_")) {
-      const result = await zadarma(supabase, agent, body);
-      return json(result.data, result.status);
+    // ── Zadarma API helpers ──
+    if (["zadarma_callback", "zadarma_webrtc_key", "zadarma_setup_webrtc"].includes(action)) {
+      // Read API credentials from system_config
+      const { data: cfgRows } = await supabase
+        .from("system_config")
+        .select("key,value")
+        .in("key", ["zadarma_api_key", "zadarma_api_secret"]);
+      const cfg = Object.fromEntries((cfgRows || []).map((r: { key: string; value: string }) => [r.key, r.value]));
+      const zadarmaKey = cfg.zadarma_api_key || "";
+      const zadarmaSecret = cfg.zadarma_api_secret || "";
+      if (!zadarmaKey || !zadarmaSecret) return json({ error: "Zadarma API not configured" }, 503);
+
+      // Zadarma official algorithm (matches their TypeScript SDK):
+      // 1. Sort params, build query string with URLSearchParams (spaces as +)
+      // 2. MD5 hex hash of query string
+      // 3. signString = apiMethod + queryString + md5hex
+      // 4. HMAC-SHA1 hex of signString with secret
+      // 5. Base64-encode the HEX string (not raw bytes)
+      function zadarmaSign(apiMethod: string, params: Record<string, string>) {
+        const sorted = Object.keys(params).sort().reduce((acc, k) => { acc[k] = params[k]; return acc; }, {} as Record<string, string>);
+        const paramsString = new URLSearchParams(sorted).toString().replace(/%20/g, "+");
+        const paramsMd5 = createHash("md5").update(paramsString).digest("hex");
+        const signString = apiMethod + paramsString + paramsMd5;
+        const hmacHex = createHmac("sha1", zadarmaSecret).update(signString).digest("hex");
+        const signature = btoa(hmacHex);
+        return { paramsString, signature };
+      }
+
+      async function zadarmaGet(apiMethod: string, params: Record<string, string>) {
+        const { paramsString, signature } = zadarmaSign(apiMethod, params);
+        const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
+        const res = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
+        return res.json();
+      }
+
+      async function zadarmaPost(apiMethod: string, params: Record<string, string>) {
+        const { paramsString, signature } = zadarmaSign(apiMethod, params);
+        const url = `https://api.zadarma.com${apiMethod}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `${zadarmaKey}:${signature}`, "Content-Type": "application/x-www-form-urlencoded" },
+          body: paramsString,
+        });
+        return res.json();
+      }
+
+      if (action === "zadarma_setup_webrtc") {
+        const domain = "wolf-of-wall-street-ssy3.bolt.host";
+        const results: Record<string, unknown> = {};
+        // Step 1: create widget integration (idempotent)
+        try {
+          const createRes = await zadarmaPost("/v1/webrtc/create/", { shape: "square", position: "bottom_right" });
+          results.create = createRes;
+        } catch (e) {
+          results.create = { error: String(e) };
+        }
+        // Step 2: add domain
+        try {
+          const domainRes = await zadarmaPost("/v1/webrtc/domain/", { domain });
+          results.domain = domainRes;
+        } catch (e) {
+          results.domain = { error: String(e) };
+        }
+        // Step 3: check current state
+        try {
+          const infoRes = await zadarmaGet("/v1/webrtc/", {});
+          results.info = infoRes;
+        } catch (e) {
+          results.info = { error: String(e) };
+        }
+        const ok = (results.domain as Record<string, unknown>)?.status === "success" ||
+                   (results.info as Record<string, unknown>)?.status === "success";
+        return json({ ok, domain, results });
+      }
+
+      // These actions need the agent's SIP login
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("zadarma_sip_login")
+        .eq("id", agent.id)
+        .single();
+      if (!agentRow?.zadarma_sip_login) return json({ error: "No SIP extension configured" }, 400);
+      const sipLogin = agentRow.zadarma_sip_login;
+
+      if (action === "zadarma_webrtc_key") {
+        const zData = await zadarmaGet("/v1/webrtc/get_key/", { sip: sipLogin });
+        if (zData.status === "success" && zData.key) {
+          return json({ key: zData.key, sip: sipLogin });
+        }
+        return json({ error: zData.message || "Failed to get WebRTC key", raw: zData }, 502);
+      }
+
+      if (action === "zadarma_callback") {
+        const to = clean(body.to, 20).replace(/\D/g, "");
+        if (!to || to.length < 10) return json({ error: "Invalid phone number" }, 400);
+        const extension = sipLogin.includes("-") ? sipLogin.split("-").pop()! : sipLogin;
+        const zData = await zadarmaGet("/v1/request/callback/", { from: extension, to });
+        if (zData.status === "success") {
+          return json({ ok: true, message: `Calling extension ${extension}, then connecting to ${to}` });
+        }
+        return json({ error: zData.message || "Zadarma callback failed", raw: zData }, 502);
+      }
     }
 
     return json({ error: "Unknown action" }, 400);

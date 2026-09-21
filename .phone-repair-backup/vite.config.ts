@@ -17,14 +17,6 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       exclude: ['lucide-react'],
     },
-    build: {
-      rollupOptions: {
-        input: {
-          app: fileURLToPath(new URL('./index.html', import.meta.url)),
-          phone: fileURLToPath(new URL('./phone.html', import.meta.url)),
-        },
-      },
-    },
     server: {
       host: "0.0.0.0",
       allowedHosts: true,

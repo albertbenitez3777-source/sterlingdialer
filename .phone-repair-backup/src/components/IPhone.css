@@ -5,7 +5,7 @@
   bottom: 18px;
   width: 375px;
   max-height: calc(100vh - 36px);
-  z-index: 1200;
+  z-index: 89;
   background: #000000;
   color: #f5f5f7;
   border-radius: 48px;
@@ -22,14 +22,6 @@
   flex-direction: column;
   transition: all .35s cubic-bezier(.4, 0, .2, 1);
 }
-
-.ip17-engine { position: fixed; width: 1px; height: 1px; border: 0; left: -10px; top: -10px; pointer-events: none; }
-.ip17-enable { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px auto; border: 0; border-radius: 20px; padding: 12px 20px; background: #34c759; color: #06140b; font-weight: 700; cursor: pointer; }
-.ip17-enable:disabled { opacity: .5; cursor: wait; }
-.ip17-answer-row { display: flex; align-items: center; justify-content: center; gap: 28px; margin-top: 20px; }
-.ip17-answer-row .ip17-hangup-btn { margin: 0; }
-.ip17-caller-detail { font-size: 13px; line-height: 1.5; color: #c7c7cc; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 130px; overflow: auto; }
-.ip17-error { overflow-wrap: anywhere; }
 
 /* ─── Closed: just the floating trigger button ─── */
 .ip17-shell.ip17-closed {

@@ -3226,7 +3226,7 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
-      {!isOwner && <IPhone key={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
+      <IPhone agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
@@ -4148,13 +4148,14 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
   const last10 = digits.slice(-10);
   const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
 
-  const handleZadarma = () => {
+  const handleTalkroute = () => {
+    navigator.clipboard.writeText(last10.length === 10 ? last10 : phone).catch(() => {});
     setCopied(true);
     void authFetch<{ direct_call: { id: string } }>(providerUrl, {
       body: { action: 'log_direct_call', session_token: sessionToken, client_name: name, client_phone: phone },
       onUnauthorized,
     }).then(result => { if (result.ok && result.data?.direct_call.id) setDirectCallId(result.data.direct_call.id); });
-    window.dispatchEvent(new CustomEvent('wolf:phone:dial', { detail: { phone, name } }));
+    window.open('https://app.talkroute.com/phone', '_blank', 'noopener');
     setTimeout(() => setCopied(false), 3000);
   };
 
@@ -4257,11 +4258,11 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
             </div>
             {placingSecretaryCall && <RefreshCw size={16} className="search-spinner" />}
           </button>}
-          {canCall && <button className="phone-action-option" onClick={handleZadarma}>
+          {canCall && <button className="phone-action-option" onClick={handleTalkroute}>
             <div className="phone-action-icon talkroute-icon"><Phone size={22} /></div>
             <div className="phone-action-text">
-              <strong>Call with my phone</strong>
-              <span>{copied ? 'Check your on-screen phone' : 'Call this client through your Zadarma line'}</span>
+              <strong>Call via Talkroute</strong>
+              <span>{copied ? 'Number copied! Talkroute opening...' : 'Opens Talkroute — number auto-copied'}</span>
             </div>
             {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
           </button>}

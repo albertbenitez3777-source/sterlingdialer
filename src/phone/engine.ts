@@ -1,0 +1,214 @@
+import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession } from './call-controller';
+
+// Run the provider's SDK in its own same-origin frame. Removing the frame on
+// logout/reconnect closes every SDK socket, timer, audio track and global hook.
+const CHANNEL = 'wolf-zadarma-v1';
+const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/';
+interface Socket {
+  on(event: string, callback: (...args: any[]) => void): Socket;
+  close(): void;
+}
+interface Sdk extends PhoneApi {
+  init(options: Record<string, unknown>): unknown;
+  reg(sip: string): unknown;
+  unreg(): void;
+  zadarmaCallbackCall(data: unknown): void;
+  zadarmaCallbackAnswer(data: unknown): void;
+}
+type IoFactory = ((url: string, options: unknown) => Socket) & Record<string, unknown>;
+type PhoneWindow = Window & typeof globalThis & {
+  ZDRMscriptDiv: HTMLElement;
+  ZadarmaWebphoneAPI: new () => Sdk;
+  io: IoFactory;
+  wolfPhone?: { unlockAudio: () => void };
+};
+const host = window as PhoneWindow;
+let controller: CallController | undefined;
+let initialized = false;
+let speakerMuted = false;
+let authorizationFailed = false;
+let connectionTimer: ReturnType<typeof setTimeout>;
+let callTimer: ReturnType<typeof setTimeout>;
+const emit = (event: PhoneEvent) => {
+  if (window.parent !== window) window.parent.postMessage({ channel: CHANNEL, ...event }, window.location.origin);
+};
+const fail = (message: string) => emit({ type: 'error', message });
+const remote = () => document.getElementById('zdrm-webRTCRemoteView') as HTMLMediaElement;
+
+function createMedia() {
+  const container = document.getElementById('phone-media')!;
+  host.ZDRMscriptDiv = container;
+  for (const id of ['zdrm-webRTCSelfView', 'zdrm-webRTCRemoteView']) {
+    const media = document.createElement('audio');
+    media.id = id; media.autoplay = true;
+    media.setAttribute('playsinline', '');
+    if (id.includes('Self')) media.muted = true;
+    container.appendChild(media);
+  }
+  const sounds: Record<string, string> = {
+    incomingRing: 'incoming-call.mp3', outgoingRing: 'out.wav', busy: 'busy.wav', hangup: 'hangup.wav',
+  };
+  for (let n = 0; n < 10; n++) sounds[`dtmf${n}`] = `dtmf-${n}.wav`;
+  for (const [id, file] of Object.entries(sounds)) {
+    const audio = document.createElement('audio'); audio.id = `zdrm-${id}`;
+    audio.preload = 'auto'; audio.volume = 0.5; audio.src = `https://my.zadarma.com/assets/${file}`;
+    container.appendChild(audio);
+  }
+}
+createMedia();
+host.wolfPhone = { unlockAudio() {
+  // Called synchronously by a click in the parent, before awaiting microphone access.
+  document.querySelectorAll('audio').forEach(audio => {
+    if (audio.id.includes('Self')) return;
+    if (audio === remote() && controller?.state === 'active') {
+      void audio.play().catch(() => fail('Click Enable sound to hear the caller.')); return;
+    }
+    if (controller && controller.state !== 'idle') return;
+    const previous = audio.volume; audio.volume = 0;
+    void audio.play().then(() => { audio.pause(); audio.currentTime = 0; audio.volume = previous; }).catch(() => { audio.volume = previous; });
+  });
+} };
+
+function loadScript(name: string) {
+  return new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    const timeout = setTimeout(() => reject(new Error('Zadarma phone software timed out. Retry connection.')), 15000);
+    script.src = BASE + name;
+    script.onload = () => { clearTimeout(timeout); resolve(); };
+    script.onerror = () => { clearTimeout(timeout); reject(new Error('Zadarma phone software could not load. Check your connection or content blocker.')); };
+    document.head.appendChild(script);
+  });
+}
+
+function endCall() {
+  clearTimeout(callTimer);
+  document.querySelectorAll('audio').forEach(audio => { audio.pause(); });
+  speakerMuted = false; remote().muted = false;
+  controller?.ended();
+}
+
+function bindSession(session: PhoneSession) {
+  // Use JsSIP session methods for mute, hold and all 12 DTMF keys.
+  // The vendor widget's visual control helpers do not support these reliably.
+  const bindAudio = (connection: RTCPeerConnection) => {
+    const play = (stream: MediaStream) => {
+      remote().srcObject = stream;
+      void remote().play().catch(() => fail('Click Enable sound to hear the caller.'));
+    };
+    connection.addEventListener('track', event => play(event.streams[0] || new MediaStream([event.track])));
+    const tracks = connection.getReceivers().map(receiver => receiver.track).filter(Boolean);
+    if (tracks.length) play(new MediaStream(tracks));
+  };
+  session.on('peerconnection', ({ peerconnection }: { peerconnection: RTCPeerConnection }) => bindAudio(peerconnection));
+  if (session.connection) bindAudio(session.connection);
+  session.on('confirmed', () => { clearTimeout(callTimer); controller?.confirmed(); });
+  session.on('ended', endCall);
+  session.on('failed', (event: { cause?: string }) => { endCall(); fail(`Call failed: ${event.cause || 'connection unavailable'}`); });
+  session.on('hold', () => emit({ type: 'controls', held: session.isOnHold().local }));
+  session.on('unhold', () => emit({ type: 'controls', held: session.isOnHold().local }));
+}
+
+async function connect(key: string, sip: string) {
+  if (initialized) return;
+  initialized = true;
+  emit({ type: 'connection', state: 'connecting' });
+  try {
+    // Ordered loading avoids the race in the vendor's asynchronous loader.
+    for (const script of ['socket.io.js', 'detectWebRTC.min.js', 'jssip.min.js?v=7', 'md5.min.js', 'widget-api.min.js?sub_v=68']) await loadScript(script);
+    const originalIo = host.io;
+    host.io = Object.assign((url: string, options: unknown) => {
+      const socket = originalIo(url, options);
+      socket.on('init', () => {
+        if (authorizationFailed) return;
+        clearTimeout(connectionTimer);
+        if (controller) controller.ready = true;
+        emit({ type: 'connection', state: 'ready' });
+      });
+      socket.on('disconnect', () => {
+        if (controller) controller.ready = false;
+        emit({ type: 'connection', state: 'connecting' });
+        clearTimeout(connectionTimer);
+        connectionTimer = setTimeout(() => {
+          if (!controller?.ready) { emit({ type: 'connection', state: 'failed' }); fail('Phone disconnected. Press Enable phone to reconnect.'); }
+        }, 20000);
+      });
+      socket.on('connect_error', () => {
+        if (controller) controller.ready = false;
+        emit({ type: 'connection', state: 'failed' });
+        fail('Cannot connect to Zadarma. Check the network and retry.');
+      });
+      socket.on('update', (message: { error?: unknown; errorCode?: unknown }) => {
+        if (message?.error || message?.errorCode) {
+          authorizationFailed = true;
+          if (controller) controller.ready = false;
+          emit({ type: 'connection', state: 'failed' });
+          fail('Zadarma rejected the phone connection. Check the extension and authorized website.');
+        }
+      });
+      return socket;
+    }, originalIo) as IoFactory;
+    const api = new host.ZadarmaWebphoneAPI();
+    controller = new CallController(api, emit);
+    let currentSession: PhoneSession | null = null;
+    Object.defineProperty(api, 'webCallSession', {
+      configurable: true,
+      get: () => currentSession,
+      set: (session: PhoneSession | null) => { currentSession = session; if (session) bindSession(session); },
+    });
+    // A late JSONP response must never start a call the agent already cancelled.
+    for (const method of ['zadarmaCallbackCall', 'zadarmaCallbackAnswer'] as const) {
+      const original = api[method].bind(api);
+      api[method] = data => {
+        const expected = method === 'zadarmaCallbackCall' ? 'dialing' : 'answering';
+        if (controller?.state === expected) original(data);
+      };
+    }
+    api.init({ key, sip, type: 'CRM', language: 'en',
+      getSipsCallback: (_sips: unknown, code: unknown) => {
+        if (code) { authorizationFailed = true; if (controller) controller.ready = false; emit({ type: 'connection', state: 'failed' }); fail('Zadarma could not authorize this extension.'); }
+      },
+      callbackGetPrice: () => {}, callbackEndCall: endCall,
+      getStatusMessage: (status: string, data?: { caller?: string; callername?: string }) => {
+        if (status === 'incoming') controller?.incoming(String(data?.caller || 'Unknown caller'), String(data?.callername || ''));
+        if (['canceled', 'busy', 'rejected'].includes(status)) {
+          endCall(); if (status !== 'canceled') fail(status === 'busy' ? 'The number is busy.' : 'The call was rejected.');
+        }
+        if (status === 'BROWSER_NOT_SUPPORTED') { emit({ type: 'connection', state: 'failed' }); fail('Use a current desktop browser with microphone access.'); }
+        // 'registered', 'connected' and 'accepted' are optimistic SDK UI messages.
+        // Readiness uses the authenticated push handshake; answer uses SIP confirmed.
+      },
+    });
+    connectionTimer = setTimeout(() => {
+      if (!controller?.ready) { emit({ type: 'connection', state: 'failed' }); fail('Zadarma did not confirm the connection. Retry your phone.'); }
+    }, 20000);
+    api.reg(sip);
+  } catch (error) { emit({ type: 'connection', state: 'failed' }); fail(error instanceof Error ? error.message : 'Phone setup failed.'); }
+}
+
+window.addEventListener('message', event => {
+  if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.channel !== CHANNEL) return;
+  const data = event.data;
+  try {
+    if (data.command === 'connect') { void connect(String(data.key || ''), String(data.sip || '')); return; }
+    if (!controller) throw new Error('Enable the phone first.');
+    if (data.command === 'dial') controller.dial(String(data.number || ''));
+    else if (data.command === 'answer') controller.answer();
+    else if (data.command === 'hangup') {
+      const previous = controller.state;
+      controller.hangup();
+      // Pending outgoing credential lookups have no SIP leg to terminate.
+      if (previous === 'dialing' && !controller.api.webCallSession && controller.state === 'ending') endCall();
+    }
+    else if (data.command === 'mute') controller.mute();
+    else if (data.command === 'hold') controller.hold();
+    else if (data.command === 'dtmf') controller.dtmf(String(data.tone || ''));
+    else if (data.command === 'speaker') { speakerMuted = !speakerMuted; remote().muted = speakerMuted; emit({ type: 'controls', speakerOff: speakerMuted }); }
+    if (data.command === 'dial' || data.command === 'answer') {
+      clearTimeout(callTimer);
+      callTimer = setTimeout(() => {
+        if (controller && ['dialing', 'answering'].includes(controller.state)) { controller.hangup(); endCall(); fail('The call did not connect within 60 seconds.'); }
+      }, 60000);
+    }
+  } catch (error) { fail(error instanceof Error ? error.message : 'Phone action failed.'); }
+});
+emit({ type: 'frame-ready' });
