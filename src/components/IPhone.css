@@ -1,7 +1,7 @@
 /* ─── iPhone 17 Pro Max Shell ─── */
 .ip17-shell {
   position: fixed;
-  left: 22px;
+  right: 22px;
   bottom: 18px;
   width: 375px;
   max-height: calc(100vh - 36px);
@@ -23,13 +23,114 @@
   transition: all .35s cubic-bezier(.4, 0, .2, 1);
 }
 
-.ip17-shell.ip17-minimized {
-  max-height: 56px;
-  border-radius: 28px;
-  width: 240px;
+/* ─── Closed: just the floating trigger button ─── */
+.ip17-shell.ip17-closed {
+  width: 68px;
+  height: 68px;
+  max-height: 68px;
+  border-radius: 50%;
+  border: 2px solid #34c759;
+  background: radial-gradient(circle at 40% 35%, #0d2818, #000 75%);
+  box-shadow:
+    0 0 20px rgba(52,199,89,.25),
+    0 0 60px rgba(52,199,89,.1),
+    0 8px 30px rgba(0,0,0,.6);
+  cursor: pointer;
+  animation: ip17-glow-idle 3s ease-in-out infinite;
 }
 
-.ip17-shell.ip17-ringing {
+.ip17-shell.ip17-closed:hover {
+  border-color: #5bdb7d;
+  box-shadow:
+    0 0 30px rgba(52,199,89,.4),
+    0 0 80px rgba(52,199,89,.15),
+    0 8px 30px rgba(0,0,0,.6);
+  transform: scale(1.06);
+}
+
+@keyframes ip17-glow-idle {
+  0%, 100% { box-shadow: 0 0 20px rgba(52,199,89,.25), 0 0 60px rgba(52,199,89,.1), 0 8px 30px rgba(0,0,0,.6); }
+  50% { box-shadow: 0 0 28px rgba(52,199,89,.35), 0 0 80px rgba(52,199,89,.15), 0 8px 30px rgba(0,0,0,.6); }
+}
+
+/* Ringing override on trigger */
+.ip17-shell.ip17-closed.ip17-ringing {
+  border-color: #ff3b30;
+  animation: ip17-ring-trigger .6s ease-in-out infinite alternate;
+}
+
+@keyframes ip17-ring-trigger {
+  0% {
+    box-shadow: 0 0 20px rgba(255,59,48,.3), 0 0 60px rgba(255,59,48,.1), 0 8px 30px rgba(0,0,0,.6);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: 0 0 40px rgba(255,59,48,.5), 0 0 90px rgba(255,59,48,.2), 0 8px 30px rgba(0,0,0,.6);
+    transform: scale(1.08);
+  }
+}
+
+/* ─── Trigger button content ─── */
+.ip17-trigger {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #34c759;
+  outline: none;
+}
+
+.ip17-trigger-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ip17-trigger-waves {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.ip17-trigger-waves span {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: #34c759;
+  animation: ip17-signal-bar 1.5s ease-in-out infinite;
+}
+
+.ip17-trigger-waves span:nth-child(1) { height: 5px; animation-delay: 0s; }
+.ip17-trigger-waves span:nth-child(2) { height: 8px; animation-delay: .15s; }
+.ip17-trigger-waves span:nth-child(3) { height: 12px; animation-delay: .3s; }
+
+@keyframes ip17-signal-bar {
+  0%, 100% { opacity: .4; }
+  50% { opacity: 1; }
+}
+
+.ip17-trigger-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ff3b30;
+  animation: ip17-dot-pulse 1s infinite;
+}
+
+/* ─── Ringing state on full phone ─── */
+.ip17-shell.ip17-ringing:not(.ip17-closed) {
   animation: ip17-ring-glow 1.5s ease-in-out infinite;
   border-color: #34c759;
 }
@@ -69,9 +170,7 @@
   transition: all .2s ease;
 }
 
-.ip17-island-pill:hover {
-  background: #2c2c2e;
-}
+.ip17-island-pill:hover { background: #2c2c2e; }
 
 .ip17-island-dot {
   width: 8px;
@@ -109,6 +208,16 @@
   0% { transform: scaleY(.5); }
   100% { transform: scaleY(1); }
 }
+
+.ip17-island-close {
+  color: #636366;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: color .15s;
+}
+
+.ip17-island-close:hover { color: #f5f5f7; }
 
 /* ─── Body ─── */
 .ip17-body {
@@ -237,9 +346,7 @@
   text-align: center;
 }
 
-.ip17-active-header {
-  margin-bottom: 24px;
-}
+.ip17-active-header { margin-bottom: 24px; }
 
 .ip17-timer {
   font-size: 15px;
@@ -262,7 +369,6 @@
   animation: ip17-dot-pulse 1.5s infinite;
 }
 
-/* In-call control grid */
 .ip17-call-controls {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -282,19 +388,9 @@
 }
 
 .ip17-ctrl-btn:hover { background: #2c2c2e; }
+.ip17-ctrl-btn.active { background: #f5f5f7; color: #000; }
+.ip17-ctrl-btn span { font-size: 11px; font-weight: 500; opacity: .7; }
 
-.ip17-ctrl-btn.active {
-  background: #f5f5f7;
-  color: #000;
-}
-
-.ip17-ctrl-btn span {
-  font-size: 11px;
-  font-weight: 500;
-  opacity: .7;
-}
-
-/* DTMF in-call keypad */
 .ip17-dtmf-pad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -315,12 +411,8 @@
   transition: background .1s, transform .1s;
 }
 
-.ip17-dtmf-key:active {
-  background: #0a84ff;
-  transform: scale(.93);
-}
+.ip17-dtmf-key:active { background: #0a84ff; transform: scale(.93); }
 
-/* Hangup */
 .ip17-hangup-btn {
   width: 64px;
   height: 64px;
@@ -338,9 +430,7 @@
 .ip17-hangup-btn:hover { transform: scale(1.08); }
 
 /* ─── Idle State ─── */
-.ip17-idle {
-  padding: 0 8px;
-}
+.ip17-idle { padding: 0 8px; }
 
 .ip17-display {
   position: relative;
@@ -375,7 +465,6 @@
 
 .ip17-backspace:hover { color: #f5f5f7; }
 
-/* Dialpad */
 .ip17-dialpad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -394,16 +483,9 @@
   transition: background .12s, transform .1s;
 }
 
-.ip17-key:active {
-  background: #48484a;
-  transform: scale(.92);
-}
+.ip17-key:active { background: #48484a; transform: scale(.92); }
 
-.ip17-key-digit {
-  font-size: 24px;
-  font-weight: 400;
-  line-height: 1;
-}
+.ip17-key-digit { font-size: 24px; font-weight: 400; line-height: 1; }
 
 .ip17-key-sub {
   font-size: 9px;
@@ -413,7 +495,6 @@
   font-weight: 500;
 }
 
-/* Dial button */
 .ip17-dial-row {
   display: flex;
   justify-content: center;
@@ -445,7 +526,6 @@
   box-shadow: none !important;
 }
 
-/* Notice */
 .ip17-notice {
   padding: 12px 24px;
   text-align: center;
@@ -497,10 +577,7 @@
 .ip17-recent-icon.incoming { color: #34c759; }
 .ip17-recent-icon.missed { color: #ff3b30; }
 
-.ip17-recent-info {
-  flex: 1;
-  min-width: 0;
-}
+.ip17-recent-info { flex: 1; min-width: 0; }
 
 .ip17-recent-info strong {
   display: block;
@@ -511,10 +588,7 @@
   text-overflow: ellipsis;
 }
 
-.ip17-recent-info time {
-  font-size: 10px;
-  color: #636366;
-}
+.ip17-recent-info time { font-size: 10px; color: #636366; }
 
 .ip17-callback {
   width: 32px;
@@ -529,10 +603,7 @@
   transition: all .15s;
 }
 
-.ip17-callback:hover {
-  background: #0a2a12;
-  transform: scale(1.1);
-}
+.ip17-callback:hover { background: #0a2a12; transform: scale(1.1); }
 
 /* ─── Error ─── */
 .ip17-error {
@@ -547,11 +618,7 @@
   text-align: center;
 }
 
-.ip17-error button {
-  color: #636366;
-  font-size: 16px;
-  padding: 0 4px;
-}
+.ip17-error button { color: #636366; font-size: 16px; padding: 0 4px; }
 
 /* ─── Bottom home indicator ─── */
 .ip17-body::after {
@@ -567,15 +634,16 @@
 /* ─── Responsive ─── */
 @media (max-width: 600px) {
   .ip17-shell {
-    left: 8px;
+    right: 8px;
     bottom: 8px;
     width: calc(100% - 16px);
     max-width: 375px;
     border-radius: 40px;
   }
-  .ip17-shell.ip17-minimized {
-    width: calc(100% - 16px);
-    max-width: 240px;
+  .ip17-shell.ip17-closed {
+    width: 60px;
+    height: 60px;
+    max-height: 60px;
   }
 }
 

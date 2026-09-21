@@ -3226,7 +3226,7 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
-      {!isOwner && <IPhone agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
+      <IPhone agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
