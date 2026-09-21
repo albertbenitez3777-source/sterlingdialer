@@ -1869,7 +1869,7 @@ export default function App() {
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
                 <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
                 <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
-                <div><small>PEOPLE READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
+                <div><small>LEADS READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
                 {canControl && adminStats?.summary.campaign_state !== 'running' && <button onClick={openPreflight}><Play size={14} /> Start Calls</button>}
               </div>
             </section>
