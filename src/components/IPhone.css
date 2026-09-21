@@ -1,25 +1,588 @@
-.iphone-panel{position:fixed;left:22px;bottom:18px;width:340px;z-index:89;background:#0c0f14;color:#e8eaef;border:1px solid #2a2d36;border-radius:18px;box-shadow:0 20px 70px #000a;overflow:hidden;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;transition:height .25s ease}
-.iphone-panel button,.iphone-panel input{font:inherit;color:inherit;border:none;background:none;cursor:pointer;outline:none}
-.iphone-bar{display:flex;width:100%;align-items:center;gap:10px;padding:14px 16px;background:#15181f;border:none;border-radius:18px 18px 0 0;cursor:pointer}.iphone-bar .iphone-bar-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#2563eb,#06b6d4);display:flex;align-items:center;justify-content:center;flex-shrink:0}.iphone-bar strong{flex:1;text-align:left;font-size:14px;font-weight:600}.iphone-bar .iphone-bar-status{font-size:10px;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:6px;font-weight:600;background:#1e2028;color:#71767f}.iphone-bar .iphone-bar-status.connected{background:#052e16;color:#4ade80}.iphone-bar .iphone-bar-status.ringing{background:#3b0a0a;color:#f87171;animation:iphone-pulse 1s infinite}
-@keyframes iphone-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+/* ─── iPhone 17 Pro Max Shell ─── */
+.ip17-shell {
+  position: fixed;
+  left: 22px;
+  bottom: 18px;
+  width: 375px;
+  max-height: calc(100vh - 36px);
+  z-index: 89;
+  background: #000000;
+  color: #f5f5f7;
+  border-radius: 48px;
+  border: 3px solid #2a2a2e;
+  box-shadow:
+    0 0 0 1px #1a1a1e,
+    0 25px 80px rgba(0,0,0,.7),
+    0 8px 30px rgba(0,0,0,.5),
+    inset 0 1px 0 rgba(255,255,255,.05);
+  overflow: hidden;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  transition: all .35s cubic-bezier(.4, 0, .2, 1);
+}
 
-.iphone-my-number{display:flex;align-items:center;gap:8px;padding:8px 16px;background:#111318;font-size:11px;color:#71767f;border-bottom:1px solid #1e2028}.iphone-my-number span{font-weight:600;color:#94a3b8;letter-spacing:.3px}
+.ip17-shell.ip17-minimized {
+  max-height: 56px;
+  border-radius: 28px;
+  width: 240px;
+}
 
-.iphone-display{padding:20px 16px 10px;text-align:center}.iphone-display input{width:100%;text-align:center;font-size:28px;font-weight:300;letter-spacing:2px;color:#f1f5f9;background:transparent;caret-color:#2563eb;padding:8px 0}.iphone-display input::placeholder{color:#3b3f4a;font-weight:300}
+.ip17-shell.ip17-ringing {
+  animation: ip17-ring-glow 1.5s ease-in-out infinite;
+  border-color: #34c759;
+}
 
-.iphone-dialpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 24px 16px}.iphone-dialpad button{height:56px;border-radius:50%;background:#1a1d26;font-size:22px;font-weight:400;color:#e8eaef;transition:background .15s,transform .1s;display:flex;flex-direction:column;align-items:center;justify-content:center}.iphone-dialpad button:active{background:#2563eb;transform:scale(.92)}.iphone-dialpad button small{font-size:8px;letter-spacing:2px;color:#5b5f6a;margin-top:-2px;font-weight:500}
+@keyframes ip17-ring-glow {
+  0%, 100% { box-shadow: 0 0 0 1px #1a1a1e, 0 25px 80px rgba(0,0,0,.7), 0 0 30px rgba(52,199,89,.15); }
+  50% { box-shadow: 0 0 0 1px #1a1a1e, 0 25px 80px rgba(0,0,0,.7), 0 0 60px rgba(52,199,89,.35); }
+}
 
-.iphone-actions{display:flex;gap:12px;padding:8px 24px 18px;justify-content:center}.iphone-call-btn{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:transform .15s,box-shadow .15s}.iphone-call-btn.dial{background:#22c55e;box-shadow:0 4px 20px #22c55e55}.iphone-call-btn.dial:hover{transform:scale(1.08);box-shadow:0 4px 28px #22c55e77}.iphone-call-btn.hangup{background:#ef4444;box-shadow:0 4px 20px #ef444455}.iphone-call-btn.hangup:hover{transform:scale(1.08)}.iphone-call-btn.clear{background:#1e2028}.iphone-call-btn:disabled{opacity:.3;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+.ip17-shell button, .ip17-shell input {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  outline: none;
+}
 
-.iphone-incoming{padding:24px 16px;text-align:center;animation:iphone-ring .5s infinite alternate}.iphone-incoming h3{font-size:18px;font-weight:600;margin:10px 0 4px}.iphone-incoming p{color:#94a3b8;font-size:13px;margin:0 0 18px}.iphone-incoming .iphone-incoming-actions{display:flex;gap:24px;justify-content:center}.iphone-incoming .iphone-incoming-icon{width:64px;height:64px;border-radius:50%;background:#1a3a1a;display:flex;align-items:center;justify-content:center;margin:0 auto;animation:iphone-ring-bounce 1s infinite}
-@keyframes iphone-ring{0%{background:#0c0f14}100%{background:#120a0a}}
-@keyframes iphone-ring-bounce{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+/* ─── Dynamic Island ─── */
+.ip17-island {
+  display: flex;
+  justify-content: center;
+  padding: 10px 20px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 
-.iphone-active-call{padding:24px 16px;text-align:center}.iphone-active-call h3{font-size:18px;font-weight:600;margin:8px 0 4px}.iphone-active-call .iphone-timer{font-size:32px;font-weight:200;letter-spacing:3px;color:#94a3b8;margin:12px 0 20px;font-variant-numeric:tabular-nums}.iphone-active-call .iphone-call-status{font-size:11px;color:#4ade80;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.ip17-island-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1c1c1e;
+  padding: 8px 16px;
+  border-radius: 22px;
+  min-width: 160px;
+  justify-content: center;
+  transition: all .2s ease;
+}
 
-.iphone-recent{padding:8px 16px 12px;border-top:1px solid #1e2028;max-height:140px;overflow-y:auto}.iphone-recent-heading{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#5b5f6a;margin-bottom:6px;font-weight:600}.iphone-recent-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px;color:#94a3b8;cursor:pointer;border-radius:6px;transition:background .15s}.iphone-recent-row:hover{background:#1a1d26}.iphone-recent-row .recent-icon{width:28px;height:28px;border-radius:50%;background:#1a1d26;display:flex;align-items:center;justify-content:center;flex-shrink:0}.iphone-recent-row .recent-icon.outgoing{color:#2563eb}.iphone-recent-row .recent-icon.incoming{color:#22c55e}.iphone-recent-row .recent-icon.missed{color:#ef4444}.iphone-recent-row strong{flex:1;color:#e8eaef;font-weight:500}.iphone-recent-row time{font-size:10px;color:#5b5f6a}
+.ip17-island-pill:hover {
+  background: #2c2c2e;
+}
 
-.iphone-error{padding:6px 16px;font-size:11px;color:#fca5a5;background:#1a0a0a;text-align:center}
-.iphone-sip-notice{padding:12px 16px;text-align:center;color:#71767f;font-size:12px;line-height:1.5}
+.ip17-island-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background .3s;
+}
 
-@media(max-width:600px){.iphone-panel{left:8px;bottom:8px;width:calc(100% - 16px);max-width:340px}}
+.ip17-island-dot.connected { background: #34c759; box-shadow: 0 0 8px rgba(52,199,89,.5); }
+.ip17-island-dot.connecting { background: #ff9f0a; animation: ip17-dot-pulse 1.2s infinite; }
+.ip17-island-dot.offline { background: #636366; }
+
+@keyframes ip17-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+.ip17-island-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.2px;
+  white-space: nowrap;
+}
+
+.ip17-island-wave {
+  width: 20px;
+  height: 12px;
+  background: repeating-linear-gradient(90deg, #34c759 0 2px, transparent 2px 5px);
+  border-radius: 2px;
+  animation: ip17-wave .8s ease-in-out infinite alternate;
+}
+
+@keyframes ip17-wave {
+  0% { transform: scaleY(.5); }
+  100% { transform: scaleY(1); }
+}
+
+/* ─── Body ─── */
+.ip17-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 30px;
+}
+
+/* ─── Status Bar ─── */
+.ip17-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 24px 10px;
+  font-size: 11px;
+}
+
+.ip17-sip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+.ip17-sip-badge.connected { background: #0a2a12; color: #34c759; }
+.ip17-sip-badge.connecting { background: #2a1a00; color: #ff9f0a; }
+.ip17-sip-badge.offline { background: #1c1c1e; color: #636366; }
+
+.ip17-my-line {
+  color: #8e8e93;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Incoming Call ─── */
+.ip17-incoming {
+  padding: 40px 24px 30px;
+  text-align: center;
+}
+
+.ip17-avatar-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1a3a1a 0%, #0a2a12 100%);
+  border: 2px solid #34c759;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  color: #34c759;
+  animation: ip17-avatar-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ip17-avatar-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(52,199,89,.3); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 16px rgba(52,199,89,0); }
+}
+
+.ip17-caller {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.3px;
+  margin: 0 0 4px;
+}
+
+.ip17-caller-num {
+  color: #8e8e93;
+  font-size: 15px;
+  margin: 0 0 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ip17-incoming-btns {
+  display: flex;
+  gap: 48px;
+  justify-content: center;
+}
+
+.ip17-circle-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ip17-circle-btn > :first-child {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .15s, box-shadow .15s;
+}
+
+.ip17-circle-btn.accept > :first-child {
+  background: #34c759;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(52,199,89,.35);
+}
+
+.ip17-circle-btn.decline > :first-child {
+  background: #ff3b30;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(255,59,48,.35);
+}
+
+.ip17-circle-btn:hover > :first-child { transform: scale(1.08); }
+
+.ip17-circle-btn span {
+  font-size: 12px;
+  color: #8e8e93;
+  font-weight: 500;
+}
+
+/* ─── Active Call ─── */
+.ip17-active {
+  padding: 24px 24px 16px;
+  text-align: center;
+}
+
+.ip17-active-header {
+  margin-bottom: 24px;
+}
+
+.ip17-timer {
+  font-size: 15px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .5px;
+  margin-top: 4px;
+}
+
+.ip17-hold-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: #2a1a00;
+  color: #ff9f0a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  animation: ip17-dot-pulse 1.5s infinite;
+}
+
+/* In-call control grid */
+.ip17-call-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ip17-ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border-radius: 16px;
+  background: #1c1c1e;
+  transition: all .15s ease;
+}
+
+.ip17-ctrl-btn:hover { background: #2c2c2e; }
+
+.ip17-ctrl-btn.active {
+  background: #f5f5f7;
+  color: #000;
+}
+
+.ip17-ctrl-btn span {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: .7;
+}
+
+/* DTMF in-call keypad */
+.ip17-dtmf-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 0 16px 16px;
+}
+
+.ip17-dtmf-key {
+  height: 40px;
+  border-radius: 10px;
+  background: #1c1c1e;
+  font-size: 18px;
+  font-weight: 400;
+  color: #f5f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .1s, transform .1s;
+}
+
+.ip17-dtmf-key:active {
+  background: #0a84ff;
+  transform: scale(.93);
+}
+
+/* Hangup */
+.ip17-hangup-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #ff3b30;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px auto 0;
+  box-shadow: 0 4px 20px rgba(255,59,48,.35);
+  transition: transform .15s;
+}
+
+.ip17-hangup-btn:hover { transform: scale(1.08); }
+
+/* ─── Idle State ─── */
+.ip17-idle {
+  padding: 0 8px;
+}
+
+.ip17-display {
+  position: relative;
+  padding: 16px 24px 8px;
+  text-align: center;
+}
+
+.ip17-display input {
+  width: 100%;
+  text-align: center;
+  font-size: 30px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  color: #f5f5f7;
+  background: transparent;
+  caret-color: #0a84ff;
+  padding: 8px 0;
+}
+
+.ip17-display input::placeholder { color: #3a3a3c; font-weight: 300; }
+
+.ip17-backspace {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #636366;
+  padding: 8px;
+  border-radius: 50%;
+  transition: color .15s;
+}
+
+.ip17-backspace:hover { color: #f5f5f7; }
+
+/* Dialpad */
+.ip17-dialpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 4px 20px 12px;
+}
+
+.ip17-key {
+  height: 60px;
+  border-radius: 50%;
+  background: #1c1c1e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s, transform .1s;
+}
+
+.ip17-key:active {
+  background: #48484a;
+  transform: scale(.92);
+}
+
+.ip17-key-digit {
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.ip17-key-sub {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #8e8e93;
+  margin-top: -1px;
+  font-weight: 500;
+}
+
+/* Dial button */
+.ip17-dial-row {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 16px;
+}
+
+.ip17-dial-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #34c759;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(52,199,89,.35);
+  transition: transform .15s, box-shadow .15s;
+}
+
+.ip17-dial-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+  box-shadow: 0 4px 28px rgba(52,199,89,.5);
+}
+
+.ip17-dial-btn:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Notice */
+.ip17-notice {
+  padding: 12px 24px;
+  text-align: center;
+  color: #636366;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ─── Recents ─── */
+.ip17-recent {
+  padding: 8px 16px 4px;
+  border-top: 1px solid #1c1c1e;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ip17-recent-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #636366;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.ip17-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  transition: background .12s;
+}
+
+.ip17-recent-row:hover { background: #1c1c1e; }
+
+.ip17-recent-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1c1c1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ip17-recent-icon.outgoing { color: #0a84ff; }
+.ip17-recent-icon.incoming { color: #34c759; }
+.ip17-recent-icon.missed { color: #ff3b30; }
+
+.ip17-recent-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ip17-recent-info strong {
+  display: block;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip17-recent-info time {
+  font-size: 10px;
+  color: #636366;
+}
+
+.ip17-callback {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1c1c1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #34c759;
+  flex-shrink: 0;
+  transition: all .15s;
+}
+
+.ip17-callback:hover {
+  background: #0a2a12;
+  transform: scale(1.1);
+}
+
+/* ─── Error ─── */
+.ip17-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 24px;
+  font-size: 12px;
+  color: #ff453a;
+  background: #1a0a0a;
+  text-align: center;
+}
+
+.ip17-error button {
+  color: #636366;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+/* ─── Bottom home indicator ─── */
+.ip17-body::after {
+  content: '';
+  display: block;
+  width: 134px;
+  height: 5px;
+  background: #3a3a3c;
+  border-radius: 3px;
+  margin: 8px auto 0;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 600px) {
+  .ip17-shell {
+    left: 8px;
+    bottom: 8px;
+    width: calc(100% - 16px);
+    max-width: 375px;
+    border-radius: 40px;
+  }
+  .ip17-shell.ip17-minimized {
+    width: calc(100% - 16px);
+    max-width: 240px;
+  }
+}
+
+/* ─── Scrollbar ─── */
+.ip17-body::-webkit-scrollbar { width: 3px; }
+.ip17-body::-webkit-scrollbar-track { background: transparent; }
+.ip17-body::-webkit-scrollbar-thumb { background: #3a3a3c; border-radius: 2px; }
+.ip17-recent::-webkit-scrollbar { width: 3px; }
+.ip17-recent::-webkit-scrollbar-track { background: transparent; }
+.ip17-recent::-webkit-scrollbar-thumb { background: #3a3a3c; border-radius: 2px; }

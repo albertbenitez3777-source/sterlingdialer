@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ChevronDown, Delete, Phone, PhoneCall, PhoneIncoming,
-  PhoneMissed, PhoneOff, PhoneOutgoing, Smartphone,
+  ChevronDown, ChevronUp, Delete, Mic, MicOff, Music, Phone,
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing,
+  RotateCcw, Volume2, VolumeX,
 } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
@@ -52,8 +53,28 @@ function formatTimer(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+const HOLD_MUSIC_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+
+function createHoldTone(): { audio: AudioContext; stop: () => void } {
+  const ctx = new AudioContext();
+  const osc1 = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc1.type = 'sine';
+  osc1.frequency.value = 396;
+  osc2.type = 'sine';
+  osc2.frequency.value = 528;
+  gain.gain.value = 0.06;
+  osc1.connect(gain);
+  osc2.connect(gain);
+  gain.connect(ctx.destination);
+  osc1.start();
+  osc2.start();
+  return { audio: ctx, stop: () => { osc1.stop(); osc2.stop(); ctx.close(); } };
+}
+
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
-  const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [digits, setDigits] = useState('');
   const [callState, setCallState] = useState<CallState>('idle');
   const [callDirection, setCallDirection] = useState<CallDirection>('outgoing');
@@ -63,10 +84,16 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const [recent, setRecent] = useState<RecentCall[]>([]);
   const [error, setError] = useState('');
   const [route, setRoute] = useState<RouteData | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [onHold, setOnHold] = useState(false);
+  const [sipConnected, setSipConnected] = useState(false);
+  const [showDialpad, setShowDialpad] = useState(true);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<{ stop: () => void } | null>(null);
+  const holdRef = useRef<{ stop: () => void } | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const sipUARef = useRef<any>(null);
   const sipSessionRef = useRef<any>(null);
   const onUnauthorizedRef = useRef(onUnauthorized);
@@ -119,6 +146,11 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     audioRef.current = null;
   }, []);
 
+  const stopHoldMusic = useCallback(() => {
+    holdRef.current?.stop();
+    holdRef.current = null;
+  }, []);
+
   const addRecent = useCallback((number: string, direction: CallDirection, missed: boolean, name?: string) => {
     setRecent(prev => [{ number, direction, missed, name, time: new Date() }, ...prev].slice(0, 20));
   }, []);
@@ -126,19 +158,31 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const endCall = useCallback(() => {
     stopTimer();
     stopRingtone();
+    stopHoldMusic();
     if (sipSessionRef.current) {
       try { sipSessionRef.current.terminate(); } catch { /* already ended */ }
       sipSessionRef.current = null;
     }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
     setCallState('idle');
     setCallerName('');
     setCallerNumber('');
-  }, [stopTimer, stopRingtone]);
+    setMuted(false);
+    setOnHold(false);
+  }, [stopTimer, stopRingtone, stopHoldMusic]);
 
   const acceptCall = useCallback(() => {
     stopRingtone();
     if (sipSessionRef.current) {
-      try { sipSessionRef.current.answer({ mediaConstraints: { audio: true, video: false } }); } catch { /* session error */ }
+      try {
+        sipSessionRef.current.answer({
+          mediaConstraints: { audio: true, video: false },
+          pcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+        });
+      } catch { /* session error */ }
     }
     setCallState('active');
     startTimer();
@@ -149,22 +193,55 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     endCall();
   }, [addRecent, callerNumber, callerName, endCall]);
 
+  const toggleMute = useCallback(() => {
+    const session = sipSessionRef.current;
+    if (!session) return;
+    try {
+      if (muted) {
+        session.unmute({ audio: true });
+      } else {
+        session.mute({ audio: true });
+      }
+      setMuted(!muted);
+    } catch { /* mute error */ }
+  }, [muted]);
+
+  const toggleHold = useCallback(() => {
+    const session = sipSessionRef.current;
+    if (!session) return;
+    try {
+      if (onHold) {
+        session.unhold();
+        stopHoldMusic();
+      } else {
+        session.hold();
+        const tone = createHoldTone();
+        holdRef.current = tone;
+      }
+      setOnHold(!onHold);
+    } catch { /* hold error */ }
+  }, [onHold, stopHoldMusic]);
+
   const attachRemoteAudio = useCallback((session: any) => {
+    const handler = (e: RTCTrackEvent) => {
+      if (!remoteAudioRef.current) {
+        remoteAudioRef.current = new Audio();
+        remoteAudioRef.current.autoplay = true;
+      }
+      remoteAudioRef.current.srcObject = e.streams[0];
+    };
     if (session.connection) {
-      session.connection.ontrack = (e: RTCTrackEvent) => {
-        if (!remoteAudioRef.current) {
-          remoteAudioRef.current = new Audio();
-          remoteAudioRef.current.autoplay = true;
-        }
-        remoteAudioRef.current.srcObject = e.streams[0];
-      };
+      session.connection.ontrack = handler;
     }
+    session.on('peerconnection', (pc: { peerconnection: RTCPeerConnection }) => {
+      pc.peerconnection.ontrack = handler;
+    });
   }, []);
 
   const makeCall = useCallback((number: string) => {
     if (!number || callState !== 'idle') return;
     const cleaned = number.replace(/\D/g, '');
-    if (cleaned.length < 10) { setError('Enter a valid US number (10+ digits)'); return; }
+    if (cleaned.length < 10) { setError('Enter a valid number (10+ digits)'); return; }
     setError('');
     setCallDirection('outgoing');
     setCallerNumber(number);
@@ -192,7 +269,12 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     }
   }, [callState, startTimer, addRecent, endCall, attachRemoteAudio]);
 
-  // SIP UA
+  const callbackNumber = useCallback((num: string) => {
+    setDigits(num);
+    makeCall(num);
+  }, [makeCall]);
+
+  // SIP UA registration
   useEffect(() => {
     if (!hasSipCreds || !route) return;
     let ua: any = null;
@@ -210,6 +292,10 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         });
         sipUARef.current = ua;
 
+        ua.on('registered', () => setSipConnected(true));
+        ua.on('unregistered', () => setSipConnected(false));
+        ua.on('registrationFailed', () => { setSipConnected(false); setError('SIP registration failed'); });
+
         ua.on('newRTCSession', (data: any) => {
           if (data.originator === 'remote') {
             const session = data.session;
@@ -220,7 +306,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             setCallerName(displayName);
             setCallDirection('incoming');
             setCallState('ringing');
-            setOpen(true);
+            setMinimized(false);
             playRingtone();
             session.on('ended', () => { addRecent(from, 'incoming', false, displayName); endCall(); });
             session.on('failed', () => { addRecent(from, 'incoming', true, displayName); endCall(); });
@@ -234,10 +320,11 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     return () => {
       if (ua) { try { ua.stop(); } catch { /* cleanup */ } }
       sipUARef.current = null;
+      setSipConnected(false);
     };
   }, [hasSipCreds, route, playRingtone, stopRingtone, startTimer, addRecent, endCall, attachRemoteAudio]);
 
-  useEffect(() => () => { stopTimer(); stopRingtone(); }, [stopTimer, stopRingtone]);
+  useEffect(() => () => { stopTimer(); stopRingtone(); stopHoldMusic(); }, [stopTimer, stopRingtone, stopHoldMusic]);
 
   const pressDigit = (d: string) => {
     if (callState === 'active' && sipSessionRef.current) {
@@ -246,108 +333,171 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     setDigits(prev => prev + d);
   };
 
-  const statusLabel = callState === 'ringing' ? 'ringing' :
-    callState === 'active' || callState === 'connecting' ? 'connected' : '';
+  const isOnCall = callState === 'active' || callState === 'connecting' || callState === 'ringing';
+  const statusDot = sipConnected ? 'connected' : hasSipCreds ? 'connecting' : 'offline';
 
   return (
-    <aside className="iphone-panel" aria-label="iPhone dialer">
-      <button className="iphone-bar" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="iphone-bar-icon"><Smartphone size={18} /></span>
-        <strong>iPhone</strong>
-        {statusLabel && <span className={`iphone-bar-status ${statusLabel}`}>
-          {callState === 'ringing' ? 'RINGING' : 'ON CALL'}
-        </span>}
-        <ChevronDown size={16} />
-      </button>
+    <aside className={`ip17-shell ${minimized ? 'ip17-minimized' : ''} ${callState === 'ringing' ? 'ip17-ringing' : ''}`}>
+      {/* Dynamic Island */}
+      <div className="ip17-island" onClick={() => setMinimized(!minimized)}>
+        <div className="ip17-island-pill">
+          <div className={`ip17-island-dot ${statusDot}`} />
+          {isOnCall ? (
+            <>
+              <span className="ip17-island-label">
+                {callState === 'ringing' ? 'Incoming' : callState === 'connecting' ? 'Calling...' : formatTimer(timer)}
+              </span>
+              {callState === 'active' && <div className="ip17-island-wave" />}
+            </>
+          ) : (
+            <span className="ip17-island-label">{firstName}'s Phone</span>
+          )}
+          {minimized ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </div>
+      </div>
 
-      {open && <>
-        {zadarmaNumber && (
-          <div className="iphone-my-number">
-            <Phone size={12} />
-            <span>{firstName}'s line:</span>
-            {formatPhone(zadarmaNumber)}
+      {!minimized && (
+        <div className="ip17-body">
+          {/* Status bar */}
+          <div className="ip17-statusbar">
+            <span className={`ip17-sip-badge ${statusDot}`}>
+              {sipConnected ? 'SIP Connected' : hasSipCreds ? 'Connecting...' : 'No SIP'}
+            </span>
+            {zadarmaNumber && (
+              <span className="ip17-my-line">{formatPhone(zadarmaNumber)}</span>
+            )}
           </div>
-        )}
 
-        {callState === 'ringing' && (
-          <div className="iphone-incoming">
-            <div className="iphone-incoming-icon"><PhoneIncoming size={28} color="#4ade80" /></div>
-            <h3>{callerName || 'Incoming Call'}</h3>
-            <p>{callerNumber ? formatPhone(callerNumber) : 'Unknown number'}</p>
-            <div className="iphone-incoming-actions">
-              <button className="iphone-call-btn hangup" onClick={rejectCall} aria-label="Decline"><PhoneOff size={22} /></button>
-              <button className="iphone-call-btn dial" onClick={acceptCall} aria-label="Accept"><Phone size={22} /></button>
-            </div>
-          </div>
-        )}
-
-        {callState === 'active' && (
-          <div className="iphone-active-call">
-            <div className="iphone-call-status">Connected</div>
-            <h3>{callerName || formatPhone(callerNumber || digits)}</h3>
-            <div className="iphone-timer">{formatTimer(timer)}</div>
-            <button className="iphone-call-btn hangup" onClick={() => {
-              addRecent(callerNumber || digits, callDirection, false, callerName);
-              endCall();
-            }} aria-label="End call"><PhoneOff size={22} /></button>
-          </div>
-        )}
-
-        {callState === 'connecting' && (
-          <div className="iphone-active-call">
-            <div className="iphone-call-status" style={{ color: '#facc15' }}>Calling...</div>
-            <h3>{formatPhone(callerNumber || digits)}</h3>
-            <div className="iphone-timer">--:--</div>
-            <button className="iphone-call-btn hangup" onClick={() => {
-              addRecent(callerNumber || digits, 'outgoing', true);
-              endCall();
-            }} aria-label="Cancel call"><PhoneOff size={22} /></button>
-          </div>
-        )}
-
-        {callState === 'idle' && <>
-          <div className="iphone-display">
-            <input
-              type="text" value={digits}
-              onChange={e => setDigits(e.target.value.replace(/[^0-9+*#]/g, ''))}
-              placeholder="Enter number" aria-label="Phone number"
-            />
-          </div>
-          <div className="iphone-dialpad">
-            {DIALPAD_KEYS.map(k => (
-              <button key={k.digit} onClick={() => pressDigit(k.digit)}>
-                {k.digit}
-                {k.sub && <small>{k.sub}</small>}
-              </button>
-            ))}
-          </div>
-          <div className="iphone-actions">
-            <button className="iphone-call-btn clear" onClick={() => setDigits(d => d.slice(0, -1))} disabled={!digits} aria-label="Delete last digit"><Delete size={20} /></button>
-            <button className="iphone-call-btn dial" onClick={() => makeCall(digits)} disabled={!digits} aria-label="Call"><Phone size={22} /></button>
-          </div>
-          {!hasSipCreds && (
-            <div className="iphone-sip-notice">
-              Dial pad ready. Incoming calls will ring here once extension credentials are configured.
+          {/* ── RINGING STATE ── */}
+          {callState === 'ringing' && (
+            <div className="ip17-incoming">
+              <div className="ip17-avatar-ring">
+                <PhoneIncoming size={32} />
+              </div>
+              <h3 className="ip17-caller">{callerName || 'Incoming Call'}</h3>
+              <p className="ip17-caller-num">{callerNumber ? formatPhone(callerNumber) : 'Unknown'}</p>
+              <div className="ip17-incoming-btns">
+                <button className="ip17-circle-btn decline" onClick={rejectCall} aria-label="Decline">
+                  <PhoneOff size={24} />
+                  <span>Decline</span>
+                </button>
+                <button className="ip17-circle-btn accept" onClick={acceptCall} aria-label="Accept">
+                  <Phone size={24} />
+                  <span>Accept</span>
+                </button>
+              </div>
             </div>
           )}
-          {recent.length > 0 && (
-            <div className="iphone-recent">
-              <div className="iphone-recent-heading">Recent</div>
-              {recent.slice(0, 5).map((r, i) => (
-                <div key={i} className="iphone-recent-row" onClick={() => setDigits(r.number)}>
-                  <span className={`recent-icon ${r.missed ? 'missed' : r.direction}`}>
-                    {r.missed ? <PhoneMissed size={13} /> : r.direction === 'outgoing' ? <PhoneOutgoing size={13} /> : <PhoneIncoming size={13} />}
-                  </span>
-                  <strong>{r.name || formatPhone(r.number)}</strong>
-                  <time>{r.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
+
+          {/* ── ACTIVE / CONNECTING CALL ── */}
+          {(callState === 'active' || callState === 'connecting') && (
+            <div className="ip17-active">
+              <div className="ip17-active-header">
+                <h3 className="ip17-caller">{callerName || formatPhone(callerNumber || digits)}</h3>
+                <div className="ip17-timer">
+                  {callState === 'connecting' ? 'Calling...' : formatTimer(timer)}
                 </div>
-              ))}
+                {onHold && <div className="ip17-hold-badge">ON HOLD</div>}
+              </div>
+
+              {/* In-call controls grid */}
+              <div className="ip17-call-controls">
+                <button className={`ip17-ctrl-btn ${muted ? 'active' : ''}`} onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
+                  {muted ? <MicOff size={20} /> : <Mic size={20} />}
+                  <span>{muted ? 'Unmute' : 'Mute'}</span>
+                </button>
+                <button className={`ip17-ctrl-btn ${onHold ? 'active' : ''}`} onClick={toggleHold} aria-label={onHold ? 'Resume' : 'Hold'}>
+                  {onHold ? <Volume2 size={20} /> : <Music size={20} />}
+                  <span>{onHold ? 'Resume' : 'Hold'}</span>
+                </button>
+                <button className="ip17-ctrl-btn" onClick={() => setShowDialpad(!showDialpad)} aria-label="Keypad">
+                  <Phone size={20} />
+                  <span>Keypad</span>
+                </button>
+              </div>
+
+              {/* Mid-call dialpad for DTMF */}
+              {showDialpad && callState === 'active' && (
+                <div className="ip17-dtmf-pad">
+                  {DIALPAD_KEYS.map(k => (
+                    <button key={k.digit} className="ip17-dtmf-key" onClick={() => pressDigit(k.digit)}>
+                      {k.digit}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button className="ip17-hangup-btn" onClick={() => {
+                addRecent(callerNumber || digits, callDirection, false, callerName);
+                endCall();
+              }} aria-label="End call">
+                <PhoneOff size={24} />
+              </button>
             </div>
           )}
-        </>}
 
-        {error && <div className="iphone-error">{error}</div>}
-      </>}
+          {/* ── IDLE STATE ── */}
+          {callState === 'idle' && (
+            <div className="ip17-idle">
+              <div className="ip17-display">
+                <input
+                  type="text" value={digits}
+                  onChange={e => setDigits(e.target.value.replace(/[^0-9+*#]/g, ''))}
+                  placeholder="Enter number" aria-label="Phone number"
+                />
+                {digits && (
+                  <button className="ip17-backspace" onClick={() => setDigits(d => d.slice(0, -1))} aria-label="Delete">
+                    <Delete size={18} />
+                  </button>
+                )}
+              </div>
+
+              <div className="ip17-dialpad">
+                {DIALPAD_KEYS.map(k => (
+                  <button key={k.digit} className="ip17-key" onClick={() => pressDigit(k.digit)}>
+                    <span className="ip17-key-digit">{k.digit}</span>
+                    {k.sub && <span className="ip17-key-sub">{k.sub}</span>}
+                  </button>
+                ))}
+              </div>
+
+              <div className="ip17-dial-row">
+                <button className="ip17-dial-btn" onClick={() => makeCall(digits)} disabled={!digits} aria-label="Call">
+                  <Phone size={24} />
+                </button>
+              </div>
+
+              {!hasSipCreds && (
+                <div className="ip17-notice">
+                  Waiting for SIP credentials...
+                </div>
+              )}
+
+              {recent.length > 0 && (
+                <div className="ip17-recent">
+                  <div className="ip17-recent-title">Recents</div>
+                  {recent.slice(0, 6).map((r, i) => (
+                    <div key={i} className="ip17-recent-row">
+                      <span className={`ip17-recent-icon ${r.missed ? 'missed' : r.direction}`}>
+                        {r.missed ? <PhoneMissed size={14} /> : r.direction === 'outgoing' ? <PhoneOutgoing size={14} /> : <PhoneIncoming size={14} />}
+                      </span>
+                      <div className="ip17-recent-info">
+                        <strong>{r.name || formatPhone(r.number)}</strong>
+                        <time>{r.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
+                      </div>
+                      <button className="ip17-callback" onClick={() => callbackNumber(r.number)} aria-label="Call back">
+                        <RotateCcw size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && <div className="ip17-error">{error}<button onClick={() => setError('')}>&times;</button></div>}
+        </div>
+      )}
     </aside>
   );
 }
