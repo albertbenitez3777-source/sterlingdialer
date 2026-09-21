@@ -539,7 +539,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     : connState === 'connecting' ? 'Connecting...'
     : 'Loading...';
 
-  const isCallbackMode = connState === 'callback-only' || connState === 'failed';
+  const isCallbackMode = connState === 'callback-only' || connState === 'failed' || connState === 'widget';
   const canDial = connState === 'registered' || isCallbackMode;
 
   /* ─── Closed ─── */
