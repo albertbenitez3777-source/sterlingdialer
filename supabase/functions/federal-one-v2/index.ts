@@ -139,7 +139,7 @@ Deno.serve(async (req: Request) => {
 
     if (action === "get_federal_one_v2") {
       const [{ data: route, error: routeError }, { data: settings }, { data: messages }, { data: activeClient }] = await Promise.all([
-        supabase.from("agents").select("bland_number,talkroute_number,transfer_certified,inbound_configured").eq("id", agent.id).single(),
+        supabase.from("agents").select("bland_number,talkroute_number,transfer_certified,inbound_configured,zadarma_sip_login,zadarma_sip_password").eq("id", agent.id).single(),
         supabase.from("federal_one_agent_settings").select("personal_dialer_state,number_certification_state,camera_state,camera_verified_at,mobile_companion_only").eq("agent_id", agent.id).maybeSingle(),
         supabase.from("federal_one_chat_messages").select("id,sender_agent_id,sender_name,message_kind,body,created_at").eq("room_key", "team").order("created_at", { ascending: false }).limit(50),
         supabase.from("federal_one_active_clients").select("contact_key,client_name,client_phone,client_snapshot,updated_at").eq("agent_id", agent.id).maybeSingle(),

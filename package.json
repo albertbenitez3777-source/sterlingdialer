@@ -17,6 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "framer-motion": "^13.1.1",
+    "jssip": "^3.10.1",
     "livekit-client": "^2.22.3",
     "lucide-react": "^0.446.0",
     "pg": "^8.23.0",

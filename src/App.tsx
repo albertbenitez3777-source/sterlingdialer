@@ -14,6 +14,7 @@ import { authFetch } from '@/utils/auth-fetch';
 import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
+import { IPhone } from '@/components/IPhone';
 import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import CameraWidget from '@/components/CameraWidget';
@@ -3225,6 +3226,7 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
+      {!isOwner && <IPhone agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
       {showOfflineModal && !isOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>

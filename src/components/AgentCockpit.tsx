@@ -271,7 +271,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
       <section className="f1-readiness-rail">
         <div className="f1-readiness-item"><span className="f1-readiness-icon"><Activity size={15} /></span><div><small>WORKSTATION</small><strong>Connected</strong></div></div>
         <div className="f1-readiness-item"><span className="f1-readiness-icon"><Phone size={15} /></span><div><small>BLAND.AI LINE</small><strong>{workspace?.route?.bland_number ? formatPhone(workspace.route.bland_number) : 'Checking'}</strong></div></div>
-        <div className="f1-readiness-item"><span className="f1-readiness-icon"><PhoneForwarded size={15} /></span><div><small>TALKROUTE</small><strong>{workspace?.route?.talkroute_number ? formatPhone(workspace.route.talkroute_number) : 'Checking'}</strong></div></div>
+        <div className="f1-readiness-item"><span className="f1-readiness-icon"><PhoneForwarded size={15} /></span><div><small>ZADARMA</small><strong>{workspace?.route?.talkroute_number ? formatPhone(workspace.route.talkroute_number) : 'Checking'}</strong></div></div>
         <div className={`f1-readiness-item ${route.tone}`}><span className="f1-readiness-icon"><ShieldCheck size={15} /></span><div><small>ROUTE STATUS</small><strong>{route.label}</strong></div></div>
       </section>
 
