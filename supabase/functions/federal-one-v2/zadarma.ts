@@ -10,6 +10,26 @@ export function signZadarma(method: string, params: Params, secret: string) {
   return { query, signature };
 }
 
+export async function zadarmaClient(supabase: any) {
+  const { data: rows, error } = await supabase.from('system_config').select('key,value')
+    .in('key', ['zadarma_api_key', 'zadarma_api_secret']);
+  if (error) throw new Error('Phone service settings are unavailable.');
+  const config = Object.fromEntries((rows || []).map((row: { key: string; value: string }) => [row.key, row.value]));
+  const key = Deno.env.get('ZADARMA_API_KEY') || config.zadarma_api_key || '';
+  const secret = Deno.env.get('ZADARMA_API_SECRET') || config.zadarma_api_secret || '';
+  if (!key || !secret) throw new Error('Zadarma API credentials are not configured.');
+  return async (path: string, params: Params = {}, method = 'GET') => {
+    const signed = signZadarma(path, params, secret);
+    const response = await fetch(`https://api.zadarma.com${path}${method === 'GET' && signed.query ? `?${signed.query}` : ''}`, {
+      method, headers: { Authorization: `${key}:${signed.signature}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      ...(method === 'GET' ? {} : { body: signed.query }), signal: AbortSignal.timeout(12000),
+    });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'success') throw new Error(String(data.message || `Zadarma returned HTTP ${response.status}`).slice(0, 240));
+    return data;
+  };
+}
+
 export async function zadarma(supabase: any, agent: { id: string; role: string }, body: Record<string, unknown>) {
   const respond = (data: unknown, status = 200) => ({ data, status });
   const action = String(body.action || '');

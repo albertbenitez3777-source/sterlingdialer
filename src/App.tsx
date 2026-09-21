@@ -15,6 +15,7 @@ import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
 import { IPhone } from '@/components/IPhone';
+import { TestCallPanel } from '@/components/TestCallPanel';
 import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import CameraWidget from '@/components/CameraWidget';
@@ -1693,6 +1694,7 @@ export default function App() {
         { id: 'saved', label: 'Saved Calls', icon: Bookmark },
         { id: 'leads', label: 'Add Leads', icon: Upload },
         { id: 'system', label: 'System', icon: Settings },
+        { id: 'test', label: 'Test Calls', icon: Phone },
       ]
     : [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
@@ -1845,6 +1847,7 @@ export default function App() {
             </div>
           )}
 
+          {isOwner && activeNav === 'test' && <TestCallPanel sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
           {isOwner && activeNav === 'dashboard' && (
             <section className="f1-simple-home">
               <div className="f1-simple-welcome">

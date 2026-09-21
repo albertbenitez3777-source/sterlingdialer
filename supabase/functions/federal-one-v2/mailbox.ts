@@ -1,0 +1,51 @@
+import { zadarmaClient } from './zadarma.ts';
+import { verifiedTestRoute } from './test-calls.ts';
+const adminRoles = ['owner', 'administrator', 'supervisor'];
+export function validMailboxEmail(value: unknown) {
+  const email = String(value || '').trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i.test(email) || /\.(local|invalid|test|example)$/i.test(email)) {
+    throw new Error('Enter a real mailbox address for voicemail delivery.');
+  }
+  return email;
+}
+export async function mailbox(db: any, agent: {id: string; role: string}, body: Record<string, unknown>) {
+  const reply = (data: unknown, status = 200) => ({ data, status });
+  const action = String(body.action || '');
+  if (action === 'mailbox_setup' || action === 'mailbox_config') {
+    if (!adminRoles.includes(agent.role)) return reply({ error: 'Supervisor access is required.' }, 403);
+    const { data: row, error } = await db.from('agents').select('id,full_name,bland_number,talkroute_number,zadarma_sip_login').eq('id', body.agent_id).single();
+    if (error || !row) return reply({ error: 'Agent not found.' }, 404);
+    try {
+      const route = verifiedTestRoute(row);
+      const request = await zadarmaClient(db);
+      if (action === 'mailbox_setup') {
+        const email = validMailboxEmail(body.email);
+        await request('/v1/pbx/redirection/', { pbx_number: route.extension, status: 'on', type: 'voicemail',
+          condition: 'noanswer', destination: email, voicemail_greeting: 'standart' }, 'POST');
+      }
+      const data = await request('/v1/pbx/redirection/', { pbx_number: route.extension });
+      return reply({ configured: data.current_status === 'on' && data.type === 'voicemail' && data.condition === 'noanswer',
+        email: data.type === 'voicemail' ? data.destination : '', condition: data.condition || null,
+        inbox_connected: Boolean(Deno.env.get('VOICEMAIL_INGEST_SECRET')) });
+    } catch (e) { return reply({ error: e instanceof Error ? e.message : 'Voicemail setup could not be verified.' }, 400); }
+  }
+  // Session identity determines the mailbox. A supplied agent_id is never used.
+  if (action === 'mailbox_list') {
+    const { data, error } = await db.from('federal_one_voicemails')
+      .select('id,caller_number,caller_name,received_at,duration_seconds,heard_at')
+      .eq('agent_id', agent.id).order('received_at', { ascending: false }).limit(100);
+    if (error) return reply({ error: 'Voicemail could not be loaded. Please retry.' }, 503);
+    return reply({ messages: data, delivery_verified: data.length > 0 });
+  }
+  if (!['mailbox_audio', 'mailbox_heard'].includes(action)) return reply({ error: 'Unknown mailbox action.' }, 400);
+  const { data: message, error } = await db.from('federal_one_voicemails').select('id,storage_path')
+    .eq('id', body.id).eq('agent_id', agent.id).single();
+  if (error || !message) return reply({ error: 'Message not found.' }, 404);
+  if (action === 'mailbox_heard') {
+    const updated = await db.from('federal_one_voicemails').update({ heard_at: new Date().toISOString() })
+      .eq('id', message.id).eq('agent_id', agent.id);
+    return updated.error ? reply({ error: 'Could not mark this message as heard.' }, 503) : reply({ ok: true });
+  }
+  const { data, error: signedError } = await db.storage.from('agent-voicemail').createSignedUrl(message.storage_path, 300);
+  return signedError ? reply({ error: 'The voicemail audio is unavailable.' }, 503) : reply({ url: data.signedUrl });
+}

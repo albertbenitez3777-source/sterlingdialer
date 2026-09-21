@@ -4,6 +4,7 @@ import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
 import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
 import './IPhone.css';
+import { PhoneVoicemail } from './PhoneVoicemail';
 
 interface IPhoneProps { agentName: string; sessionToken: string; providerUrl: string; onUnauthorized: () => void }
 interface RouteData { talkroute_number?: string; zadarma_number?: string; zadarma_sip_login?: string }
@@ -18,6 +19,7 @@ const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seco
 
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
   const [open, setOpen] = useState(true);
+  const [view, setView] = useState<'keypad' | 'voicemail'>('keypad');
   const [route, setRoute] = useState<RouteData | null>(null);
   const [connection, setConnection] = useState<Connection>('idle');
   const [callState, setCallState] = useState<PhoneState>('idle');
@@ -106,7 +108,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         const number = String(data.number || 'Unknown caller');
         const name = typeof data.name === 'string' ? data.name : undefined;
         callRef.current = { number, name, direction: data.type === 'incoming' ? 'incoming' : 'outgoing', answered: false };
-        setCallNumber(number); setCaller(name ? { name } : null); setOpen(true);
+        setCallNumber(number); setCaller(name ? { name } : null); setOpen(true); setView('keypad');
         void lookupCaller(number);
       }
       if (data.type === 'call-state') {
@@ -162,7 +164,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   }, [companionOnly, route, unlockAudio, requestMic, providerUrl, sessionToken, frameReady, command]);
 
   const dial = useCallback(async (number: string) => {
-    setOpen(true); setError(''); unlockAudio();
+    setOpen(true); setView('keypad'); setError(''); unlockAudio();
     if (companionOnly) { setError('Use your desktop to make and receive calls.'); return; }
     if (connection !== 'ready') { setDigits(number); setError('Press Enable phone and wait for Ready, then press Call.'); return; }
     if (stateRef.current !== 'idle' || pendingCallRef.current) { setError('Finish the current call first.'); return; }
@@ -198,7 +200,8 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
           {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
-          {companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
+          {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail</button></nav>}
+          {view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
             {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
             {micGranted && !active && <div className="ip17-mic-status"><Mic size={13} />Microphone allowed</div>}
