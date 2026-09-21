@@ -1623,6 +1623,9 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         const parts = [`Imported ${data.imported || 0} new leads`];
+        if (data.updated) parts.push(`${data.updated} existing leads updated`);
+        if (data.blocked) parts.push(`${data.blocked} do-not-call or wrong-number records skipped`);
+        if (data.invalid) parts.push(`${data.invalid} invalid rows skipped`);
         if (data.reopened) parts.push(`${data.reopened} reopened for redial`);
         setNotice(parts.join(', '));
         setTimeout(() => setNotice(''), 4000);
