@@ -410,6 +410,20 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         setCallState('idle');
         setError(`Could not place call: ${err}`);
       }
+    } else if (connState === 'widget') {
+      // Use the Zadarma widget's built-in call API
+      const dialNum = cleaned.length === 10 ? `1${cleaned}` : cleaned;
+      log(`Calling ${dialNum} via widget...`);
+      setRecents(prev => [{ number: cleaned, direction: 'outgoing', time: new Date() }, ...prev.slice(0, 19)]);
+      try {
+        document.dispatchEvent(new CustomEvent('zadarma-phone-api', {
+          detail: { command: 'call', number: dialNum },
+        }));
+        log('Call dispatched to widget');
+      } catch (err) {
+        log(`Widget call error: ${err}`);
+        setError(`Widget call failed: ${err}`);
+      }
     } else {
       // Callback mode
       makeCallbackCall(cleaned);
@@ -689,7 +703,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           <div className="ip17-mode-notice" style={{ borderColor: '#1a3a1a', background: '#0a1a0a' }}>
             <Phone size={14} />
             <span style={{ color: '#8ee0a0' }}>
-              Phone connected via Zadarma widget. Use the floating phone button to dial.
+              Phone connected via Zadarma widget. Dial from the keypad above.
             </span>
           </div>
         )}
