@@ -273,6 +273,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ─── Debug Log Toggle ─── */
+.ip17-log-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px 6px;
+}
+
+.ip17-log-toggle > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #636366;
+  transition: color .15s;
+}
+
+.ip17-log-toggle > button:first-child:hover { color: #8e8e93; }
+
 .ip17-reconnect {
   font-size: 10px;
   font-weight: 600;
@@ -284,6 +303,31 @@
 }
 
 .ip17-reconnect:hover { background: rgba(10,132,255,.22); }
+
+/* ─── Debug Log Panel ─── */
+.ip17-debug-log {
+  max-height: 120px;
+  overflow-y: auto;
+  margin: 0 16px 8px;
+  padding: 8px;
+  background: #0c0c0e;
+  border: 1px solid #1c1c1e;
+  border-radius: 10px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.ip17-log-line {
+  color: #8e8e93;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip17-debug-log::-webkit-scrollbar { width: 3px; }
+.ip17-debug-log::-webkit-scrollbar-track { background: transparent; }
+.ip17-debug-log::-webkit-scrollbar-thumb { background: #3a3a3c; border-radius: 2px; }
 
 /* ─── Incoming Call ─── */
 .ip17-incoming {

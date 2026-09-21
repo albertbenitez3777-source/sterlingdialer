@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Delete, Mic, MicOff, Music, Phone,
   PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing,
-  RotateCcw, Signal, Volume2, X,
+  RotateCcw, Signal, Volume2, X, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
@@ -47,6 +47,13 @@ const DIALPAD_KEYS = [
   { digit: '#', sub: '' },
 ];
 
+const WS_URLS = [
+  'wss://pbx.zadarma.com:8089/ws',
+  'wss://pbx.zadarma.com',
+  'wss://sip.zadarma.com:8089/ws',
+  'wss://sip.zadarma.com',
+];
+
 function formatTimer(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -71,6 +78,10 @@ function createHoldTone(): { stop: () => void } {
   return { stop: () => { osc1.stop(); osc2.stop(); ctx.close(); } };
 }
 
+function ts() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
   const [open, setOpen] = useState(false);
   const [digits, setDigits] = useState('');
@@ -86,6 +97,9 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const [onHold, setOnHold] = useState(false);
   const [sipConnected, setSipConnected] = useState(false);
   const [showDialpad, setShowDialpad] = useState(true);
+  const [sipLog, setSipLog] = useState<string[]>([]);
+  const [showLog, setShowLog] = useState(false);
+  const [sipAttempt, setSipAttempt] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<{ stop: () => void } | null>(null);
@@ -100,6 +114,12 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const hasSipCreds = !!(route?.zadarma_sip_login && route?.zadarma_sip_password);
   const firstName = agentName.split(' ')[0] || 'Agent';
 
+  const log = useCallback((msg: string) => {
+    const line = `${ts()} ${msg}`;
+    console.log('[SIP]', msg);
+    setSipLog(prev => [...prev.slice(-30), line]);
+  }, []);
+
   useEffect(() => {
     let stop = false;
     const load = async () => {
@@ -107,7 +127,16 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         body: { action: 'get_federal_one_v2', session_token: sessionToken },
         onUnauthorized: () => onUnauthorizedRef.current(),
       });
-      if (!stop && r.ok && r.data?.route) setRoute(r.data.route);
+      if (!stop && r.ok && r.data?.route) {
+        setRoute(r.data.route);
+        if (r.data.route.zadarma_sip_login) {
+          setSipLog([`${ts()} Credentials loaded: ${r.data.route.zadarma_sip_login}`]);
+        } else {
+          setSipLog([`${ts()} No SIP credentials found for this agent`]);
+        }
+      } else if (!stop) {
+        setSipLog([`${ts()} Failed to load agent route data`]);
+      }
     };
     void load();
     return () => { stop = true; };
@@ -243,22 +272,22 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     setCallerName('');
     setCallState('connecting');
 
-    if (sipUARef.current) {
+    if (sipUARef.current && sipConnected) {
       try {
         const target = `sip:${cleaned}@pbx.zadarma.com`;
-        console.log('[SIP] Calling', target);
+        log(`Dialing ${cleaned}...`);
         const eventHandlers = {
-          progress: () => console.log('[SIP] Call ringing...'),
-          confirmed: () => console.log('[SIP] Call confirmed (media flowing)'),
-          accepted: () => { setCallState('active'); startTimer(); },
+          progress: () => log('Remote ringing...'),
+          confirmed: () => log('Media flowing'),
+          accepted: () => { setCallState('active'); startTimer(); log('Call answered'); },
           ended: (e: any) => {
-            console.log('[SIP] Call ended:', e?.cause || 'normal');
+            log(`Call ended: ${e?.cause || 'normal'}`);
             addRecent(number, 'outgoing', false);
             endCall();
           },
           failed: (e: any) => {
             const cause = e?.cause || 'unknown';
-            console.error('[SIP] Call failed:', cause);
+            log(`Call failed: ${cause}`);
             addRecent(number, 'outgoing', true);
             endCall();
             setError(`Call failed: ${cause}`);
@@ -273,40 +302,58 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         sipSessionRef.current = session;
         attachRemoteAudio(session);
       } catch (err) {
-        console.error('[SIP] Call error:', err);
+        log(`Call error: ${err}`);
         setError('SIP call failed');
         setCallState('idle');
       }
+    } else if (sipUARef.current && !sipConnected) {
+      log('Cannot call - SIP not registered');
+      setError('Phone not registered yet - check SIP status');
+      setCallState('idle');
     } else {
+      log('Cannot call - no SIP connection');
       setError(hasSipCreds ? 'Phone is still connecting...' : 'No SIP credentials configured');
       setCallState('idle');
     }
-  }, [callState, hasSipCreds, startTimer, addRecent, endCall, attachRemoteAudio]);
+  }, [callState, sipConnected, hasSipCreds, startTimer, addRecent, endCall, attachRemoteAudio, log]);
 
   const callbackNumber = useCallback((num: string) => {
     setDigits(num);
     makeCall(num);
   }, [makeCall]);
 
-  // SIP UA registration
+  // SIP UA registration - tries each WebSocket URL with a timeout
   useEffect(() => {
     if (!hasSipCreds || !route) return;
     let ua: any = null;
     let stopped = false;
-
-    const WS_URLS = [
-      'wss://pbx.zadarma.com:8089/ws',
-      'wss://pbx.zadarma.com',
-    ];
+    let connectTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const tryConnect = async (urlIndex: number) => {
       if (stopped || urlIndex >= WS_URLS.length) {
-        if (!stopped) setError('Could not connect to phone server');
+        if (!stopped) {
+          log('All WebSocket URLs failed. WebRTC may not be enabled in Zadarma.');
+          setError('Cannot connect - see debug log');
+        }
         return;
       }
+
+      // Clean up previous attempt
+      if (ua) {
+        try { ua.stop(); } catch { /* ok */ }
+        ua = null;
+        sipUARef.current = null;
+      }
+      if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+
       const wsUrl = WS_URLS[urlIndex];
+      log(`Trying ${wsUrl} ...`);
+      setSipAttempt(urlIndex + 1);
+
       try {
         const JsSIP = await import('jssip');
+        if (stopped) return;
+
         const socket = new JsSIP.WebSocketInterface(wsUrl);
         ua = new JsSIP.UA({
           sockets: [socket],
@@ -316,39 +363,73 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           display_name: firstName,
           register: true,
           session_timers: false,
-          connection_recovery_min_interval: 4,
-          connection_recovery_max_interval: 30,
+          connection_recovery_min_interval: 2,
+          connection_recovery_max_interval: 10,
           register_expires: 120,
           user_agent: 'FederalOne-WebPhone/1.0',
         });
         sipUARef.current = ua;
 
-        ua.on('connected', () => console.log('[SIP] WebSocket connected via', wsUrl));
+        let wsConnected = false;
+        let registered = false;
+
+        ua.on('connected', () => {
+          wsConnected = true;
+          log(`WebSocket open: ${wsUrl}`);
+          if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+          // Give SIP REGISTER 8 seconds after WS connects
+          connectTimeout = setTimeout(() => {
+            if (!registered && !stopped) {
+              log(`SIP REGISTER timeout on ${wsUrl}`);
+              ua.stop();
+              ua = null;
+              sipUARef.current = null;
+              tryConnect(urlIndex + 1);
+            }
+          }, 8000);
+        });
+
         ua.on('disconnected', () => {
-          console.warn('[SIP] WebSocket disconnected from', wsUrl);
+          log(`WebSocket closed: ${wsUrl}`);
+          if (!registered) {
+            // WS disconnected before we registered - try next
+            if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+            if (!stopped && !wsConnected) {
+              // Never connected - try next URL immediately
+              tryConnect(urlIndex + 1);
+            }
+          }
           setSipConnected(false);
         });
+
         ua.on('registered', () => {
-          console.log('[SIP] Registered as', route.zadarma_sip_login);
+          registered = true;
+          if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+          log(`Registered as ${route.zadarma_sip_login} via ${wsUrl}`);
           setSipConnected(true);
           setError('');
         });
+
         ua.on('unregistered', () => {
-          console.warn('[SIP] Unregistered');
+          log('Unregistered');
           setSipConnected(false);
         });
+
         ua.on('registrationFailed', (data: any) => {
           const cause = data?.cause || 'unknown';
-          console.error('[SIP] Registration failed:', cause, 'via', wsUrl);
+          log(`Registration failed: ${cause} via ${wsUrl}`);
           setSipConnected(false);
-          // If WebSocket connected but SIP registration failed, don't try next URL
+          if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+
           if (cause === 'Connection Error' || cause === 'Request Timeout') {
             ua.stop();
             ua = null;
             sipUARef.current = null;
             if (!stopped) tryConnect(urlIndex + 1);
           } else {
-            setError(`SIP registration failed: ${cause}`);
+            // Auth error or other SIP error - don't try more URLs, same creds will fail
+            setError(`SIP: ${cause}`);
+            log(`Stopping - "${cause}" won't resolve by trying another URL`);
           }
         });
 
@@ -358,6 +439,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             sipSessionRef.current = session;
             const from = session.remote_identity?.uri?.user || 'Unknown';
             const displayName = session.remote_identity?.display_name || '';
+            log(`Incoming call from ${from}`);
             setCallerNumber(from);
             setCallerName(displayName);
             setCallDirection('incoming');
@@ -369,9 +451,22 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             attachRemoteAudio(session);
           }
         });
+
         ua.start();
+
+        // If WebSocket doesn't even open in 6 seconds, try next URL
+        connectTimeout = setTimeout(() => {
+          if (!wsConnected && !stopped) {
+            log(`Connection timeout: ${wsUrl}`);
+            try { ua.stop(); } catch { /* ok */ }
+            ua = null;
+            sipUARef.current = null;
+            tryConnect(urlIndex + 1);
+          }
+        }, 6000);
+
       } catch (err) {
-        console.error('[SIP] Connection error:', err);
+        log(`Error: ${err}`);
         if (!stopped) tryConnect(urlIndex + 1);
       }
     };
@@ -380,11 +475,12 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
 
     return () => {
       stopped = true;
+      if (connectTimeout) clearTimeout(connectTimeout);
       if (ua) { try { ua.stop(); } catch { /* cleanup */ } }
       sipUARef.current = null;
       setSipConnected(false);
     };
-  }, [hasSipCreds, route, firstName, playRingtone, stopRingtone, startTimer, addRecent, endCall, attachRemoteAudio]);
+  }, [hasSipCreds, route, firstName, log, playRingtone, addRecent, endCall, attachRemoteAudio]);
 
   useEffect(() => () => { stopTimer(); stopRingtone(); stopHoldMusic(); }, [stopTimer, stopRingtone, stopHoldMusic]);
 
@@ -394,6 +490,13 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     }
     setDigits(prev => prev + d);
   };
+
+  const retryConnection = useCallback(() => {
+    setError('');
+    setSipLog(prev => [...prev, `${ts()} Manual retry...`]);
+    // Trigger re-mount of the SIP effect by toggling route reference
+    setRoute(prev => prev ? { ...prev } : prev);
+  }, []);
 
   const isOnCall = callState === 'active' || callState === 'connecting' || callState === 'ringing';
   const statusDot = sipConnected ? 'connected' : hasSipCreds ? 'connecting' : 'offline';
@@ -446,16 +549,31 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         {/* Status bar */}
         <div className="ip17-statusbar">
           <span className={`ip17-sip-badge ${statusDot}`}>
-            {sipConnected ? 'SIP Connected' : hasSipCreds ? 'Connecting...' : 'No SIP'}
+            {sipConnected ? 'SIP Connected' : hasSipCreds ? `Trying ${sipAttempt}/${WS_URLS.length}...` : 'No SIP'}
           </span>
           {zadarmaNumber && <span className="ip17-my-line">{formatPhone(zadarmaNumber)}</span>}
-          {!sipConnected && hasSipCreds && error && (
-            <button className="ip17-reconnect" onClick={() => {
-              setError('');
-              setRoute(prev => prev ? { ...prev } : prev);
-            }}>Retry</button>
+        </div>
+
+        {/* SIP debug log toggle */}
+        <div className="ip17-log-toggle">
+          <button onClick={() => setShowLog(!showLog)}>
+            {showLog ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            <span>SIP Debug {sipConnected ? '(OK)' : `(${sipAttempt}/${WS_URLS.length})`}</span>
+          </button>
+          {!sipConnected && hasSipCreds && (
+            <button className="ip17-reconnect" onClick={retryConnection}>Retry</button>
           )}
         </div>
+
+        {showLog && (
+          <div className="ip17-debug-log">
+            {sipLog.length === 0 ? (
+              <div className="ip17-log-line">Waiting for credentials...</div>
+            ) : sipLog.map((line, i) => (
+              <div key={i} className="ip17-log-line">{line}</div>
+            ))}
+          </div>
+        )}
 
         {/* ── RINGING ── */}
         {callState === 'ringing' && (
@@ -549,13 +667,21 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
             </div>
 
             <div className="ip17-dial-row">
-              <button className="ip17-dial-btn" onClick={() => makeCall(digits)} disabled={!digits} aria-label="Call">
+              <button
+                className="ip17-dial-btn"
+                onClick={() => makeCall(digits)}
+                disabled={!digits || !sipConnected}
+                aria-label="Call"
+              >
                 <Phone size={24} />
               </button>
             </div>
 
+            {!sipConnected && hasSipCreds && (
+              <div className="ip17-notice">Connecting to Zadarma... Check debug log for status.</div>
+            )}
             {!hasSipCreds && (
-              <div className="ip17-notice">Waiting for SIP credentials...</div>
+              <div className="ip17-notice">No SIP credentials configured for this agent.</div>
             )}
 
             {recent.length > 0 && (
