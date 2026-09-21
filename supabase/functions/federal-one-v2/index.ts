@@ -1,6 +1,7 @@
 import { whatsUp } from "./whatsup.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { createHash, createHmac } from "node:crypto";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -329,27 +330,31 @@ Deno.serve(async (req: Request) => {
       const zadarmaSecret = cfg.zadarma_api_secret || "";
       if (!zadarmaKey || !zadarmaSecret) return json({ error: "Zadarma API not configured" }, 503);
 
-      // HMAC signature helper for Zadarma API
-      async function zadarmaSign(apiMethod: string, params: Record<string, string>) {
-        const sortedKeys = Object.keys(params).sort();
-        const paramsString = sortedKeys.map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
-        const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(paramsString));
-        const paramsHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
-        const signString = apiMethod + paramsString + paramsHash;
-        const hmacKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(zadarmaSecret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-        const sig = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(signString));
-        return { paramsString, signature: btoa(String.fromCharCode(...new Uint8Array(sig))) };
+      // Zadarma official algorithm (matches their TypeScript SDK):
+      // 1. Sort params, build query string with URLSearchParams (spaces as +)
+      // 2. MD5 hex hash of query string
+      // 3. signString = apiMethod + queryString + md5hex
+      // 4. HMAC-SHA1 hex of signString with secret
+      // 5. Base64-encode the HEX string (not raw bytes)
+      function zadarmaSign(apiMethod: string, params: Record<string, string>) {
+        const sorted = Object.keys(params).sort().reduce((acc, k) => { acc[k] = params[k]; return acc; }, {} as Record<string, string>);
+        const paramsString = new URLSearchParams(sorted).toString().replace(/%20/g, "+");
+        const paramsMd5 = createHash("md5").update(paramsString).digest("hex");
+        const signString = apiMethod + paramsString + paramsMd5;
+        const hmacHex = createHmac("sha1", zadarmaSecret).update(signString).digest("hex");
+        const signature = btoa(hmacHex);
+        return { paramsString, signature };
       }
 
       async function zadarmaGet(apiMethod: string, params: Record<string, string>) {
-        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
+        const { paramsString, signature } = zadarmaSign(apiMethod, params);
         const url = `https://api.zadarma.com${apiMethod}?${paramsString}`;
         const res = await fetch(url, { method: "GET", headers: { Authorization: `${zadarmaKey}:${signature}` } });
         return res.json();
       }
 
       async function zadarmaPost(apiMethod: string, params: Record<string, string>) {
-        const { paramsString, signature } = await zadarmaSign(apiMethod, params);
+        const { paramsString, signature } = zadarmaSign(apiMethod, params);
         const url = `https://api.zadarma.com${apiMethod}`;
         const res = await fetch(url, {
           method: "POST",
