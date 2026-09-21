@@ -169,7 +169,7 @@ function InboxItemCard({
             <div className="inbox-detail">
               <Phone size={13} />
               <span>{fmtPhone(item.consumer_phone)}</span>
-              <button style={{ background: 'none', border: 'none', color: copied ? '#22c55e' : 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0 }} onClick={copyPhone}>
+              <button style={{ background: 'none', border: 'none', color: copied ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0 }} onClick={copyPhone}>
                 {copied ? <Check size={12} /> : <Copy size={12} />}
               </button>
             </div>

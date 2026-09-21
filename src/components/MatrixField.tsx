@@ -115,18 +115,18 @@ function MatrixFieldImpl({ density = 'full' }: { density?: 'full' | 'ops' }) {
           const ratio = j / col.trail;
           if (j === 0) {
             ctx!.font = `bold ${col.fontSize + 2}px monospace`;
-            ctx!.fillStyle = `rgba(200, 255, 230, ${col.brightness * alphaMul})`;
-            ctx!.shadowColor = '#00ff9a';
+            ctx!.fillStyle = `rgba(255, 220, 200, ${col.brightness * alphaMul})`;
+            ctx!.shadowColor = '#ff3a2a';
             ctx!.shadowBlur = 18;
           } else if (j < 3) {
             ctx!.font = `bold ${col.fontSize}px monospace`;
-            ctx!.fillStyle = `rgba(50, 255, 170, ${col.brightness * (1 - ratio * 0.3) * alphaMul})`;
-            ctx!.shadowColor = '#00ff9a';
+            ctx!.fillStyle = `rgba(255, 80, 50, ${col.brightness * (1 - ratio * 0.3) * alphaMul})`;
+            ctx!.shadowColor = '#ff3a2a';
             ctx!.shadowBlur = 8;
           } else {
             ctx!.font = `${col.fontSize}px monospace`;
             const fade = Math.max(0, col.brightness * (1 - ratio));
-            ctx!.fillStyle = `rgba(0, 255, 140, ${fade * 0.7 * alphaMul})`;
+            ctx!.fillStyle = `rgba(255, 40, 20, ${fade * 0.7 * alphaMul})`;
             ctx!.shadowColor = 'transparent';
             ctx!.shadowBlur = 0;
           }

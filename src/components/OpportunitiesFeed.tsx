@@ -76,11 +76,11 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 function Badge({ label, color }: { label: string; color: string }) {
   const colors: Record<string, string> = {
-    green: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+    green: 'bg-red-500/20 text-red-300 border-red-500/30',
     amber: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
     blue: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
     red: 'bg-red-500/20 text-red-300 border-red-500/30',
-    cyan: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+    cyan: 'bg-red-400/20 text-red-300 border-red-400/30',
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${colors[color] || colors.blue}`}>
@@ -221,7 +221,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
       {/* Header */}
       <div className="opp-header">
         <div className="opp-title-row">
-          <Inbox size={20} className="text-cyan-400" />
+          <Inbox size={20} className="text-red-400" />
           <h2 className="opp-title">Opportunities</h2>
           {newCount > 0 && (
             <button

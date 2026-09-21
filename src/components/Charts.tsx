@@ -26,10 +26,10 @@ type ChartV2 = { hourly: HourlyRow[]; daily: DailyRow[]; per_agent: AgentRow[]; 
 
 /* ── Colors ──────────────────────────────────────────────────────── */
 const GOLD = '#d9aa57';
-const SAGE = '#7a9b8e';
+const SAGE = '#b45858';
 const RUST = '#c25e3a';
 const STEEL = '#6b8ca8';
-const TEAL = '#2dd4bf';
+const TEAL = '#ef4444';
 const AXES = '#5a665d';
 const GRID = 'rgba(122,155,142,0.12)';
 
