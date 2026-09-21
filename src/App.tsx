@@ -1681,6 +1681,7 @@ export default function App() {
 
   // ── Main Layout ────────────────────────────────────────────────────────
   const isOwner = session.agent?.role === 'owner' || session.agent?.role === 'supervisor';
+  const isStrictOwner = session.agent?.role === 'owner';
   const canControl = session.agent?.role === 'owner';
   const navItems = isOwner
     ? [
@@ -3196,7 +3197,7 @@ export default function App() {
       {phoneAction && (
         <PhoneActionModal
           name={phoneAction.name} phone={phoneAction.phone} email={phoneAction.email} address={phoneAction.address}
-          canCall={!isOwner}
+          canCall={!isStrictOwner}
           onClose={() => setPhoneAction(null)}
           onSecretaryCall={() => placeQuickSecretaryCall(phoneAction.name, phoneAction.phone)}
           placingSecretaryCall={placingQuickSecretaryCall}
@@ -3226,8 +3227,8 @@ export default function App() {
         />
       )}
       <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
-      {!isOwner && <IPhone key={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
-      {showOfflineModal && !isOwner && (
+      {!isStrictOwner && <IPhone key={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
+      {showOfflineModal && !isStrictOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowOfflineModal(false)}><X size={18} /></button>

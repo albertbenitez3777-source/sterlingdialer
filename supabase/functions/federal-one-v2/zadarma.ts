@@ -35,8 +35,8 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
     return respond({ caller: lead ? { name: lead.name, phone: lead.telephone_original, address: lead.address, fields: lead.custom_fields } : null });
   }
 
-  if (!['zadarma_callback', 'zadarma_webrtc_key', 'zadarma_setup_webrtc'].includes(action)) return respond({ error: 'Unknown phone action.' }, 400);
-  if (action === 'zadarma_setup_webrtc' && !['owner', 'administrator'].includes(agent.role)) return respond({ error: 'Owner access is required to configure the phone service.' }, 403);
+  if (!['zadarma_callback', 'zadarma_webrtc_key', 'zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming'].includes(action)) return respond({ error: 'Unknown phone action.' }, 400);
+  if (['zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming'].includes(action) && !['owner', 'supervisor'].includes(agent.role)) return respond({ error: 'Owner or supervisor access is required.' }, 403);
   const { data: rows, error: configError } = await supabase.from('system_config').select('key,value')
     .in('key', ['zadarma_api_key', 'zadarma_api_secret']);
   if (configError) return respond({ error: 'Phone service settings are unavailable.' }, 503);
@@ -62,6 +62,45 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
       info = await request('/v1/webrtc/');
       if (!info.is_exists || !info.domains?.includes(DOMAIN)) return respond({ error: 'Zadarma has not authorized this website.' }, 409);
       return respond({ ok: true, domain: DOMAIN });
+    }
+    if (action === 'zadarma_check_incoming') {
+      const numbers = await request('/v1/direct_numbers/');
+      let scenarios: unknown = null;
+      try { scenarios = await request('/v1/pbx/incoming/'); } catch (_) { /* may 404 if none exist */ }
+      let pbxInfo: unknown = null;
+      try { pbxInfo = await request('/v1/pbx/internal/'); } catch (_) { /* best effort */ }
+      return respond({ numbers, scenarios, pbx_extensions: pbxInfo, domain: DOMAIN });
+    }
+    if (action === 'zadarma_setup_incoming') {
+      const did = String(body.did || '').replace(/\D/g, '');
+      const extension = String(body.extension || '');
+      if (!did || !extension) return respond({ error: 'Provide did (virtual number digits) and extension (e.g. 100).' }, 400);
+      const results: Record<string, unknown> = {};
+      // Method 1: Update number to route to PBX via /v1/phone/number_lookup/ or direct endpoint
+      try {
+        results.redirection = await request('/v1/pbx/redirection/', {
+          pbx_number: extension,
+          type: 'phone',
+          destination: did,
+          condition: 'always',
+          status: 'on',
+        }, 'POST');
+      } catch (e) { results.redirection_error = e instanceof Error ? e.message : String(e); }
+      // Method 2: Set virtual number to route to PBX internal number
+      try {
+        results.number_update = await request('/v1/direct_numbers/', {
+          number: did,
+          sip: `566918-${extension}`,
+        }, 'PUT');
+      } catch (e) { results.number_update_error = e instanceof Error ? e.message : String(e); }
+      // Method 3: Create incoming call scenario
+      try {
+        results.incoming = await request('/v1/pbx/incoming/', {
+          caller_id: did,
+          pbx_call_to: extension,
+        }, 'POST');
+      } catch (e) { results.incoming_error = e instanceof Error ? e.message : String(e); }
+      return respond(results);
     }
     const sip = String(route.zadarma_sip_login || '');
     if (!/^\d+(?:-\d{3})?$/.test(sip)) return respond({ error: 'A valid Zadarma extension must be assigned to this agent.' }, 409);
