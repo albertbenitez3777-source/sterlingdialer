@@ -1,4 +1,4 @@
-import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession } from './call-controller';
+import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession, type PhoneState } from './call-controller';
 
 // Run the provider's SDK in its own same-origin frame. Removing the frame on
 // logout/reconnect closes every SDK socket, timer, audio track and global hook.
@@ -12,9 +12,11 @@ interface Sdk extends PhoneApi {
   init(options: Record<string, unknown>): unknown;
   reg(sip: string): unknown;
   unreg(): void;
+  unreg_old?(): void;
   unreg_flag: boolean;
   zadarmaCallbackCall(data: unknown): void;
   zadarmaCallbackAnswer(data: unknown): void;
+  zadarmaCallbackCancel(data: unknown): void;
 }
 type IoFactory = ((url: string, options: unknown) => Socket) & Record<string, unknown>;
 type PhoneWindow = Window & typeof globalThis & {
@@ -32,6 +34,8 @@ let providerApi: Sdk | undefined;
 const sockets = new Set<Socket>();
 let connectionTimer: ReturnType<typeof setTimeout>;
 let callTimer: ReturnType<typeof setTimeout>;
+let endingTimer: ReturnType<typeof setTimeout>;
+const boundSessions = new WeakSet<PhoneSession>();
 const emit = (event: PhoneEvent) => {
   if (window.parent !== window) window.parent.postMessage({ channel: CHANNEL, ...event }, window.location.origin);
 };
@@ -45,7 +49,11 @@ function failConnection(message: string) {
   if (controller) controller.ready = false;
   // Stop the vendor's automatic reconnect loop before closing its socket.
   // A rejected authorization must remain failed until the agent retries.
-  if (providerApi) { providerApi.unreg_flag = true; providerApi.unreg(); }
+  if (providerApi) {
+    providerApi.unreg_flag = true;
+    try { providerApi.unreg_old?.(); } catch { /* Continue closing the push connection. */ }
+    try { providerApi.unreg(); } catch { /* The socket may already have closed. */ }
+  }
   for (const socket of sockets) socket.close();
   emit({ type: 'connection', state: 'failed' });
   fail(message);
@@ -98,16 +106,23 @@ function loadScript(name: string) {
 
 function endCall() {
   clearTimeout(callTimer);
+  clearTimeout(endingTimer);
   document.querySelectorAll('audio').forEach(audio => { audio.pause(); });
   speakerMuted = false; remote().muted = false;
   controller?.ended();
 }
 
 function bindSession(session: PhoneSession) {
+  // The SDK assigns the same session from both newRTCSession and UA.call().
+  // Bind once, and prevent late events from an old session changing a new call.
+  if (boundSessions.has(session)) return;
+  boundSessions.add(session);
+  const isCurrent = () => providerApi?.webCallSession === session;
   // Use JsSIP session methods for mute, hold and all 12 DTMF keys.
   // The vendor widget's visual control helpers do not support these reliably.
   const bindAudio = (connection: RTCPeerConnection) => {
     const play = (stream: MediaStream) => {
+      if (!isCurrent()) return;
       remote().srcObject = stream;
       void remote().play().catch(() => fail('Click Enable sound to hear the caller.'));
     };
@@ -117,11 +132,27 @@ function bindSession(session: PhoneSession) {
   };
   session.on('peerconnection', ({ peerconnection }: { peerconnection: RTCPeerConnection }) => bindAudio(peerconnection));
   if (session.connection) bindAudio(session.connection);
-  session.on('confirmed', () => { clearTimeout(callTimer); controller?.confirmed(); });
-  session.on('ended', endCall);
-  session.on('failed', (event: { cause?: string }) => { endCall(); fail(`Call failed: ${event.cause || 'connection unavailable'}`); });
-  session.on('hold', () => emit({ type: 'controls', held: session.isOnHold().local }));
-  session.on('unhold', () => emit({ type: 'controls', held: session.isOnHold().local }));
+  session.on('confirmed', () => { if (isCurrent()) { clearTimeout(callTimer); controller?.confirmed(); } });
+  session.on('ended', () => { if (isCurrent()) endCall(); });
+  session.on('failed', (event: { cause?: string }) => { if (isCurrent()) { endCall(); fail(`Call failed: ${event.cause || 'connection unavailable'}`); } });
+  session.on('hold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
+  session.on('unhold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
+}
+
+function hangup() {
+  if (!controller || controller.state === 'idle' || controller.state === 'ending') return;
+  const previous = controller.state;
+  clearTimeout(callTimer);
+  clearTimeout(endingTimer);
+  endingTimer = setTimeout(() => {
+    if (controller?.state !== 'ending') return;
+    failConnection('Call ending could not be confirmed. The phone disconnected; press Retry connection.');
+    endCall();
+  }, 15000);
+  try { controller.hangup(); }
+  catch (error) { clearTimeout(endingTimer); throw error; }
+  // A canceled outgoing credential lookup has no SIP leg to terminate.
+  if (previous === 'dialing' && !controller.api.webCallSession && (controller.state as PhoneState) === 'ending') endCall();
 }
 
 async function connect(key: string, sip: string) {
@@ -170,11 +201,11 @@ async function connect(key: string, sip: string) {
       set: (session: PhoneSession | null) => { currentSession = session; if (session) bindSession(session); },
     });
     // A late JSONP response must never start a call the agent already cancelled.
-    for (const method of ['zadarmaCallbackCall', 'zadarmaCallbackAnswer'] as const) {
+    for (const method of ['zadarmaCallbackCall', 'zadarmaCallbackAnswer', 'zadarmaCallbackCancel'] as const) {
       const original = api[method].bind(api);
       api[method] = data => {
-        const expected = method === 'zadarmaCallbackCall' ? 'dialing' : 'answering';
-        if (controller?.state === expected) original(data);
+        const expected = method === 'zadarmaCallbackCall' ? 'dialing' : method === 'zadarmaCallbackAnswer' ? 'answering' : 'ending';
+        if (!connectionFailed && controller?.state === expected) original(data);
       };
     }
     connectionTimer = setTimeout(() => {
@@ -219,12 +250,7 @@ window.addEventListener('message', event => {
     if (!controller) throw new Error('Enable the phone first.');
     if (data.command === 'dial') controller.dial(String(data.number || ''));
     else if (data.command === 'answer') controller.answer();
-    else if (data.command === 'hangup') {
-      const previous = controller.state;
-      controller.hangup();
-      // Pending outgoing credential lookups have no SIP leg to terminate.
-      if (previous === 'dialing' && !controller.api.webCallSession && controller.state === 'ending') endCall();
-    }
+    else if (data.command === 'hangup') hangup();
     else if (data.command === 'mute') controller.mute();
     else if (data.command === 'hold') controller.hold();
     else if (data.command === 'dtmf') controller.dtmf(String(data.tone || ''));
@@ -232,7 +258,7 @@ window.addEventListener('message', event => {
     if (data.command === 'dial' || data.command === 'answer') {
       clearTimeout(callTimer);
       callTimer = setTimeout(() => {
-        if (controller && ['dialing', 'answering'].includes(controller.state)) { controller.hangup(); endCall(); fail('The call did not connect within 60 seconds.'); }
+        if (controller && ['dialing', 'answering'].includes(controller.state)) { hangup(); fail('The call did not connect within 60 seconds.'); }
       }, 60000);
     }
   } catch (error) { fail(error instanceof Error ? error.message : 'Phone action failed.'); }

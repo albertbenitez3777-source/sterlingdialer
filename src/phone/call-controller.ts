@@ -55,7 +55,9 @@ export class CallController {
     this.setState('answering');
     try { this.api.answer(); } catch (error) { this.setState('ringing-in'); throw error; }
   }
-  confirmed() { if (this.state !== 'ending') this.setState('active'); }
+  confirmed() {
+    if (this.state === 'dialing' || this.state === 'answering') this.setState('active');
+  }
   ended() {
     this.muted = false; this.holdPending = false;
     this.setState('idle'); this.emit({ type: 'controls', muted: false, held: false });

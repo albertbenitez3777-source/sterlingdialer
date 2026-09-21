@@ -44,7 +44,7 @@ describe('real phone controls', () => {
   });
   it('controls the microphone and negotiates hold on the live session', () => {
     const { controller, session, events } = fixture();
-    controller.confirmed(); controller.mute(); controller.mute();
+    controller.ready = true; controller.dial('2025550100'); controller.confirmed(); controller.mute(); controller.mute();
     expect(session.mute).toHaveBeenCalledWith({ audio: true });
     expect(session.unmute).toHaveBeenCalledWith({ audio: true });
     controller.hold(); controller.hold();
@@ -53,7 +53,7 @@ describe('real phone controls', () => {
     expect(events).toContainEqual({ type: 'controls', held: false });
   });
   it('sends numeric, star and pound keypad tones instead of just logging them', () => {
-    const { controller, session } = fixture(); controller.confirmed();
+    const { controller, session } = fixture(); controller.ready = true; controller.dial('2025550100'); controller.confirmed();
     for (const tone of '0123456789*#') controller.dtmf(tone);
     expect(session.sendDTMF).toHaveBeenCalledTimes(12);
     expect(session.sendDTMF).toHaveBeenCalledWith('*'); expect(session.sendDTMF).toHaveBeenCalledWith('#');
@@ -70,6 +70,13 @@ describe('real phone controls', () => {
     api.call.mockImplementation(() => { throw new Error('Rejected'); });
     expect(() => controller.dial('2025550100')).toThrow('Rejected');
     expect(controller.state).toBe('idle'); expect(api.call).toHaveBeenCalledTimes(1);
+  });
+  it('ignores confirmation after a call ended and before an incoming call is answered', () => {
+    const { controller } = fixture();
+    controller.confirmed(); expect(controller.state).toBe('idle');
+    controller.incoming('18669991670'); controller.confirmed(); expect(controller.state).toBe('ringing-in');
+    controller.answer(); controller.confirmed(); expect(controller.state).toBe('active');
+    controller.ended(); controller.confirmed(); expect(controller.state).toBe('idle');
   });
 });
 
