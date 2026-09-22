@@ -1805,8 +1805,8 @@ export default function App() {
               <div className="f1-health-service"><span className={teamHealth.services.bland_api_key ? 'ok' : 'bad'} /><div><small>BLAND.AI</small><strong>{teamHealth.services.bland_api_key ? 'Connected' : 'Needs key'}</strong></div></div>
               <div className="f1-health-service"><span className={teamHealth.services.webhook_signature ? 'ok' : 'warn'} /><div><small>WEBHOOK SECURITY</small><strong>{teamHealth.services.webhook_signature ? 'Protected' : 'Needs secret'}</strong></div></div>
               {teamHealth.agents.map(agent => <div className="f1-health-agent" key={agent.id}>
-                <span className={agent.route?.status === 'verified' ? 'ok' : 'warn'} />
-                <div><small>{agent.full_name}</small><strong>{agent.settings?.camera_state === 'connected' ? 'Camera on' : agent.device?.last_seen_at && Date.now() - Date.parse(agent.device.last_seen_at) < 60000 ? 'Connected' : 'Not connected'} · {agent.route?.status === 'verified' ? 'Route ready' : 'Check route'}</strong></div>
+                <span className={adminStats?.agents.find(a => a.id === agent.id)?.phone_ready ? 'ok' : 'warn'} />
+                <div><small>{agent.full_name}</small><strong>{adminStats?.agents.find(a => a.id === agent.id)?.phone_ready ? 'Phone ready' : 'Phone not connected'} · {agent.route?.status === 'verified' ? 'Route ready' : 'Check route'}</strong></div>
               </div>)}
             </section>
           )}
