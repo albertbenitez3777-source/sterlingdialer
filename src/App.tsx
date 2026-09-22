@@ -19,7 +19,6 @@ import { DialerControls } from '@/components/DialerControls';
 import { OperationsDashboard } from '@/components/OperationsDashboard';
 import { TestCallPanel } from '@/components/TestCallPanel';
 import { ExtraInfo } from '@/components/ExtraInfo';
-import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import CameraWidget from '@/components/CameraWidget';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
@@ -53,7 +52,7 @@ type AdminAgentRow = {
   outbound_attempts_week: number; live_humans_week: number; human_drops_week: number;
   fire_transfers_week: number; no_answers_week: number; voice_messages_week: number;
   fire_transfers_all?: number; human_drops_all?: number; live_humans_all?: number;
-  outbound_attempts_all?: number;
+  outbound_attempts_all?: number; no_answers_all?: number; voice_messages_all?: number;
   transfers_requested_all?: number; transfers_requested_week?: number;
   talkroute_leg_created_today?: number; talkroute_leg_created_week?: number; talkroute_leg_created_all?: number;
   talkroute_answered_all?: number;
@@ -61,7 +60,7 @@ type AdminAgentRow = {
   bridge_confirmed_week?: number; talkroute_answered_week?: number;
   bridge_confirmed_all?: number;
   inbound_configured?: boolean;
-  phone_ready?: boolean;
+  phone_ready?: boolean; dialer_eligible?: boolean;
   transfers_requested_today?: number; likely_real_conversation_today?: number;
   productive_minutes_today?: number; wasted_minutes_today?: number; total_minutes_today?: number;
 };
@@ -84,7 +83,7 @@ type ErrorEntry = {
 
 type CampaignSummary = TransferMetricSummary & {
   campaign_state: string; dialer_activated: boolean; concurrency: number;
-  provider_call_limit: number; leads_remaining: number; calls_attempted_today: number;
+  as_of?: string; active_call_count?: number; reserved_call_count?: number; provider_call_limit: number; leads_remaining: number; calls_attempted_today: number;
   live_humans_today: number; human_drops_today: number; fire_transfers_today: number;
   no_answers_today: number; voice_messages_today: number; blocking_reason: string; campaign_started_at: string | null;
   calls_attempted_week: number; live_humans_week: number; human_drops_week: number;
@@ -198,7 +197,7 @@ const AUTH_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-auth`;
 const PROVIDER_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-provider`;
 const DIALER_CONTROLS_URL = `${FUNCTIONS_BASE}/functions/v1/dialer-controls`;
 const FEDERAL_ONE_V2_URL = `${FUNCTIONS_BASE}/functions/v1/federal-one-v2`;
-const TZ = 'America/New_York';
+const TZ = 'America/Costa_Rica';
 
 const CINEMATIC_HERO = {
   skyline: 'https://images.pexels.com/photos/33803478/pexels-photo-33803478.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1080&dpr=2',
@@ -523,7 +522,7 @@ export default function App() {
       ai_terminated: boolean; talkroute_answered: boolean; agent_name: string | null;
       duration_seconds: number; created_at: string; seconds_ago: number;
     }>;
-    outcome_breakdown: { fire_transfer: number; human_drop: number; no_answer: number; voice_message: number; pending: number };
+    outcome_breakdown: { bridged?: number; fire_transfer: number; human_drop: number; no_answer: number; voice_message: number; pending: number };
     avg_duration_seconds: number; connect_rate: number;
     campaign_state: string; agents_activated: number;
   } | null>(null);
@@ -1503,9 +1502,9 @@ export default function App() {
             is_completed: c.is_completed, duration_seconds: c.duration_seconds || 0,
             transfer_status: c.transfer_status || 'none', is_live_human: c.is_live_human || false,
           }));
-          const voicemails = callsData.filter((c: { queue: string }) => c.queue === 'voice_message').length;
-          const transfers = callsData.filter((c: { queue: string }) => c.queue === 'fire_transfer').length;
-          const liveHumans = callsData.filter((c: { queue: string }) => c.queue === 'human_drop').length;
+          const voicemails = data.voicemails ?? 0;
+          const transfers = data.transfers ?? 0;
+          const liveHumans = data.liveHumans ?? 0;
           setRedialProgresses(prev => prev.map(p => p.batchId === batchId
             ? { ...p, dialed: data.withCallId, failed: data.failed || 0,
                 pollData: { total: data.total, withCallId: data.withCallId, pending: data.pending, answered: data.answered, noAnswer: data.noAnswer, failed: data.failed || 0, dialing: data.dialing || 0, voicemails, transfers, liveHumans },
@@ -1663,7 +1662,7 @@ export default function App() {
       <header className="f1-command-bar">
         <button className="f1-command-identity" onClick={() => setActiveNav('dashboard')} aria-label="Open home">
           <span className="f1-command-orb">01</span>
-          <span><strong>FEDERAL ONE</strong><small>{isOwner ? 'ADMIN' : 'AGENT'} · {etClock} ET</small></span>
+          <span><strong>FEDERAL ONE</strong><small>{isOwner ? 'ADMIN' : 'AGENT'} · {etClock} CR</small></span>
         </button>
         <button className="mobile-menu" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Open navigation">
           <Menu size={20} />
@@ -1704,13 +1703,13 @@ export default function App() {
               </div>
             )}
             <div className="market-indicator">
-              <span>{etClock}</span> ET
+              <span>{etClock}</span> CR
             </div>
           </div>
         </div>
 
         <div className="content-wrap">
-          {isOwner && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines}
+          {isOwner && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
             running={adminStats.summary.campaign_state === 'running'} saving={savingSpeed} changingAgent={togglingAgent}
             starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
             onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
@@ -1806,7 +1805,7 @@ export default function App() {
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
                 <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
                 <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
-                <div><small>LEADS READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
+                <div><small>NEW LEADS</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
                 {canControl && (adminStats?.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
               </div>
             </section>
@@ -1825,9 +1824,6 @@ export default function App() {
           )}
 
           {/* ── ADMIN: Dashboard ─────────────────────────────────────────── */}
-          {isOwner && ['dashboard', 'system'].includes(activeNav) && (
-            <ProviderQueuePanel providerUrl={PROVIDER_URL} sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
-          )}
           {isOwner && ['dashboard', 'system'].includes(activeNav) && !adminStats && (
             <div className="stats-grid">
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
@@ -1896,6 +1892,7 @@ export default function App() {
                 <>
                   <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
 
+                  <details className="ops-details"><summary>Detailed transfer evidence &amp; routing checks</summary>
                   {/* Owner Alert Overview */}
                   <Reveal delay={200}>
                     <OwnerAlertOverview
@@ -1928,7 +1925,7 @@ export default function App() {
                       <div className="panel-heading">
                         <div>
                           <div className="eyebrow"><Activity size={12} /> TRANSFER FUNNEL</div>
-                          <h3>Monotonic Cohort — One Window, One Population</h3>
+                          <h3>Transfer evidence — recorded counts</h3>
                         </div>
                         <div className="funnel-time-toggle">
                           {(['today','week','all'] as const).map(t => (
@@ -2030,6 +2027,7 @@ export default function App() {
                     </div>
                   </GlassCard>
                   </Reveal>
+                  </details>
                 </>
               )}
 
@@ -2168,6 +2166,7 @@ export default function App() {
                       <div className="perf-toggle">
                         <button className={`perf-tab ${perfView === 'today' ? 'active' : ''}`} onClick={() => setPerfView('today')}>TODAY</button>
                         <button className={`perf-tab ${perfView === 'week' ? 'active' : ''}`} onClick={() => setPerfView('week')}>THIS WEEK</button>
+                        <button className={`perf-tab ${perfView === 'all' ? 'active' : ''}`} onClick={() => setPerfView('all')}>ALL TIME</button>
                       </div>
                     </div>
                     <div className="perf-table-wrap">
@@ -2188,21 +2187,22 @@ export default function App() {
                         <tbody>
                           {adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).map(agent => {
                             const d = perfView === 'today';
-                            const rawCalls = d ? agent.outbound_attempts_today : agent.outbound_attempts_week;
-                            const rawLive = d ? agent.live_humans : agent.live_humans_week;
-                            const rawTransfers = (d ? agent.transfers_requested_today : agent.transfers_requested_week) ?? 0;
-                            const rawBridged = d ? (agent.bridge_confirmed_today ?? 0) : (agent.bridge_confirmed_week ?? 0);
+                            const all = perfView === 'all';
+                            const rawCalls = d ? agent.outbound_attempts_today : all ? (agent.outbound_attempts_all ?? 0) : agent.outbound_attempts_week;
+                            const rawLive = d ? agent.live_humans : all ? (agent.live_humans_all ?? 0) : agent.live_humans_week;
+                            const rawTransfers = (d ? agent.transfers_requested_today : all ? agent.transfers_requested_all : agent.transfers_requested_week) ?? 0;
+                            const rawBridged = d ? (agent.bridge_confirmed_today ?? 0) : all ? (agent.bridge_confirmed_all ?? 0) : (agent.bridge_confirmed_week ?? 0);
                             const capped = capAgentMonotonic({ calls_attempted: rawCalls, live_humans: rawLive, transfers_requested: rawTransfers, bridge_confirmed: rawBridged });
-                            const drops = d ? agent.human_drops : agent.human_drops_week;
-                            const noAns = d ? agent.no_answers : agent.no_answers_week;
-                            const vm = d ? agent.voice_messages : agent.voice_messages_week;
+                            const drops = d ? agent.human_drops : all ? agent.human_drops_all : agent.human_drops_week;
+                            const noAns = d ? agent.no_answers : all ? agent.no_answers_all : agent.no_answers_week;
+                            const vm = d ? agent.voice_messages : all ? agent.voice_messages_all : agent.voice_messages_week;
                             const connectRate = capped.attempted > 0 ? Math.round((capped.live / capped.attempted) * 100) : 0;
                             return (
                               <tr key={agent.id}>
                                 <td className="agent-cell">
                                   <div className={`avatar green perf-avatar`}>{initials(agent.full_name)}</div>
                                   <strong>{agent.full_name}</strong>
-                                  {capped.exceptions > 0 && <span className="agent-dq-badge" title={`${capped.exceptions} data-quality exception rows — downstream counts exceeded prerequisites`}>DQ:{capped.exceptions}</span>}
+                                  {capped.exceptions > 0 && <span className="agent-dq-badge" title={`${capped.exceptions} stage-count differences — totals are shown without reduction`}>DQ:{capped.exceptions}</span>}
                                 </td>
                                 <td className="num-col">{capped.attempted}</td>
                                 <td className="num-col">{capped.live}</td>
@@ -2227,7 +2227,7 @@ export default function App() {
                       </table>
                     </div>
                     <div className="perf-note">
-                      {perfView === 'today' ? 'Daily counts reset automatically at midnight ET.' : 'Weekly totals cover the preceding seven days.'}
+                      {perfView === 'today' ? 'Today begins at midnight Costa Rica time.' : perfView === 'week' ? 'This week begins Monday at midnight Costa Rica time.' : 'All available accepted outbound calls.'}
                     </div>
                   </div>
 
@@ -2291,15 +2291,15 @@ export default function App() {
                       <div className="panel-heading">
                         <div>
                           <div className="eyebrow"><Activity size={12} /> LIVE CALL MONITOR</div>
-                          <h3>Last 50 Calls — Rolling Feed</h3>
+                          <h3>Last 50 Accepted Calls</h3>
                         </div>
                         <div className="live-monitor-summary">
-                          <span className="lms-pill"><Flame size={11} className="fire-icon" /> {liveActivity.outcome_breakdown?.fire_transfer ?? 0} transfers</span>
+                          <span className="lms-pill"><Flame size={11} className="fire-icon" /> {liveActivity.outcome_breakdown?.bridged ?? 0} confirmed bridges</span>
                           <span className="lms-pill"><Users size={11} /> {liveActivity.outcome_breakdown?.human_drop ?? 0} drops</span>
                           <span className="lms-pill">{liveActivity.outcome_breakdown?.no_answer ?? 0} no-answer</span>
                           <span className="lms-pill">{liveActivity.outcome_breakdown?.voice_message ?? 0} voicemail</span>
-                          <span className="lms-pill lms-connect">Connect: {liveActivity.connect_rate ?? 0}%</span>
-                          <span className="lms-pill">Avg talk: {fmtDuration(liveActivity.avg_duration_seconds)}</span>
+                          <span className="lms-pill lms-connect">Human rate: {liveActivity.connect_rate == null ? '—' : `${liveActivity.connect_rate}%`}</span>
+                          <span className="lms-pill">Avg completed human call: {fmtDuration(liveActivity.avg_duration_seconds)}</span>
                         </div>
                       </div>
                       <div className="live-monitor-table-wrap">
@@ -2391,7 +2391,7 @@ export default function App() {
                         <div className="redial-progress-stats">
                           <div className="rp-stat"><span className="rp-stat-label">DIALING</span><span className="rp-stat-value">{rp.pollData?.dialing ?? '—'}</span></div>
                           <div className="rp-stat"><span className="rp-stat-label">PLACED</span><span className="rp-stat-value">{rp.pollData?.withCallId ?? rp.dialed}</span></div>
-                          <div className="rp-stat rp-stat-transfer"><span className="rp-stat-label">TRANSFERS</span><span className="rp-stat-value">{rp.pollData?.transfers ?? 0}</span></div>
+                          <div className="rp-stat rp-stat-transfer"><span className="rp-stat-label">CONFIRMED BRIDGES</span><span className="rp-stat-value">{rp.pollData?.transfers ?? 0}</span></div>
                           <div className="rp-stat rp-stat-human"><span className="rp-stat-label">LIVE HUMANS</span><span className="rp-stat-value">{rp.pollData?.liveHumans ?? 0}</span></div>
                           <div className="rp-stat"><span className="rp-stat-label">VOICEMAILS</span><span className="rp-stat-value">{rp.pollData?.voicemails ?? 0}</span></div>
                           <div className="rp-stat rp-stat-fail"><span className="rp-stat-label">FAILED</span><span className="rp-stat-value">{rp.pollData?.failed ?? rp.failed}</span></div>
@@ -2403,7 +2403,7 @@ export default function App() {
                         {rp.calls.length > 0 && (
                           <div className="rp-calls-list">
                             {rp.calls.map(c => {
-                              const statusLabel = c.queue === 'fire_transfer' ? 'TRANSFERRED' : c.queue === 'human_drop' ? 'LIVE HUMAN' : c.queue === 'no_answer' ? 'NO ANSWER' : c.queue === 'voice_message' ? 'VOICEMAIL' : c.queue === 'pending' ? (c.duration_seconds > 0 ? 'RINGING' : 'DIALING') : c.queue.toUpperCase();
+                              const statusLabel = c.queue === 'fire_transfer' ? 'TRANSFERRED' : c.queue === 'human_drop' ? 'LIVE HUMAN' : c.queue === 'no_answer' ? 'NO ANSWER' : c.queue === 'voice_message' ? 'VOICEMAIL' : c.queue === 'pending' ? 'AWAITING COMPLETION' : c.queue.toUpperCase();
                               const statusClass = c.queue === 'fire_transfer' ? 'rpc-transfer' : c.queue === 'human_drop' ? 'rpc-human' : c.queue === 'no_answer' ? 'rpc-noans' : c.queue === 'voice_message' ? 'rpc-vm' : c.queue === 'pending' ? 'rpc-dialing' : 'rpc-other';
                               return (
                                 <div key={c.id} className={`rp-call-row ${statusClass}`}>
@@ -2431,12 +2431,12 @@ export default function App() {
                           </div>
                         </div>
                         <div className="redial-overall-grid">
-                          <div className="redial-stat-card"><span className="rs-label">TOTAL CALLS</span><span className="rs-value">{redialStats.overall.total_calls}</span></div>
-                          <div className="redial-stat-card"><span className="rs-label">PLACED</span><span className="rs-value">{redialStats.overall.total_placed}</span></div>
-                          <div className="redial-stat-card"><span className="rs-label">ANSWERED</span><span className="rs-value">{redialStats.overall.total_answered}</span></div>
+                          <div className="redial-stat-card"><span className="rs-label">REDIAL RECORDS</span><span className="rs-value">{redialStats.overall.total_calls}</span></div>
+                          <div className="redial-stat-card"><span className="rs-label">ACCEPTED</span><span className="rs-value">{redialStats.overall.total_placed}</span></div>
+                          <div className="redial-stat-card"><span className="rs-label">HUMAN-CLASSIFIED</span><span className="rs-value">{redialStats.overall.total_answered}</span></div>
                           <div className="redial-stat-card"><span className="rs-label">NO ANSWER</span><span className="rs-value">{redialStats.overall.total_no_answer}</span></div>
                           <div className="redial-stat-card rs-transfer"><Flame size={14} className="fire-icon" /><span className="rs-label">TRANSFER REQUESTED</span><span className="rs-value">{redialStats.overall.total_transfer_requested}</span></div>
-                          <div className="redial-stat-card rs-success"><Check size={14} /><span className="rs-label">SUCCESSFUL TRANSFERS</span><span className="rs-value">{redialStats.overall.total_transfer_successful}</span></div>
+                          <div className="redial-stat-card rs-success"><Check size={14} /><span className="rs-label">PROVIDER-CONFIRMED BRIDGES</span><span className="rs-value">{redialStats.overall.total_transfer_successful}</span></div>
                           <div className="redial-stat-card rs-fail"><X size={14} /><span className="rs-label">FAILED TRANSFERS</span><span className="rs-value">{redialStats.overall.total_transfer_failed}</span></div>
                           <div className="redial-stat-card"><Users size={14} /><span className="rs-label">LIVE HUMANS</span><span className="rs-value">{redialStats.overall.total_live_humans}</span></div>
                           <div className="redial-stat-card"><span className="rs-label">FAILURES</span><span className="rs-value">{redialStats.overall.total_failed}</span></div>
@@ -2452,17 +2452,17 @@ export default function App() {
                                 <th className="num-col">TOTAL</th>
                                 <th className="num-col">PLACED</th>
                                 <th className="num-col">TRANSFER REQ</th>
-                                <th className="num-col">SUCCESSFUL</th>
+                                <th className="num-col">BRIDGED</th>
                                 <th className="num-col">FAILED</th>
                                 <th>STATUS</th>
                               </tr>
                             </thead>
                             <tbody>
                               {redialStats.batches.filter(b => redialStatsFilter === 'all' || (redialStatsFilter === 'active' && b.is_active) || (redialStatsFilter === 'completed' && !b.is_active)).map(batch => (
-                                <tr key={batch.batch_id} className={`rb-row ${batch.is_active ? 'rb-active' : ''}`}>
+                                <tr key={`${batch.batch_id}:${batch.agent_id}`} className={`rb-row ${batch.is_active ? 'rb-active' : ''}`}>
                                   <td className="rb-batch-id">{batch.batch_id.slice(0, 8)}...</td>
                                   <td className="rb-agent">{batch.agent_name}</td>
-                                  <td className="rb-type">{batch.type === 'transfers' ? 'Transfer' : batch.type === 'humans' ? 'Human' : 'Agent'}</td>
+                                  <td className="rb-type">{batch.type === 'transfers' ? 'Transfer' : batch.type === 'humans' ? 'Human' : batch.type === 'agent_selected' ? 'Agent' : 'Unspecified'}</td>
                                   <td className="num-col">{batch.total}</td>
                                   <td className="num-col">{batch.placed}</td>
                                   <td className="num-col rb-transfer-req">{batch.transfer_requested}</td>
@@ -2514,7 +2514,7 @@ export default function App() {
                                   <span className="rh-stat"><Users size={11} /> {liveHumans} live humans</span>
                                   <span className="rh-stat"><Flame size={11} /> {transfersReq} transfer req.</span>
                                   <span className="rh-stat"><Phone size={11} /> {talkrouteLeg} Zadarma dialed</span>
-                                  <span className="rh-stat"><Check size={11} /> {talkrouteAns} Destination answered</span>
+                                  <span className="rh-stat"><Check size={11} /> {talkrouteAns} destination answer reported</span>
                                   <span className="rh-stat bridge"><ShieldCheck size={11} /> {bridgeConf} bridge confirmed</span>
                                 </div>
                                 <div className="redial-stats">
@@ -2579,7 +2579,7 @@ export default function App() {
                           { label: 'Total Outbound', val: transferProof.totals?.total_outbound ?? 0 },
                           { label: 'Transfer Req', val: transferProof.totals?.transfer_requested ?? 0 },
                           { label: 'Zadarma Dialed', val: transferProof.totals?.talkroute_dialed ?? 0 },
-                          { label: 'Zadarma Answered', val: transferProof.totals?.talkroute_answered ?? 0 },
+                          { label: 'Destination Answer Reported', val: transferProof.totals?.talkroute_answered ?? 0 },
                           { label: 'Rep Speech', val: transferProof.totals?.rep_speech_detected ?? 0 },
                           { label: 'Bridge Confirmed', val: transferProof.totals?.bridge_confirmed ?? 0 },
                           { label: 'Transfer Failed', val: transferProof.totals?.transfer_failed ?? 0 },
@@ -2641,7 +2641,7 @@ export default function App() {
                       <div className="panel-heading">
                         <div>
                           <div className="eyebrow"><Clock size={12} /> MINUTES &amp; COST</div>
-                          <h3>Productive vs Wasted Talk Time</h3>
+                          <h3>Recorded call duration</h3>
                         </div>
                         <span className="perf-tab active">{perfView === 'today' ? 'TODAY' : perfView === 'week' ? 'THIS WEEK' : 'ALL TIME'}</span>
                       </div>
@@ -2650,11 +2650,11 @@ export default function App() {
                         if (!f) return null;
                         return (
                           <div className="minutes-grid">
-                            <div className="minute-card total"><span className="minute-label">TOTAL MINUTES</span><span className="minute-value">{f.total_minutes}</span></div>
-                            <div className="minute-card productive"><span className="minute-label">PRODUCTIVE (bridged)</span><span className="minute-value">{f.productive_minutes}</span></div>
-                            <div className="minute-card wasted"><span className="minute-label">WASTED (no-answer/machines)</span><span className="minute-value">{f.wasted_minutes}</span></div>
+                            <div className="minute-card total"><span className="minute-label">TOTAL OUTBOUND MINUTES</span><span className="minute-value">{f.total_minutes}</span></div>
+                            <div className="minute-card productive"><span className="minute-label">KNOWN POST-BRIDGE MINUTES</span><span className="minute-value">{f.productive_minutes}</span></div>
+                            <div className="minute-card wasted"><span className="minute-label">NO ANSWER / MACHINES</span><span className="minute-value">{f.wasted_minutes}</span></div>
                             <div className="minute-card machine"><span className="minute-label">ON MACHINES</span><span className="minute-value">{f.machine_minutes}</span></div>
-                            <div className="minute-card avg-ai"><span className="minute-label">AVG AI-LEG (pre-transfer)</span><span className="minute-value">{f.avg_ai_leg_seconds}s</span></div>
+                            <div className="minute-card avg-ai"><span className="minute-label">AVG COMPLETED CALL</span><span className="minute-value">{f.avg_ai_leg_seconds}s</span></div>
                           </div>
                         );
                       })()}
