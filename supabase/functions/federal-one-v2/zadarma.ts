@@ -50,7 +50,7 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
     if (call) return respond({ caller: { name: call.consumer_name, phone: call.consumer_phone,
       address: call.consumer_address, fields: call.consumer_custom_fields, summary: call.ai_summary, transcript: call.transcript } });
     const { data: leads } = await supabase.from('leads').select('name,telephone_original,address,custom_fields')
-      .eq('assigned_agent_id', agent.id).eq('telephone_normalized', last10).limit(1);
+      .eq('assigned_agent_id', agent.id).in('telephone_normalized', phones).limit(1);
     const lead = leads?.[0];
     return respond({ caller: lead ? { name: lead.name, phone: lead.telephone_original, address: lead.address, fields: lead.custom_fields } : null });
   }
@@ -141,3 +141,4 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
     return respond({ error: error instanceof Error && error.name === 'TimeoutError' ? 'Zadarma timed out. Try again.' : error instanceof Error ? error.message : 'Zadarma is unavailable.' }, 502);
   }
 }
+
