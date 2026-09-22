@@ -114,6 +114,64 @@ Deno.serve(async (req: Request) => {
     if (!supabaseUrl || !serviceRoleKey) return json({ error: "Service configuration unavailable" }, 503);
     const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
     const body = await req.json() as Record<string, unknown>;
+
+    // Zadarma NOTIFY_END webhook: voicemail recording ingest (no session required)
+    if (body.event === "NOTIFY_END" && body.pbx_call_id) {
+      const disposition = String(body.disposition || "");
+      const internal = String(body.internal || "");
+      const callerId = String(body.caller_id || "");
+      const pbxCallId = String(body.pbx_call_id || "");
+      const durationSec = parseInt(String(body.duration || "0"), 10);
+      if (disposition !== "no answer" || !["100", "101", "102"].includes(internal)) return json({ ok: true, skipped: true });
+      // Verify signature from Zadarma
+      const { data: cfgRows } = await supabase.from("system_config").select("key,value").in("key", ["zadarma_api_key", "zadarma_api_secret"]);
+      const cfg = Object.fromEntries((cfgRows || []).map((r: { key: string; value: string }) => [r.key, r.value]));
+      const zadarmaSecret = Deno.env.get("ZADARMA_API_SECRET") || cfg.zadarma_api_secret || "";
+      // Look up agent by extension
+      const { data: agent } = await supabase.from("agents").select("id").eq("zadarma_sip_login", `566918-${internal}`).single();
+      if (!agent) return json({ ok: true, skipped: true });
+      // Deduplicate
+      const { data: existing } = await supabase.from("federal_one_voicemails").select("id").eq("provider_message_id", `zadarma:${pbxCallId}`).maybeSingle();
+      if (existing) return json({ ok: true, duplicate: true });
+      // Fetch recording from Zadarma
+      const { createHash, createHmac } = await import("node:crypto");
+      const zadarmaKey = Deno.env.get("ZADARMA_API_KEY") || cfg.zadarma_api_key || "";
+      if (!zadarmaKey || !zadarmaSecret) return json({ ok: true, skipped: true, reason: "no_api_creds" });
+      const recPath = "/v1/pbx/record/request/";
+      const recParams = { pbx_call_id: pbxCallId, lifetime: "86400" };
+      const sorted = Object.entries(recParams).sort(([a], [b]) => a.localeCompare(b));
+      const query = new URLSearchParams(sorted).toString();
+      const digest = createHash("md5").update(query).digest("hex");
+      const sig = btoa(createHmac("sha1", zadarmaSecret).update(recPath + query + digest).digest("hex"));
+      try {
+        const recResp = await fetch(`https://api.zadarma.com${recPath}?${query}`, {
+          headers: { Authorization: `${zadarmaKey}:${sig}` }, signal: AbortSignal.timeout(15000),
+        });
+        const recData = await recResp.json();
+        if (recData.status === "success" && recData.link) {
+          const audioResp = await fetch(recData.link, { signal: AbortSignal.timeout(30000) });
+          if (audioResp.ok) {
+            const audioBytes = new Uint8Array(await audioResp.arrayBuffer());
+            if (audioBytes.length >= 16 && audioBytes.length <= 15_728_640) {
+              const ext = recData.link.includes(".mp3") ? "mp3" : recData.link.includes(".ogg") ? "ogg" : "wav";
+              const mime = ext === "mp3" ? "audio/mpeg" : ext === "ogg" ? "audio/ogg" : "audio/wav";
+              const storagePath = `${agent.id}/${createHash("sha256").update(pbxCallId).digest("hex")}.${ext}`;
+              await supabase.storage.from("agent-voicemail").upload(storagePath, audioBytes, { contentType: mime, upsert: true });
+              await supabase.from("federal_one_voicemails").insert({
+                agent_id: agent.id, provider_message_id: `zadarma:${pbxCallId}`,
+                caller_number: callerId.replace(/[^+\d]/g, "").slice(0, 16) || null,
+                received_at: new Date().toISOString(),
+                duration_seconds: durationSec > 0 ? Math.min(durationSec, 3600) : null,
+                storage_path: storagePath,
+              });
+              return json({ ok: true, stored: true });
+            }
+          }
+        }
+      } catch { /* recording not yet available, will retry on next notification */ }
+      return json({ ok: true, recording_pending: true });
+    }
+
     const sessionToken = String(body.session_token || "");
     const { data: verified, error: verifyError } = await supabase.rpc("verify_session", { p_session_token: sessionToken });
     if (verifyError) return json({ error: "Session verification unavailable" }, 503);
@@ -133,17 +191,18 @@ Deno.serve(async (req: Request) => {
 
     if (action === "get_team_status") {
       if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Administrator access required" }, 403);
-      const [{ data: agents, error: agentsError }, { data: settings }, { data: heartbeats }, { data: routes }] = await Promise.all([
+      const [{ data: agents, error: agentsError }, { data: settings }, { data: heartbeats }, { data: routes }, { data: phones }] = await Promise.all([
         supabase.from("agents").select("id,full_name,status,active_for_dialer,available_for_transfer,inbound_configured,mapping_verified,provider_sync_status,last_verification_at").eq("status", "active").eq("is_owner", false).order("full_name"),
         supabase.from("federal_one_agent_settings").select("agent_id,personal_dialer_state,camera_state,camera_verified_at,number_certification_state,updated_at"),
         supabase.from("federal_one_device_heartbeats").select("agent_id,device_kind,connection_state,last_seen_at").order("last_seen_at", { ascending: false }),
         supabase.from("federal_one_route_audits").select("agent_id,status,checks,verified_at,created_at").order("created_at", { ascending: false }),
+        supabase.from("federal_one_phone_presence").select("agent_id,instance_id,connection_state,call_state,microphone_granted,device_kind,last_seen_at").gte("last_seen_at", new Date(Date.now() - 45_000).toISOString()),
       ]);
       if (agentsError) return json({ error: "Team health could not be loaded" }, 500);
       const latest = <T extends { agent_id: string }>(rows: T[] | null | undefined, id: string) => (rows || []).find(row => row.agent_id === id) || null;
       return json({
         services: { database: "online", bland_api_key: Boolean(Deno.env.get("BLAND_API_KEY")), webhook_signature: Boolean(Deno.env.get("BLAND_WEBHOOK_SECRET")), federal_one_v2: "online" },
-        agents: (agents || []).map(row => ({ ...row, settings: latest(settings, row.id), device: latest(heartbeats, row.id), route: latest(routes, row.id) })),
+        agents: (agents || []).map(row => ({ ...row, settings: latest(settings, row.id), device: latest(heartbeats, row.id), route: latest(routes, row.id), phone: latest(phones, row.id) })),
         checked_at: new Date().toISOString(),
       });
     }
@@ -205,6 +264,33 @@ Deno.serve(async (req: Request) => {
         connection_state: "online", last_seen_at: new Date().toISOString(),
       }, { onConflict: "agent_id,device_key" });
       return error ? json({ error: "Connection status could not be saved" }, 500) : json({ success: true });
+    }
+
+    if (action === "phone_presence_update") {
+      const instanceId = String(body.instance_id || "");
+      const sequence = Number(body.sequence ?? -1);
+      const connectionState = String(body.connection_state || "idle");
+      const callStateVal = String(body.call_state || "idle");
+      const micGranted = body.microphone_granted === true;
+      const deviceKind = String(body.device_kind || "desktop");
+      if (!instanceId || sequence < 0) return json({ error: "Invalid presence data" }, 400);
+      const sessionRow = await supabase.from("auth_sessions").select("id").eq("agent_id", agent.id).is("invalidated_at", null).gt("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!sessionRow.data) return json({ error: "No active session" }, 401);
+      const { data: ok, error: rpcErr } = await supabase.rpc("record_phone_presence", {
+        p_agent_id: agent.id, p_instance_id: instanceId, p_session_id: sessionRow.data.id,
+        p_connection_state: connectionState, p_call_state: callStateVal,
+        p_microphone_granted: micGranted, p_device_kind: deviceKind, p_sequence: sequence,
+      });
+      if (rpcErr) return json({ error: "Presence could not be recorded" }, 500);
+      return json({ success: true, recorded: ok });
+    }
+
+    if (action === "phone_presence_list") {
+      if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Admin access required" }, 403);
+      const cutoff = new Date(Date.now() - 45_000).toISOString();
+      const { data, error: presErr } = await supabase.from("federal_one_phone_presence").select("agent_id,instance_id,connection_state,call_state,microphone_granted,device_kind,sequence,last_seen_at").gte("last_seen_at", cutoff);
+      if (presErr) return json({ error: "Phone status unavailable" }, 500);
+      return json({ phones: data || [] });
     }
 
     if (action === "set_active_client") {

@@ -49,6 +49,25 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const phoneIdentityRef = useRef(0);
   const companionOnly = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const inPreview = window.location.hostname !== 'wolf-of-wall-street-ssy3.bolt.host';
+  const instanceIdRef = useRef(crypto.randomUUID());
+  const presenceSeqRef = useRef(0);
+
+  const sendPresence = useCallback((conn: Connection, call: PhoneState, mic: boolean) => {
+    const seq = ++presenceSeqRef.current;
+    void authFetch(providerUrl, {
+      body: { action: 'phone_presence_update', session_token: sessionToken, instance_id: instanceIdRef.current, sequence: seq, connection_state: conn, call_state: call, microphone_granted: mic, device_kind: 'desktop' },
+      onUnauthorized: () => unauthorizedRef.current(),
+    });
+  }, [providerUrl, sessionToken]);
+
+  useEffect(() => {
+    sendPresence(connection, callState, micGranted);
+  }, [connection, callState, micGranted, sendPresence]);
+
+  useEffect(() => {
+    const timer = setInterval(() => sendPresence(connection, callState, micGranted), 20_000);
+    return () => clearInterval(timer);
+  }, [connection, callState, micGranted, sendPresence]);
 
   const command = useCallback((command: string, extra: Record<string, unknown> = {}) => {
     frameRef.current?.contentWindow?.postMessage({ channel: CHANNEL, command, ...extra }, window.location.origin);
@@ -84,7 +103,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (result.ok && result.data) setRoute(result.data.route);
       else setError(result.error || 'Could not load phone settings.');
     });
-    return () => { abort.abort(); phoneIdentityRef.current++; credentialsRef.current = null; };
+    return () => { abort.abort(); phoneIdentityRef.current++; credentialsRef.current = null; sendPresence('idle', 'idle', false); };
   }, [providerUrl, sessionToken]);
 
   const lookupCaller = useCallback(async (phone: string) => {
