@@ -9,14 +9,14 @@ export function TransferFunnel({ stages, exceptions, sideOutcome, exceptionsExpl
   exceptionsExplanation?: string[];
 }) {
   const [showExceptions, setShowExceptions] = useState(false);
-  const max = Math.max(stages[0]?.value ?? 1, 1);
+  const max = Math.max(...stages.map(s => s.value), 1);
 
   return (
     <div className="funnel-container">
       {stages.map((s, i) => {
         const pct = s.value > 0 ? Math.round((s.value / max) * 100) : 0;
         const prev = i > 0 ? stages[i - 1].value : 0;
-        const drop = prev > 0 ? Math.round(((prev - s.value) / prev) * 100) : 0;
+        const drop = exceptions === 0 && prev > 0 ? Math.round(((prev - s.value) / prev) * 100) : 0;
         return (
           <div key={s.key} className={`funnel-stage ${s.isHeadline ? 'headline' : ''} ${s.isEstimate ? 'estimate' : ''}`}>
             <div className="funnel-stage-label" title={s.description}>
@@ -37,8 +37,8 @@ export function TransferFunnel({ stages, exceptions, sideOutcome, exceptionsExpl
       {/* Side outcome — Transfer Failed / Unverified */}
       <div className="funnel-side-outcome">
         <div className="funnel-side-label">
-          <AlertTriangle size={12} /> Awaiting Answer Confirmation
-          <span className="funnel-side-hint">excludes confirmed connections and explicit failures</span>
+          <AlertTriangle size={12} /> Completed Without a Confirmed Bridge
+          <span className="funnel-side-hint">excludes explicit transfer failures; includes voicemail</span>
         </div>
         <span className="funnel-side-value">{sideOutcome}</span>
       </div>
@@ -48,13 +48,13 @@ export function TransferFunnel({ stages, exceptions, sideOutcome, exceptionsExpl
         <div className="funnel-exceptions">
           <button className="funnel-exceptions-toggle" onClick={() => setShowExceptions(!showExceptions)} aria-expanded={showExceptions}>
             {showExceptions ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <AlertTriangle size={12} /> {exceptions} data quality exception{exceptions !== 1 ? 's' : ''}
+            <AlertTriangle size={12} /> {exceptions} stage-count discrepancy{exceptions !== 1 ? 's' : ''}
           </button>
           {showExceptions && (
             <div className="funnel-exceptions-detail">
               <p className="funnel-exceptions-intro">
-                Records with downstream flags (e.g. bridge_confirmed) but missing prerequisite evidence (e.g. no destination answer).
-                These are excluded from the funnel above to maintain monotonic integrity.
+                Stage counts do not follow the expected order. These differences are not a count of unique affected calls.
+                Counts remain unchanged. Stages report their own evidence; a missing event can make a later stage exceed an earlier stage.
               </p>
               {exceptionsExplanation && exceptionsExplanation.length > 0 ? (
                 <ul className="funnel-exceptions-list">
