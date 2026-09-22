@@ -30,3 +30,6 @@ verify_jwt = false
 
 [functions.federal-one-v2]
 verify_jwt = false
+
+[functions.dialer-controls]
+verify_jwt = false
