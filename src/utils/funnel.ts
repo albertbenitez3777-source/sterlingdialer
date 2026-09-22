@@ -29,22 +29,22 @@ export interface FunnelData {
 
 export const STAGE_DEFINITIONS: Record<string, string> = {
   attempted: 'Provider accepted an outbound call in the selected window.',
-  live_human: 'Attempted call with verified live-human evidence.',
-  transfer_requested: 'Live-human call with an explicit transfer-request event or field.',
+  live_human: 'Outbound call classified as a live human by the call-processing system; not identity verification.',
+  transfer_requested: 'Outbound call with an explicit transfer-request timestamp.',
   destination_dialed: 'The provider dialed the assigned Zadarma number.',
-  agent_answered: 'The destination answered; check Zadarma evidence for the agent or voicemail.',
+  agent_answered: 'An inbound Zadarma answer linked to this outbound call, excluding voicemail.',
   bridge_confirmed: 'Agent-answered call meeting the strict bridge-confirm predicate.',
-  likely_real_conversation: 'Bridge-confirmed call meeting the post-bridge duration/speech rule (45s+).',
+  likely_real_conversation: 'Provider-confirmed bridge with at least 45 post-transfer seconds and recorded representative speech evidence.',
 };
 
 export function buildMonotonicFunnel(data: FunnelData): { stages: FunnelStage[]; exceptions: number; sideOutcome: number } {
   const attempted = Math.max(0, data.calls_attempted);
-  const liveHuman = Math.min(attempted, Math.max(0, data.live_humans_reached));
-  const transferRequested = Math.min(liveHuman, Math.max(0, data.transfers_requested));
-  const destinationDialed = Math.min(transferRequested, Math.max(0, data.talkroute_dialed));
-  const agentAnswered = Math.min(destinationDialed, Math.max(0, data.agent_answered));
-  const bridgeConfirmed = Math.min(agentAnswered, Math.max(0, data.bridge_confirmed));
-  const likelyReal = Math.min(bridgeConfirmed, Math.max(0, data.likely_real_conversation));
+  const liveHuman = Math.max(0, data.live_humans_reached);
+  const transferRequested = Math.max(0, data.transfers_requested);
+  const destinationDialed = Math.max(0, data.talkroute_dialed);
+  const agentAnswered = Math.max(0, data.agent_answered);
+  const bridgeConfirmed = Math.max(0, data.bridge_confirmed);
+  const likelyReal = Math.max(0, data.likely_real_conversation);
 
   const exceptions =
     Math.max(0, data.live_humans_reached - attempted) +
@@ -56,12 +56,12 @@ export function buildMonotonicFunnel(data: FunnelData): { stages: FunnelStage[];
 
   const stages: FunnelStage[] = [
     { key: 'attempted', label: 'Calls Attempted', value: attempted, color: 'var(--sage-400)', description: STAGE_DEFINITIONS.attempted },
-    { key: 'live_human', label: 'Live Humans Reached', value: liveHuman, color: 'var(--gold-300)', description: STAGE_DEFINITIONS.live_human },
+    { key: 'live_human', label: 'Human-classified Calls', value: liveHuman, color: 'var(--gold-300)', description: STAGE_DEFINITIONS.live_human },
     { key: 'transfer_requested', label: 'Transfer Requested', value: transferRequested, color: 'var(--rust-400)', description: STAGE_DEFINITIONS.transfer_requested },
     { key: 'destination_dialed', label: 'Zadarma Destination Dialed', value: destinationDialed, color: 'var(--steel-300)', description: STAGE_DEFINITIONS.destination_dialed },
     { key: 'agent_answered', label: 'Agent Answer Confirmed', value: agentAnswered, color: 'var(--sage-300)', description: STAGE_DEFINITIONS.agent_answered },
     { key: 'bridge_confirmed', label: 'Bridge Confirmed', value: bridgeConfirmed, color: 'var(--sage-400)', description: STAGE_DEFINITIONS.bridge_confirmed, isHeadline: true },
-    { key: 'likely_real_conversation', label: 'Likely Real Conversation (45s+)', value: likelyReal, color: 'var(--gold-200)', description: STAGE_DEFINITIONS.likely_real_conversation, isEstimate: true },
+    { key: 'likely_real_conversation', label: 'Post-transfer Speech (45s+)', value: likelyReal, color: 'var(--gold-200)', description: STAGE_DEFINITIONS.likely_real_conversation, isEstimate: true },
   ];
 
   return { stages, exceptions, sideOutcome: Math.max(0, data.transfer_failed_unverified) };
@@ -95,9 +95,9 @@ export interface CappedAgentPerf {
 
 export function capAgentMonotonic(raw: AgentPerfData): CappedAgentPerf {
   const attempted = Math.max(0, raw.calls_attempted);
-  const live = Math.min(attempted, Math.max(0, raw.live_humans));
-  const transfers = Math.min(live, Math.max(0, raw.transfers_requested));
-  const bridged = Math.min(transfers, Math.max(0, raw.bridge_confirmed));
+  const live = Math.max(0, raw.live_humans);
+  const transfers = Math.max(0, raw.transfers_requested);
+  const bridged = Math.max(0, raw.bridge_confirmed);
   const exceptions =
     Math.max(0, raw.live_humans - attempted) +
     Math.max(0, raw.transfers_requested - live) +

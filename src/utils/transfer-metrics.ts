@@ -1,55 +1,13 @@
-export type TransferMetricSummary = {
-  transfers_requested_today?: number;
-  transfers_requested_week?: number;
-  talkroute_dialed_today?: number;
-  talkroute_dialed_week?: number;
-  agent_answered_today?: number;
-  agent_answered_week?: number;
-  bridge_confirmed_today?: number;
-  bridge_confirmed_week?: number;
-  transfer_failed_unverified_today?: number;
-  transfer_failed_unverified_week?: number;
-};
-
-type MetricWindow = {
-  requested: number;
-  dialed: number;
-  answered: number;
-  bridged: number;
-  failed: number;
-  unverified: number;
-};
-
-export function transferMetricsForWindow(
-  summary: TransferMetricSummary,
-  window: 'today' | 'week' | 'all',
-): MetricWindow {
-  if (window === 'today') {
-    return {
-      requested: summary.transfers_requested_today ?? 0,
-      dialed: summary.talkroute_dialed_today ?? 0,
-      answered: summary.agent_answered_today ?? 0,
-      bridged: summary.bridge_confirmed_today ?? 0,
-      failed: 0,
-      unverified: summary.transfer_failed_unverified_today ?? 0,
-    };
-  }
-  if (window === 'week') {
-    return {
-      requested: summary.transfers_requested_week ?? 0,
-      dialed: summary.talkroute_dialed_week ?? 0,
-      answered: summary.agent_answered_week ?? 0,
-      bridged: summary.bridge_confirmed_week ?? 0,
-      failed: 0,
-      unverified: summary.transfer_failed_unverified_week ?? 0,
-    };
-  }
+type MetricName = 'transfers_requested' | 'talkroute_dialed' | 'agent_answered' | 'bridge_confirmed' | 'confirmed_transfer_failures' | 'transfer_failed_unverified';
+export type TransferMetricSummary = Partial<Record<`${MetricName}_${'today' | 'week' | 'all'}`, number>>;
+type MetricWindow = { requested: number; dialed: number; answered: number; bridged: number; failed: number; unverified: number };
+export function transferMetricsForWindow(summary: TransferMetricSummary, window: 'today' | 'week' | 'all'): MetricWindow {
   return {
-    requested: summary.transfers_requested_week ?? 0,
-    dialed: summary.talkroute_dialed_week ?? 0,
-    answered: summary.agent_answered_week ?? 0,
-    bridged: summary.bridge_confirmed_week ?? 0,
-    failed: 0,
-    unverified: summary.transfer_failed_unverified_week ?? 0,
+    requested: summary[`transfers_requested_${window}`] ?? 0,
+    dialed: summary[`talkroute_dialed_${window}`] ?? 0,
+    answered: summary[`agent_answered_${window}`] ?? 0,
+    bridged: summary[`bridge_confirmed_${window}`] ?? 0,
+    failed: summary[`confirmed_transfer_failures_${window}`] ?? 0,
+    unverified: summary[`transfer_failed_unverified_${window}`] ?? 0,
   };
 }
