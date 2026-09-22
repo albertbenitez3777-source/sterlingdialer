@@ -4,7 +4,7 @@ import {
   Activity, Bookmark, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
   Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
+import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, RedialConfirmModal, InboundVerificationPanel, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
 import { maskPhone, formatPhone } from '@/utils/privacy';
 import { useHeartbeat, type AttendanceInfo as HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
@@ -15,6 +15,7 @@ import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
 import { IPhone } from '@/components/IPhone';
+import { OperationsDashboard } from '@/components/OperationsDashboard';
 import { TestCallPanel } from '@/components/TestCallPanel';
 import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
@@ -23,7 +24,7 @@ import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────
-type AgentRole = 'owner' | 'agent' | 'supervisor';
+type AgentRole = 'owner' | 'administrator' | 'agent' | 'supervisor';
 type SessionAgent = { id: string; full_name: string; role: AgentRole; status: string; is_owner?: boolean; available_for_transfer?: boolean; logged_in?: boolean };
 type SessionData = { valid: boolean; agent?: SessionAgent };
 
@@ -643,7 +644,7 @@ export default function App() {
           setAgentAvailable(!!data.agent.available_for_transfer);
           setActiveNav('dashboard');
           setLoginError('');
-          if (data.agent.role !== 'owner' && data.agent.role !== 'supervisor' && !data.agent.available_for_transfer) {
+          if (data.agent.role !== 'owner' && data.agent.role !== 'administrator' && !data.agent.available_for_transfer) {
             setShowOfflineModal(true);
           }
         } else if (data.valid === false) {
@@ -690,7 +691,7 @@ export default function App() {
           setSession({ valid: true, agent: data.agent });
           setAgentAvailable(!!data.agent.available_for_transfer);
           setActiveNav('dashboard');
-          if (data.agent.role !== 'owner' && data.agent.role !== 'supervisor' && !data.agent.available_for_transfer) setShowOfflineModal(true);
+          if (data.agent.role !== 'owner' && data.agent.role !== 'administrator' && !data.agent.available_for_transfer) setShowOfflineModal(true);
         } else {
           setLoginError(data.error || 'Invalid or expired link');
         }
@@ -704,7 +705,7 @@ export default function App() {
   // Restore active redials from localStorage on page load (survives refresh)
   useEffect(() => {
     if (!session?.valid || !sessionToken) return;
-    if (session.agent?.role !== 'owner' && session.agent?.role !== 'supervisor') return;
+    if (session.agent?.role !== 'owner' && session.agent?.role !== 'administrator') return;
     try {
       const stored: StoredRedial[] = JSON.parse(localStorage.getItem(REDIAL_STORAGE_KEY) || '[]');
       if (stored.length === 0) return;
@@ -747,14 +748,25 @@ export default function App() {
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
       if (result.ok && result.data) {
-        const stats = (result.data as Record<string, unknown>).admin_stats || result.data as AdminStats;
+        const raw = ((result.data as Record<string, unknown>).admin_stats || result.data) as Record<string, unknown>;
+        const summary = { ...(raw.summary as Record<string, unknown>) };
+        for (const windowName of ['today', 'week', 'all']) {
+          const funnel = (raw[`funnel_${windowName}`] || summary[`funnel_${windowName}`]) as Record<string, number> | undefined;
+          if (!funnel) continue;
+          summary[`funnel_${windowName}`] = funnel;
+          for (const [field, source] of Object.entries({transfers_requested:'transfers_requested',talkroute_dialed:'talkroute_dialed',agent_answered:'agent_answered',bridge_confirmed:'bridge_confirmed',transfer_failed_unverified:'transfer_failed_unverified'})) {
+            if (summary[`${field}_${windowName}`] == null && funnel[source] != null) summary[`${field}_${windowName}`] = funnel[source];
+          }
+        }
+        const stats = { ...raw, summary };
+
         adminStatsRef.current = stats as AdminStats;
         setAdminStats(stats as AdminStats);
         const s = stats as Record<string, unknown>;
-        const summary = s.summary as Record<string, unknown> | undefined;
-        if (summary?.provider_call_limit) setCallLimit(summary.provider_call_limit as number);
-        if (summary?.daily_minute_cap !== undefined) setMinuteCap(summary.daily_minute_cap as number);
-        const conc = summary?.concurrency as number | undefined;
+        const loadedSummary = s.summary as Record<string, unknown> | undefined;
+        if (loadedSummary?.provider_call_limit) setCallLimit(loadedSummary.provider_call_limit as number);
+        if (loadedSummary?.daily_minute_cap !== undefined) setMinuteCap(loadedSummary.daily_minute_cap as number);
+        const conc = loadedSummary?.concurrency as number | undefined;
         if (conc && conc > 0) setDialerSpeed(Math.max(1, Math.min(4, Math.round(conc / 3))));
         setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
         const healthResult = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
@@ -902,7 +914,7 @@ export default function App() {
     const role = session.agent?.role;
     const token = sessionToken;
 
-    if (role === 'owner' || role === 'supervisor') {
+    if (role === 'owner' || role === 'administrator') {
       let mounted = true;
       const tick = async () => {
         if (!mounted || ownerPollingRef.current) return;
@@ -1169,7 +1181,7 @@ export default function App() {
         setSession({ valid: true, agent: data.agent });
         setAgentAvailable(!!data.agent.available_for_transfer);
         setActiveNav('dashboard');
-        if (data.agent.role !== 'owner' && data.agent.role !== 'supervisor' && !data.agent.available_for_transfer) setShowOfflineModal(true);
+        if (data.agent.role !== 'owner' && data.agent.role !== 'administrator' && !data.agent.available_for_transfer) setShowOfflineModal(true);
         setPin('');
       } else {
         const kind: LoginErrorKind = res.status === 401 ? 'unauthorized' : res.status >= 500 ? 'server_error' : 'unknown';
@@ -1606,9 +1618,9 @@ export default function App() {
   }
 
   // ── Main Layout ────────────────────────────────────────────────────────
-  const isOwner = session.agent?.role === 'owner' || session.agent?.role === 'supervisor';
-  const isStrictOwner = session.agent?.role === 'owner';
-  const canControl = session.agent?.role === 'owner';
+  const isOwner = session.agent?.role === 'owner' || session.agent?.role === 'administrator';
+  const isStrictOwner = isOwner;
+  const canControl = isOwner;
   const navItems = isOwner
     ? [
         { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
@@ -1740,7 +1752,7 @@ export default function App() {
                   <WifiOff size={28} className="conn-banner-icon" />
                   <div className="conn-banner-text">
                     <strong>DISCONNECTED</strong>
-                    <span>Check your internet. You are NOT receiving calls.</span>
+                    <span>Reconnect to answer on this computer. Your assigned number still receives calls and voicemail.</span>
                   </div>
                 </>
               ) : agentAvailable ? (
@@ -1748,7 +1760,7 @@ export default function App() {
                   <span className="conn-pulse-dot" />
                   <div className="conn-banner-text">
                     <strong>ACTIVE</strong>
-                    <span>You're connected and waiting for calls.</span>
+                    <span>Your route is selected. Enable your desktop phone to answer; unanswered calls go to voicemail.</span>
                   </div>
                 </>
               ) : (
@@ -1756,7 +1768,7 @@ export default function App() {
                   <PhoneOff size={28} className="conn-banner-icon" />
                   <div className="conn-banner-text">
                     <strong>OFFLINE</strong>
-                    <span>Set yourself Available to receive calls.</span>
+                    <span>Your route is not selected for new AI calls. Your phone number and voicemail remain available.</span>
                   </div>
                   <button className="conn-go-available" onClick={handleToggleAvailability} disabled={togglingAvail}>
                     {togglingAvail ? '...' : 'GO AVAILABLE'}
@@ -1769,7 +1781,7 @@ export default function App() {
           {/* ── ADMIN: Dialer Gated Banner ──────────────────────────────── */}
           {isOwner && adminStats && adminStats.summary.dialer_status === 'waiting_for_agents' && (
             <div className="dialer-gated-banner">
-              <Pause size={16} /> <strong>Dialing paused</strong> — 0 agents available. It will resume automatically when an agent goes available.
+              <Pause size={16} /> <strong>Dialing paused</strong> — no verified agent routes are selected. Check the team routes below.
             </div>
           )}
 
@@ -1881,141 +1893,7 @@ export default function App() {
               {/* ── OVERVIEW TAB: KPI strip, corrected funnel, recent failures, agent readiness ── */}
               {dashTab === 'overview' && (
                 <>
-                  {/* Live Operations Health Map */}
-                  <LiveHealthMap
-                    campaignState={adminStats.summary.campaign_state}
-                    dialerActivated={adminStats.summary.dialer_activated}
-                    callsToday={adminStats.summary.calls_attempted_today}
-                    callsWeek={adminStats.summary.calls_attempted_week}
-                    callsAll={adminStats.summary.funnel_all?.calls_attempted ?? 0}
-                    liveHumansToday={adminStats.summary.live_humans_today}
-                    liveHumansWeek={adminStats.summary.live_humans_week}
-                    liveHumansAll={adminStats.summary.live_humans_all ?? 0}
-                    transfersRequestedToday={adminStats.summary.transfers_requested_today ?? 0}
-                    transfersRequestedWeek={adminStats.summary.transfers_requested_week ?? 0}
-                    transfersRequestedAll={Number((adminStats.summary as Record<string, unknown>).transfers_requested_all ?? 0)}
-                    talkrouteDialedToday={adminStats.summary.talkroute_dialed_today ?? 0}
-                    talkrouteDialedWeek={adminStats.summary.talkroute_dialed_week ?? 0}
-                    talkrouteDialedAll={Number((adminStats.summary as Record<string, unknown>).talkroute_dialed_all ?? 0)}
-                    agentAnsweredToday={adminStats.summary.agent_answered_today ?? 0}
-                    agentAnsweredWeek={adminStats.summary.agent_answered_week ?? 0}
-                    agentAnsweredAll={Number((adminStats.summary as Record<string, unknown>).agent_answered_all ?? 0)}
-                    bridgeConfirmedToday={(adminStats.summary as Record<string, unknown>).bridge_confirmed_today as number ?? 0}
-                    bridgeConfirmedWeek={(adminStats.summary as Record<string, unknown>).bridge_confirmed_week as number ?? 0}
-                    bridgeConfirmedAll={adminStats.agents.reduce((sum, a) => sum + (a.bridge_confirmed_all ?? 0), 0)}
-                    leadsRemaining={adminStats.summary.leads_remaining}
-                    errorsRecent={adminStats.summary.errors_recent ?? []}
-                    agentsReachable={adminStats.summary.agents_reachable ?? 0}
-                    inboundConfiguredCount={adminStats.agents.filter(a => a.inbound_configured).length}
-                    totalAgentCount={adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).length}
-                    blockingReason={adminStats.summary.blocking_reason ?? ''}
-                    lastRefreshed={dataHealth.lastSuccess}
-                    failedToday={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_today ?? 0)}
-                    failedWeek={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_week ?? 0)}
-                    failedAll={Number((adminStats.summary as Record<string, unknown>).confirmed_transfer_failures_all ?? 0)}
-                    agents={adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).map(a => ({
-                      id: a.id,
-                      full_name: a.full_name,
-                      attempts_today: a.outbound_attempts_today,
-                      attempts_week: a.outbound_attempts_week ?? 0,
-                      attempts_all: a.outbound_attempts_all ?? 0,
-                      live_humans_today: a.live_humans,
-                      live_humans_week: a.live_humans_week ?? 0,
-                      live_humans_all: a.live_humans_all ?? 0,
-                      transfers_requested_today: a.transfers_requested_today ?? 0,
-                      transfers_requested_week: a.transfers_requested_week ?? 0,
-                      transfers_requested_all: a.transfers_requested_all ?? 0,
-                      talkroute_dialed_today: a.talkroute_leg_created_today ?? 0,
-                      talkroute_dialed_week: a.talkroute_leg_created_week ?? 0,
-                      talkroute_dialed_all: a.talkroute_leg_created_all ?? 0,
-                      agent_answered_today: a.talkroute_answered_today ?? 0,
-                      agent_answered_week: a.talkroute_answered_week ?? 0,
-                      agent_answered_all: a.talkroute_answered_all ?? 0,
-                      bridge_confirmed_today: a.bridge_confirmed_today ?? 0,
-                      bridge_confirmed_week: a.bridge_confirmed_week ?? 0,
-                      bridge_confirmed_all: a.bridge_confirmed_all ?? 0,
-                      failed_today: Number((a as unknown as Record<string, unknown>).failed_transfers_today ?? 0),
-                      failed_week: Number((a as unknown as Record<string, unknown>).failed_transfers_week ?? 0),
-                      failed_all: Number((a as unknown as Record<string, unknown>).failed_transfers_all ?? 0),
-                    }))}
-                  />
-
-                  {/* KPI Strip — all values derived from the same monotonic funnel result */}
-                  {(() => {
-                    const f = adminStats.summary.funnel_today;
-                    const s = adminStats.summary;
-                    const funnelData: FunnelData | null = f ? {
-                      calls_attempted: f.calls_attempted,
-                      live_humans_reached: f.live_humans_reached,
-                      transfers_requested: s.transfers_requested_today ?? 0,
-                      talkroute_dialed: s.talkroute_dialed_today ?? 0,
-                      agent_answered: s.agent_answered_today ?? 0,
-                      bridge_confirmed: (s as Record<string, unknown>).bridge_confirmed_today as number ?? 0,
-                      likely_real_conversation: f.likely_real_conversation,
-                      transfer_failed_unverified: s.transfer_failed_unverified_today ?? 0,
-                      data_quality_exceptions: 0,
-                      total_minutes: f.total_minutes,
-                      productive_minutes: f.productive_minutes,
-                      wasted_minutes: f.wasted_minutes,
-                      machine_minutes: f.machine_minutes,
-                      avg_ai_leg_seconds: f.avg_ai_leg_seconds,
-                      machines_detected: f.machines_detected,
-                      avg_machine_seconds: f.avg_machine_seconds,
-                    } : null;
-                    const mono = funnelData ? buildMonotonicFunnel(funnelData) : null;
-                    const kpiCalls = mono?.stages[0]?.value ?? adminStats.summary.calls_attempted_today ?? 0;
-                    const kpiLive = mono?.stages[1]?.value ?? adminStats.summary.live_humans_today ?? 0;
-                    const kpiTransfer = mono?.stages[2]?.value ?? 0;
-                    const kpiBridged = mono?.stages[5]?.value ?? 0;
-                    const rawTransfer = adminStats.summary.transfers_requested_today ?? 0;
-                    const transferDQ = Math.max(0, rawTransfer - kpiTransfer);
-                    const eligibleAgentCount = adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner') && a.active_for_dialer && a.transfer_certified && a.phone_ready && a.talkroute_number && a.talkroute_number.length >= 10).length;
-                    return (
-                  <div className="kpi-strip">
-                    <div className="kpi-item accent-steel">
-                      <span className="kpi-label">CALLS TODAY</span>
-                      <span className="kpi-value">{kpiCalls}</span>
-                      <span className="kpi-hint">Precision dialing, every call counted</span>
-                    </div>
-                    <div className="kpi-item accent-gold">
-                      <span className="kpi-label">LIVE HUMANS</span>
-                      <span className="kpi-value">{kpiLive}</span>
-                      <span className="kpi-hint">Real conversations, real opportunities</span>
-                    </div>
-                    <div className="kpi-item accent-rust">
-                      <span className="kpi-label">TRANSFER REQUESTED</span>
-                      <span className="kpi-value">{kpiTransfer}</span>
-                      {transferDQ > 0 && <span className="kpi-hint">{kpiTransfer} validated + {transferDQ} exception rows</span>}
-                    </div>
-                    <div className="kpi-item accent-sage">
-                      <span className="kpi-label">VERIFIED BRIDGES</span>
-                      <span className="kpi-value">{kpiBridged}</span>
-                      <span className="kpi-hint">Bridge confirmed = strict predicate</span>
-                    </div>
-                    <div className="kpi-item accent-steel">
-                      <span className="kpi-label">ELIGIBLE AGENTS</span>
-                      <span className="kpi-value">{eligibleAgentCount}</span>
-                      <span className="kpi-hint">Connected desktop phones ready for calls</span>
-                    </div>
-                  </div>
-                    );
-                  })()}
-
-                  {/* Talkroute Delivery Verification Timeline */}
-                  <Reveal delay={200}>
-                    {(() => {
-                      const metrics = transferMetricsForWindow(adminStats.summary, 'today');
-                      return <TalkrouteDeliveryTimeline
-                        transferRequested={metrics.requested}
-                        destinationDialed={metrics.dialed}
-                        agentAnswered={metrics.answered}
-                        bridgeConfirmed={metrics.bridged}
-                        failedCount={metrics.failed}
-                        failedReasons={[]}
-                        unverifiedCount={metrics.unverified}
-                      />;
-                    })()}
-                  </Reveal>
+                  <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
 
                   {/* Owner Alert Overview */}
                   <Reveal delay={200}>
@@ -2228,7 +2106,7 @@ export default function App() {
                           <div className="agent-control-right">
                             <div className="direct-number-row direct-number-disabled">
                               <span className="direct-number-locked">
-                                <PhoneOff size={12} /> Direct routing disabled — all transfers go through Talkroute
+                                <PhoneOff size={12} /> Direct routing disabled — all transfers go through Zadarma
                               </span>
                             </div>
                             <div className="concurrency-selector">
@@ -2634,8 +2512,8 @@ export default function App() {
                                   <span className="rh-stat"><Activity size={11} /> {attempts} attempts</span>
                                   <span className="rh-stat"><Users size={11} /> {liveHumans} live humans</span>
                                   <span className="rh-stat"><Flame size={11} /> {transfersReq} transfer req.</span>
-                                  <span className="rh-stat"><Phone size={11} /> {talkrouteLeg} TR leg</span>
-                                  <span className="rh-stat"><Check size={11} /> {talkrouteAns} TR answered</span>
+                                  <span className="rh-stat"><Phone size={11} /> {talkrouteLeg} Zadarma dialed</span>
+                                  <span className="rh-stat"><Check size={11} /> {talkrouteAns} Destination answered</span>
                                   <span className="rh-stat bridge"><ShieldCheck size={11} /> {bridgeConf} bridge confirmed</span>
                                 </div>
                                 <div className="redial-stats">
@@ -2699,8 +2577,8 @@ export default function App() {
                         {[
                           { label: 'Total Outbound', val: transferProof.totals?.total_outbound ?? 0 },
                           { label: 'Transfer Req', val: transferProof.totals?.transfer_requested ?? 0 },
-                          { label: 'Talkroute Dialed', val: transferProof.totals?.talkroute_dialed ?? 0 },
-                          { label: 'Talkroute Answered', val: transferProof.totals?.talkroute_answered ?? 0 },
+                          { label: 'Zadarma Dialed', val: transferProof.totals?.talkroute_dialed ?? 0 },
+                          { label: 'Zadarma Answered', val: transferProof.totals?.talkroute_answered ?? 0 },
                           { label: 'Rep Speech', val: transferProof.totals?.rep_speech_detected ?? 0 },
                           { label: 'Bridge Confirmed', val: transferProof.totals?.bridge_confirmed ?? 0 },
                           { label: 'Transfer Failed', val: transferProof.totals?.transfer_failed ?? 0 },
@@ -3629,7 +3507,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
         <div>
           <div className="eyebrow"><Search size={12} /> ALL CLIENTS</div>
           <h2>Who are you looking for?</h2>
-          <p>Search, open a client, then choose Elizabeth, Talkroute, or Find More Information.</p>
+          <p>Search, open a client, then choose Elizabeth, Zadarma, or Find More Information.</p>
         </div>
       </div>
 
@@ -3774,7 +3652,7 @@ function ContactsView({ searchQuery, searchResults, searching, searchError, sear
                   )}
                   {(contact.phone || contact.phone_normalized) && (
                     <button className="contact-intelligence-action" onClick={() => onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address)}>
-                      <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Talkroute · Find More Information</small></span><ChevronDown size={15} />
+                      <Search size={16} /><span><strong>Open Client</strong><small>Elizabeth · Zadarma · Find More Information</small></span><ChevronDown size={15} />
                     </button>
                   )}
                   <button className="contact-intelligence-action extra-info-card-btn" onClick={() => { onExtraInfo?.({ name: contact.consumer_name || '', phone: contact.phone_normalized || contact.phone || '', address: contact.address || '', email: contactEmails(contact)[0] || '' }); }}>
@@ -3917,8 +3795,8 @@ function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecretary, se
         <div>
           <div className="eyebrow"><Send size={12} /> SECRETARY</div>
           <h2>Elizabeth Will Call for You</h2>
-          <p>Give Elizabeth a name and number. She'll call on your behalf, introduce you, and transfer the prospect straight to your Talkroute line.</p>
-          <p>Elizabeth also answers callbacks to your assigned inbound number. Keep your Talkroute line ready to answer transfers.</p>
+          <p>Give Elizabeth a name and number. She'll call on your behalf, introduce you, and transfer the prospect straight to your Zadarma line.</p>
+          <p>Elizabeth also answers callbacks to your assigned inbound number. Keep your Zadarma line ready to answer transfers.</p>
         </div>
         <button className="secondary-button" onClick={refresh}>
           <RefreshCw size={14} /> Refresh
@@ -4239,7 +4117,7 @@ function ReportedMetrics({ value }: { value: unknown }) {
   if (value === null || value === undefined) return <span>Not reported</span>;
   if (typeof value !== 'object') return <span>{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</span>;
   return <div style={{padding:'8px 12px'}}>{Object.entries(value as Record<string,unknown>).map(([key, item]) => {
-    const label = key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    const label = key.replace(/talkroute/gi, 'Zadarma').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
     return item && typeof item === 'object' ? <details key={key}><summary>{label}</summary><ReportedMetrics value={item}/></details> : <div key={key} style={{display:'flex',justifyContent:'space-between',gap:20,padding:'7px 0',borderBottom:'1px solid #ffffff12'}}><span>{label}</span><ReportedMetrics value={item}/></div>;
   })}</div>;
 }

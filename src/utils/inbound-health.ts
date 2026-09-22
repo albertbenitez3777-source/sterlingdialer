@@ -35,7 +35,7 @@ export function currentInboundHealth(data: unknown): InboundHealth | null {
 export function inboundRouteProblems(route: RouteResult): string[] {
   const problems: string[] = [];
   if (!route.bland_number) problems.push('No inbound line assigned');
-  if (!route.talkroute_number) problems.push('No Talkroute destination');
+  if (!route.talkroute_number) problems.push('No Zadarma destination');
   if (route.inbound_configured === false) problems.push('Inbound not configured');
   if (route.configuration_ready === false && route.bland_number && route.talkroute_number) {
     problems.push('Route check failed');

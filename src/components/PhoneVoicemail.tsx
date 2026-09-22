@@ -22,7 +22,7 @@ export function PhoneVoicemail({ sessionToken, providerUrl, onUnauthorized, canC
     else setError(result.error || 'Could not load voicemail.');
     setLoading(false);
   }, [request]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); const refresh = () => { if (document.visibilityState !== 'hidden') void load(); }; const timer = window.setInterval(refresh, 30000); document.addEventListener('visibilitychange', refresh); return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); }; }, [load]);
   async function play(message: Message) {
     setPlayingId(message.id); setError('');
     const result = await request<{url: string}>({ action: 'mailbox_audio', id: message.id });
@@ -37,8 +37,9 @@ export function PhoneVoicemail({ sessionToken, providerUrl, onUnauthorized, canC
   return <div className="ip17-voicemail">
     <header><h3>Voicemail</h3><button aria-label="Refresh voicemail" disabled={loading} onClick={() => void load()}><RefreshCw size={17} /></button></header>
     <p className="ip17-vm-help">Listen here even when your phone is disconnected.</p>
+    {!canCall && messages.length > 0 && <p className="ip17-activity-note">Listening does not require the microphone. Enable your phone on Keypad when you want to call back.</p>}
     {error && <p className="ip17-error" role="alert">{error}</p>}
-    {!delivery && !loading && !error && <p className="ip17-vm-setup">Voicemail delivery is awaiting setup and a test message. Your administrator can configure it in Test Calls.</p>}
+    {!delivery && !loading && !error && <p className="ip17-vm-setup">No voicemail recording has reached this inbox yet. Your administrator needs to connect voicemail email delivery to the app. Calls that reached your voicemail appear in Recents.</p>}
     {!messages.length && <div className="ip17-vm-empty"><Voicemail size={34} /><p>{loading ? 'Loading messages…' : 'No saved messages'}</p></div>}
     {messages.map(message => <article key={message.id} className={message.heard_at ? '' : 'unheard'}>
       <div><strong>{message.caller_name || (message.caller_number ? formatPhone(message.caller_number) : 'Unknown caller')}</strong><time>{new Date(message.received_at).toLocaleString()}</time>{message.duration_seconds != null && <small>{Math.floor(message.duration_seconds / 60)}:{String(message.duration_seconds % 60).padStart(2,'0')}</small>}</div>

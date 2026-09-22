@@ -151,16 +151,16 @@ function buildNodes(props: HealthMapProps, filter: TimeFilter): HealthNode[] {
       value: maskValue(txReq),
       detail: `${maskValue(txReq)} transfers requested from ${maskValue(live)} live humans.`,
       recommendation: transferErrors.length > 0
-        ? `${transferErrors.length} transfer error(s) detected. Check agent Talkroute numbers.`
+        ? `${transferErrors.length} transfer error(s) detected. Check agent Zadarma numbers.`
         : undefined,
     },
     {
       key: 'talkroute_dialed',
-      label: 'Talkroute Dialed',
+      label: 'Zadarma Dialed',
       icon: <Phone size={16} />,
       state: deriveNodeState(trDialed, stopped, 0),
       value: maskValue(trDialed),
-      detail: `${maskValue(trDialed)} Talkroute destinations dialed for delivery.`,
+      detail: `${maskValue(trDialed)} Zadarma destinations dialed for delivery.`,
     },
     {
       key: 'agent_answered',

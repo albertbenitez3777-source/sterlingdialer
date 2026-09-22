@@ -64,7 +64,7 @@ interface OpportunitiesFeedProps {
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   bridge_confirmed: { label: 'Bridge Confirmed', color: 'green' },
   talkroute_answered: { label: 'Agent Answered', color: 'cyan' },
-  talkroute_dialed: { label: 'Talkroute Dialed', color: 'blue' },
+  talkroute_dialed: { label: 'Zadarma Dialed', color: 'blue' },
   transfer_requested: { label: 'Transfer Requested', color: 'amber' },
   live_human: { label: 'Live Human', color: 'green' },
   voicemail: { label: 'Voicemail', color: 'blue' },

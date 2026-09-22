@@ -322,7 +322,7 @@ export function AgentWorkspaceView({
           <AlertTriangle size={14} />
           <div className="ws-alerts-list">
             {alerts.stale_in_live > 0 && <span>{alerts.stale_in_live} stale call{alerts.stale_in_live > 1 ? 's' : ''} stuck in live queue</span>}
-            {alerts.talkroute_no_answer > 3 && <span>{alerts.talkroute_no_answer} Talkroute calls unanswered today</span>}
+            {alerts.talkroute_no_answer > 3 && <span>{alerts.talkroute_no_answer} Zadarma calls unanswered today</span>}
             {alerts.answer_no_bridge > 0 && <span>{alerts.answer_no_bridge} answered but not bridged</span>}
             {alerts.no_recording_pct > 60 && <span>{Math.round(alerts.no_recording_pct)}% of calls missing recordings</span>}
           </div>

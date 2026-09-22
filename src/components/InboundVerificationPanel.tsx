@@ -56,7 +56,7 @@ export function InboundVerificationPanel({ agents, providerUrl, sessionToken, on
             const problems = route ? inboundRouteProblems(route) : [];
             return <div key={agent.id} className={'inbound-agent-row live-route-row ' + (verified ? 'configured' : 'not-configured')}>
               <span className="inbound-agent-name">{agent.full_name}</span>
-              <span className="inbound-agent-route">{agent.bland_number ? `Bland ${agent.bland_number.slice(-4)}` : 'No inbound line'} → {agent.talkroute_number ? `Talkroute ${agent.talkroute_number.slice(-4)}` : 'No destination'}
+              <span className="inbound-agent-route">{agent.bland_number ? `Bland ${agent.bland_number.slice(-4)}` : 'No inbound line'} → {agent.talkroute_number ? `Zadarma ${agent.talkroute_number.slice(-4)}` : 'No destination'}
                 <br />{route ? (route.agent_ready ? 'Selected for campaign phone delivery' : 'Not selected or phone routing incomplete') : 'Availability not verified'}
                 {problems.length > 0 && <><br />{problems.join(' · ')}</>}
               </span>

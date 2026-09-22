@@ -41,7 +41,7 @@ export function TalkrouteDeliveryTimeline({
     <div className="panel delivery-timeline-panel">
       <div className="panel-heading">
         <div>
-          <div className="eyebrow"><Radio size={12} /> TALKROUTE DELIVERY</div>
+          <div className="eyebrow"><Radio size={12} /> ZADARMA DELIVERY</div>
           <h3>Transfer Verification Timeline</h3>
         </div>
       </div>

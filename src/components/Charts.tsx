@@ -55,7 +55,7 @@ function QualityAlertCards({ alerts }: { alerts: QualityAlerts }) {
   const items: { icon: React.ReactNode; label: string; value: string; warn: boolean }[] = [];
 
   if (alerts.stale_active_count > 0) items.push({ icon: <Clock size={14} />, label: 'Stale Active Calls', value: `${alerts.stale_active_count}`, warn: true });
-  if (alerts.talkroute_dialed_no_answer > 0) items.push({ icon: <PhoneOff size={14} />, label: 'Talkroute No-Answer', value: `${alerts.talkroute_dialed_no_answer}`, warn: alerts.talkroute_dialed_no_answer > 3 });
+  if (alerts.talkroute_dialed_no_answer > 0) items.push({ icon: <PhoneOff size={14} />, label: 'Zadarma No-Answer', value: `${alerts.talkroute_dialed_no_answer}`, warn: alerts.talkroute_dialed_no_answer > 3 });
   if (alerts.answer_no_bridge > 0) items.push({ icon: <Zap size={14} />, label: 'Answered, No Bridge', value: `${alerts.answer_no_bridge}`, warn: true });
   if (alerts.no_recording_pct > 30) items.push({ icon: <Mic size={14} />, label: 'Missing Recordings', value: `${alerts.no_recording_pct}%`, warn: alerts.no_recording_pct > 60 });
   if (alerts.phone_only_pct > 50) items.push({ icon: <Users size={14} />, label: 'Phone-Only Contacts', value: `${alerts.phone_only_pct}%`, warn: false });

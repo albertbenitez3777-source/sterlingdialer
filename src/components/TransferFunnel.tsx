@@ -53,7 +53,7 @@ export function TransferFunnel({ stages, exceptions, sideOutcome, exceptionsExpl
           {showExceptions && (
             <div className="funnel-exceptions-detail">
               <p className="funnel-exceptions-intro">
-                Records with downstream flags (e.g. bridge_confirmed) but missing prerequisite evidence (e.g. no talkroute_answered).
+                Records with downstream flags (e.g. bridge_confirmed) but missing prerequisite evidence (e.g. no destination answer).
                 These are excluded from the funnel above to maintain monotonic integrity.
               </p>
               {exceptionsExplanation && exceptionsExplanation.length > 0 ? (

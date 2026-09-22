@@ -6,6 +6,7 @@ import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
 import { usePhonePresence } from '@/phone/use-phone-presence';
 import './IPhone.css';
 import { PhoneVoicemail } from './PhoneVoicemail';
+import { PhoneActivity, usePhoneActivityCount } from './PhoneActivity';
 import { useVoicemailCount } from '@/phone/useVoicemailCount';
 
 interface IPhoneProps { agentName: string; sessionToken: string; providerUrl: string; onUnauthorized: () => void }
@@ -21,8 +22,9 @@ const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seco
 
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
   const [open, setOpen] = useState(true);
-  const [view, setView] = useState<'keypad' | 'voicemail'>('keypad');
+  const [view, setView] = useState<'keypad' | 'voicemail' | 'activity'>('keypad');
   const unreadVoicemails = useVoicemailCount(sessionToken, providerUrl);
+  const unreadActivity = usePhoneActivityCount(sessionToken, providerUrl);
   const [route, setRoute] = useState<RouteData | null>(null);
   const [connection, setConnection] = useState<Connection>('idle');
   const [callState, setCallState] = useState<PhoneState>('idle');
@@ -212,14 +214,14 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   return <>
     {frame}
     <aside className={`ip17-shell${!open ? ' ip17-closed' : ''}${callState === 'ringing-in' ? ' ip17-ringing' : ''}`} aria-label={`${agentName}'s Zadarma phone`}>
-      {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} /></button> : <>
+      {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} />{(unreadActivity + (unreadVoicemails || 0)) > 0 && <span className="ip17-vm-badge">{unreadActivity + (unreadVoicemails || 0)}</span>}</button> : <>
         <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
           {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
           {presenceError && <div className="ip17-error" role="status">{presenceError}</div>}
-          {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
-          {view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
+          {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'activity' ? 'page' : undefined} onClick={() => setView('activity')}>Recents{unreadActivity > 0 && <span className="ip17-vm-badge">{unreadActivity}</span>}</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
+          {view === 'activity' && !active ? <PhoneActivity sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
             {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
             {micGranted && !active && <div className="ip17-mic-status"><Mic size={13} />Microphone allowed</div>}
