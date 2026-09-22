@@ -1,5 +1,5 @@
 
-const roles = ['owner','administrator','supervisor'];
+const roles = ['owner','administrator'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function phonePresence(db: any, agent: {id:string;role:string}, body: Record<string,unknown>) {
  const reply=(data:unknown,status=200)=>({data,status});
@@ -25,7 +25,7 @@ export async function phonePresence(db: any, agent: {id:string;role:string}, bod
   return error?reply({error:'Phone status could not be saved'},503):reply({ok:true,accepted:data});
  }
  if(body.action!=='phone_presence_list') return reply({error:'Unknown phone status action'},400);
- if(!roles.includes(agent.role)) return reply({error:'Supervisor access required'},403);
+ if(!roles.includes(agent.role)) return reply({error:'Administrator access required'},403);
  const {data:agents,error}=await db.from('agents').select('id,full_name').eq('status','active').eq('is_owner',false).order('full_name');
  if(error) return reply({error:'Phone status unavailable'},503);
  const checked_at=new Date().toISOString();

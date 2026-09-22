@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
       return data.agent;
     };
 
-    const isReadAdmin = (role: string) => role === "owner" || role === "administrator" || role === "supervisor";
+    const isReadAdmin = (role: string) => role === "owner" || role === "administrator";
 
     // Read-only provider diagnostics, protected by the existing owner session.
     // Return counts and account status without caller details or API keys.
@@ -509,7 +509,7 @@ Deno.serve(async (req: Request) => {
       const agent = await verifySession(session_token);
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-      const isAdmin = agent.role === "owner" || agent.role === "administrator" || agent.role === "supervisor";
+      const isAdmin = agent.role === "owner" || agent.role === "administrator";
       const targetAgentId = isAdmin && filter_agent_id ? filter_agent_id : agent.id;
       const selectedTab = tab === "week" ? "week" : tab === "all" ? "all" : "today";
 
@@ -3235,7 +3235,7 @@ RULES — follow exactly, no exceptions:
       const { session_token } = body;
       const agent = await verifySession(session_token);
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (agent.role !== "owner" && agent.role !== "administrator" && agent.role !== "supervisor") {
+      if (agent.role !== "owner" && agent.role !== "administrator") {
         return new Response(JSON.stringify({ error: "Admin access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const { data, error: rpcErr } = await supabase.rpc("get_owner_alert_overview");

@@ -1,6 +1,6 @@
 type Agent = { id: string; role: string };
 type Body = Record<string, unknown>;
-const admins = ['owner', 'administrator', 'supervisor'];
+const admins = ['owner', 'administrator'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const AGENT_PHONE_ROUTES: Record<string, { from: string; transfer: string; extension: string }> = {
   'James Spencer': { from: '+17712026103', transfer: '+12027739590', extension: '100' },
@@ -56,7 +56,7 @@ export function callEvidence(data: any) {
 export async function testCalls(db: any, agent: Agent, body: Body) {
   const respond = (data: unknown, status = 200) => ({ data, status });
   const action = String(body.action || '');
-  if (!admins.includes(agent.role)) return respond({ error: 'Supervisor access is required for test calls.' }, 403);
+  if (!admins.includes(agent.role)) return respond({ error: 'Administrator access is required for test calls.' }, 403);
   if (action === 'phone_test_list') {
     const [routes, calls] = await Promise.all([
       db.from('agents').select('id,full_name,bland_number,talkroute_number,zadarma_sip_login').in('full_name', Object.keys(AGENT_PHONE_ROUTES)),

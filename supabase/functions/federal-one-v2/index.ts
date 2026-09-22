@@ -5,6 +5,7 @@ import { zadarma } from "./zadarma.ts";
 import { testCalls } from "./test-calls.ts";
 import { mailbox } from "./mailbox.ts";
 import { phonePresence } from "./phone-presence.ts";
+import { operations } from "./operations.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -122,6 +123,8 @@ Deno.serve(async (req: Request) => {
     if (!verified?.valid || !verified.agent?.id) return json({ error: "Invalid or expired session" }, 401);
     const agent = verified.agent as { id: string; full_name: string; role: string };
     const action = String(body.action || "");
+    const operation = await operations(supabase, agent, body);
+    if (operation) return json(operation.data, operation.status);
     if (action.startsWith("phone_presence_")) {
       const result = await phonePresence(supabase, agent, body);
       return json(result.data, result.status);
@@ -138,7 +141,7 @@ Deno.serve(async (req: Request) => {
     if (chat) return json(chat.data, chat.status);
 
     if (action === "get_team_status") {
-      if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Administrator access required" }, 403);
+      if (!["owner", "administrator"].includes(agent.role)) return json({ error: "Administrator access required" }, 403);
       const [{ data: agents, error: agentsError }, { data: settings }, { data: heartbeats }, { data: routes }, { data: phones }] = await Promise.all([
         supabase.from("agents").select("id,full_name,status,active_for_dialer,available_for_transfer,inbound_configured,mapping_verified,provider_sync_status,last_verification_at").eq("status", "active").eq("is_owner", false).order("full_name"),
         supabase.from("federal_one_agent_settings").select("agent_id,personal_dialer_state,camera_state,camera_verified_at,number_certification_state,updated_at"),
@@ -325,7 +328,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "get_camera_statuses") {
-      if (!["owner", "administrator", "supervisor"].includes(agent.role)) return json({ error: "Admin access required" }, 403);
+      if (!["owner", "administrator"].includes(agent.role)) return json({ error: "Admin access required" }, 403);
       const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
       const withFrames = body.include_frames === true;
       const cols = withFrames

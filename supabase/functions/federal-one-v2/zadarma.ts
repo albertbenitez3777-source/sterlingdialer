@@ -56,7 +56,7 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
   }
 
   if (!['zadarma_callback', 'zadarma_webrtc_key', 'zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming', 'zadarma_setup_voicemail'].includes(action)) return respond({ error: 'Unknown phone action.' }, 400);
-  if (['zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming', 'zadarma_setup_voicemail'].includes(action) && !['owner', 'supervisor'].includes(agent.role)) return respond({ error: 'Owner or supervisor access is required.' }, 403);
+  if (['zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming', 'zadarma_setup_voicemail'].includes(action) && !['owner', 'administrator'].includes(agent.role)) return respond({ error: 'Administrator access is required.' }, 403);
   const { data: rows, error: configError } = await supabase.from('system_config').select('key,value')
     .in('key', ['zadarma_api_key', 'zadarma_api_secret']);
   if (configError) return respond({ error: 'Phone service settings are unavailable.' }, 503);

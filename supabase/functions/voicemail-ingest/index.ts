@@ -8,11 +8,16 @@ import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  const secret = Deno.env.get('VOICEMAIL_INGEST_SECRET');
-  if (!secret || secret.length < 32) return json({ error: 'Voicemail receiving integration is not configured' }, 503);
   const timestamp = req.headers.get('x-voicemail-timestamp') || '';
   const signature = req.headers.get('x-voicemail-signature') || '';
   if (!/^\d{10}$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !/^[a-f0-9]{64}$/.test(signature)) return json({ error: 'Unauthorized' }, 401);
+  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+  let secret = Deno.env.get('VOICEMAIL_INGEST_SECRET');
+  if (!secret) {
+    const { data } = await db.from('system_config').select('value').eq('key', 'voicemail_ingest_secret').maybeSingle();
+    secret = data?.value;
+  }
+  if (!secret || secret.length < 32) return json({ error: 'Voicemail receiving integration is not configured' }, 503);
   if (Number(req.headers.get('content-length') || 0) > 22_000_000) return json({ error: 'Message is too large' }, 413);
   // Read with a hard bound even when Content-Length is omitted or inaccurate.
   const reader = req.body?.getReader();
@@ -41,7 +46,6 @@ Deno.serve(async (req: Request) => {
     const ogg = magic === 'OggS';
     if (!wav && !mp3 && !ogg) return json({ error: 'Unsupported audio' }, 400);
     const mime = wav ? 'audio/wav' : mp3 ? 'audio/mpeg' : 'audio/ogg';
-    const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
     const { data: agent, error } = await db.from('agents').select('id').eq('zadarma_sip_login', `566918-${body.extension}`).single();
     if (error || !agent) return json({ error: 'Mailbox not found' }, 404);
     const { data: existing } = await db.from('federal_one_voicemails').select('id').eq('provider_message_id', body.message_id).maybeSingle();
