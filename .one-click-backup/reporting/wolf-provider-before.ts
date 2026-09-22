@@ -2170,13 +2170,13 @@ AI DISCLOSURE: If asked whether you are AI, answer truthfully: "Yes, I am an AI 
 
       // Query by batch_id only (not agent_id) so cross-agent redials work correctly
       // Paginated fetch — no truncation
-      let recentRedials: Array<{ id: string; queue: string; provider_call_id: string; consumer_name: string; consumer_phone: string; agent_notes: string; is_completed: boolean; duration_seconds: number; transfer_status: string; is_live_human: boolean; bridge_confirmed: boolean; transfer_requested_at: string | null; transfer_state: string }> = [];
+      let recentRedials: Array<{ id: string; queue: string; provider_call_id: string; consumer_name: string; consumer_phone: string; agent_notes: string; is_completed: boolean; duration_seconds: number; transfer_status: string; is_live_human: boolean }> = [];
       let pageOffset = 0;
       const pageSize = 1000;
       while (true) {
         const { data: page, error } = await supabase
           .from("calls")
-          .select("id, queue, provider_call_id, consumer_name, consumer_phone, agent_notes, is_completed, duration_seconds, transfer_status, is_live_human, bridge_confirmed, transfer_requested_at, transfer_state")
+          .select("id, queue, provider_call_id, consumer_name, consumer_phone, agent_notes, is_completed, duration_seconds, transfer_status, is_live_human")
           .eq("call_direction", "outbound")
           .like("agent_notes", `redial_batch:${batch_id}:%`)
           .order("created_at", { ascending: false })
@@ -2190,19 +2190,15 @@ AI DISCLOSURE: If asked whether you are AI, answer truthfully: "Yes, I am an AI 
 
       const total = recentRedials?.length || 0;
       const withCallId = recentRedials?.filter(c => c.provider_call_id).length || 0;
-      const pending = recentRedials?.filter(c => c.queue === "pending" && !c.is_completed).length || 0;
-      const answered = recentRedials?.filter(c => c.provider_call_id && c.is_live_human).length || 0;
-      const noAnswer = recentRedials?.filter(c => c.provider_call_id && c.queue === "no_answer").length || 0;
+      const pending = recentRedials?.filter(c => c.queue === "pending").length || 0;
+      const answered = recentRedials?.filter(c => c.queue === "fire_transfer" || c.queue === "human_drop").length || 0;
+      const noAnswer = recentRedials?.filter(c => c.queue === "no_answer").length || 0;
       const failed = recentRedials?.filter(c => c.agent_notes?.endsWith(":failed")).length || 0;
-      const dialing = recentRedials?.filter(c => !c.provider_call_id && !c.is_completed && c.queue === "pending").length || 0;
+      const dialing = recentRedials?.filter(c => c.agent_notes?.endsWith(":dialing")).length || 0;
 
       return new Response(JSON.stringify({
         success: true,
         total, withCallId, pending, answered, noAnswer, failed, dialing,
-        transfers: recentRedials.filter(c => c.provider_call_id && c.bridge_confirmed).length,
-        transferRequests: recentRedials.filter(c => c.provider_call_id && c.transfer_requested_at).length,
-        liveHumans: answered,
-        voicemails: recentRedials.filter(c => c.provider_call_id && c.queue === "voice_message").length,
         calls: recentRedials || [],
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2214,9 +2210,208 @@ AI DISCLOSURE: If asked whether you are AI, answer truthfully: "Yes, I am an AI 
       if (!agent) return new Response(JSON.stringify({ error: "Invalid session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (!isReadAdmin(agent.role)) return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-      const { data, error } = await supabase.rpc("get_redial_reporting", { p_agent_id: agent_id || null });
-      if (error) return new Response(JSON.stringify({ error: "Redial statistics unavailable" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Fetch all redial calls — both owner redial_batch:* (new format includes type) and agent_redial:*
+      let query = supabase
+        .from("calls")
+        .select("id, agent_id, queue, consumer_name, consumer_phone, provider_call_id, agent_notes, transfer_status, is_live_human, is_completed, duration_seconds, created_at, agents!inner(full_name)")
+        .or("agent_notes.like.redial_batch:%,agent_notes.like.agent_redial:%")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (agent_id) query = query.eq("agent_id", agent_id);
+
+      const { data: redialCalls, error } = await query;
+      if (error) return new Response(JSON.stringify({ error: "DB error: " + error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      // Parse notes to extract batch_id and redial type (transfers vs humans vs agent_selected)
+      type ParsedRedial = { batchId: string; redialType: string; cleanNotes: string };
+      const parseNotes = (notes: string): ParsedRedial | null => {
+        // Strip auto-clean suffix that the stale-call cleaner appends — it contaminates the batch ID and status
+        const cleanNotes = notes.replace(/\s*\[Auto-cleaned:.*\]\s*$/, "").trim();
+        if (cleanNotes.startsWith("redial_batch:")) {
+          // New format: redial_batch:<uuid>:transfers:placed  OR  redial_batch:<uuid>:humans:failed
+          // Old format: redial_batch:<uuid>:placed  (no type — treat as unknown)
+          const parts = cleanNotes.split(":");
+          const batchId = parts[1] || "unknown";
+          const typePart = parts[2] || "unknown";
+          if (typePart === "transfers" || typePart === "humans") return { batchId, redialType: typePart, cleanNotes };
+          // Old format without type — infer from queue later
+          return { batchId, redialType: "unknown", cleanNotes };
+        } else if (cleanNotes.startsWith("agent_redial:")) {
+          const parts = cleanNotes.split(":");
+          return { batchId: parts[1] || "unknown", redialType: "agent_selected", cleanNotes };
+        }
+        return null;
+      };
+
+      // Today's date in ET (server runs UTC, dashboard shows ET)
+      const now = new Date();
+      const etOffset = -4 * 60; // EDT = UTC-4
+      const etNow = new Date(now.getTime() + etOffset * 60 * 1000);
+      const todayET = etNow.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      type BatchStat = {
+        batch_id: string; agent_id: string; agent_name: string; type: string;
+        total: number; placed: number; pending: number; answered: number;
+        transfer_requested: number; transfer_successful: number; transfer_failed: number;
+        no_answer: number; failed: number; live_humans: number; voicemails: number;
+        total_minutes: number; created_at: string; is_active: boolean; is_today: boolean;
+      };
+      type AgentDailyStat = {
+        agent_id: string; agent_name: string;
+        transfer_redials_today: number; human_redials_today: number; agent_redials_today: number;
+        transfer_redial_batches_today: number; human_redial_batches_today: number; agent_redial_batches_today: number;
+        transfers_from_redial_today: number; live_humans_from_redial_today: number;
+        answered_today: number; no_answer_today: number; failed_today: number; total_calls_today: number;
+        voicemails_today: number; total_minutes_today: number;
+        connect_rate_today: number; transfer_conversion_rate_today: number;
+      };
+
+      const batchMap = new Map<string, BatchStat>();
+      const agentDailyMap = new Map<string, AgentDailyStat>();
+      const dailyBatchTracker = new Map<string, Set<string>>(); // agent_id -> set of batch_ids today
+
+      const ensureAgentDaily = (agentId: string, agentName: string): AgentDailyStat => {
+        if (!agentDailyMap.has(agentId)) {
+          agentDailyMap.set(agentId, {
+            agent_id: agentId, agent_name: agentName,
+            transfer_redials_today: 0, human_redials_today: 0, agent_redials_today: 0,
+            transfer_redial_batches_today: 0, human_redial_batches_today: 0, agent_redial_batches_today: 0,
+            transfers_from_redial_today: 0, live_humans_from_redial_today: 0,
+            answered_today: 0, no_answer_today: 0, failed_today: 0, total_calls_today: 0,
+            voicemails_today: 0, total_minutes_today: 0,
+            connect_rate_today: 0, transfer_conversion_rate_today: 0,
+          });
+          dailyBatchTracker.set(agentId, new Set());
+        }
+        return agentDailyMap.get(agentId)!;
+      };
+
+      for (const call of (redialCalls || [])) {
+        const notes = call.agent_notes || "";
+        const parsed = parseNotes(notes);
+        if (!parsed) continue;
+        const { batchId, redialType, cleanNotes } = parsed;
+
+        const agentName = (call.agents as { full_name: string } | null)?.full_name || "Unknown";
+        const callDateET = (() => {
+          const d = new Date(call.created_at);
+          const et = new Date(d.getTime() + etOffset * 60 * 1000);
+          return et.toISOString().slice(0, 10);
+        })();
+        const isToday = callDateET === todayET;
+
+        // Batch-level stats
+        const key = batchId;
+        if (!batchMap.has(key)) {
+          batchMap.set(key, {
+            batch_id: batchId, agent_id: call.agent_id, agent_name: agentName, type: redialType,
+            total: 0, placed: 0, pending: 0, answered: 0,
+            transfer_requested: 0, transfer_successful: 0, transfer_failed: 0,
+            no_answer: 0, failed: 0, live_humans: 0, voicemails: 0,
+            total_minutes: 0, created_at: call.created_at, is_active: false, is_today: isToday,
+          });
+        }
+        const b = batchMap.get(key)!;
+        b.total++;
+        if (call.provider_call_id) b.placed++;
+        if (call.queue === "pending") { b.pending++; b.is_active = true; }
+        if (call.queue === "fire_transfer") { b.answered++; b.transfer_requested++; b.transfer_successful++; }
+        if (call.queue === "human_drop") { b.answered++; b.live_humans++; if (call.transfer_status && call.transfer_status !== "none" && call.transfer_status !== "successful") b.transfer_failed++; }
+        if (call.queue === "no_answer") b.no_answer++;
+        if (call.queue === "voice_message") b.voicemails++;
+        if (cleanNotes.endsWith(":failed")) b.failed++;
+        if (call.transfer_status === "requested" || call.transfer_status === "transfer_api_accepted") b.transfer_requested++;
+        if (call.transfer_status === "successful") b.transfer_successful++;
+        if (call.transfer_status === "unsuccessful") b.transfer_failed++;
+        b.total_minutes += Math.round((call.duration_seconds || 0) / 60 * 100) / 100;
+
+        // Per-agent daily stats
+        if (isToday) {
+          const ad = ensureAgentDaily(call.agent_id, agentName);
+          ad.total_calls_today++;
+          if (call.queue === "fire_transfer") ad.transfers_from_redial_today++;
+          if (call.queue === "human_drop") ad.live_humans_from_redial_today++;
+          if (call.queue === "fire_transfer" || call.queue === "human_drop") ad.answered_today++;
+          if (call.queue === "no_answer") ad.no_answer_today++;
+          if (call.queue === "voice_message") ad.voicemails_today++;
+          if (cleanNotes.endsWith(":failed")) ad.failed_today++;
+          ad.total_minutes_today += Math.round((call.duration_seconds || 0) / 60 * 100) / 100;
+
+          // Count unique batches per type per agent today
+          if (redialType === "transfers") ad.transfer_redials_today++;
+          else if (redialType === "humans") ad.human_redials_today++;
+          else if (redialType === "agent_selected") ad.agent_redials_today++;
+
+          const tracker = dailyBatchTracker.get(call.agent_id)!;
+          const batchKey = `${redialType}:${batchId}`;
+          if (!tracker.has(batchKey)) {
+            tracker.add(batchKey);
+            if (redialType === "transfers") ad.transfer_redial_batches_today++;
+            else if (redialType === "humans") ad.human_redial_batches_today++;
+            else if (redialType === "agent_selected") ad.agent_redial_batches_today++;
+          }
+        }
+      }
+
+      const batches = Array.from(batchMap.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const agents_daily = Array.from(agentDailyMap.values()).sort((a, b) => a.agent_name.localeCompare(b.agent_name));
+
+      // Compute connect rate and transfer conversion rate per agent
+      for (const ad of agents_daily) {
+        ad.connect_rate_today = ad.total_calls_today > 0 ? Math.round((ad.answered_today / ad.total_calls_today) * 1000) / 10 : 0;
+        ad.transfer_conversion_rate_today = ad.answered_today > 0 ? Math.round((ad.transfers_from_redial_today / ad.answered_today) * 1000) / 10 : 0;
+      }
+
+      // Overall totals (all-time) — includes computed rates
+      const totalCallsAll = batches.reduce((s, b) => s + b.total, 0);
+      const totalAnsweredAll = batches.reduce((s, b) => s + b.answered, 0);
+      const totalTransfersAll = batches.reduce((s, b) => s + b.transfer_successful, 0);
+      const overall = {
+        total_batches: batches.length,
+        total_calls: totalCallsAll,
+        total_placed: batches.reduce((s, b) => s + b.placed, 0),
+        total_transfer_requested: batches.reduce((s, b) => s + b.transfer_requested, 0),
+        total_transfer_successful: totalTransfersAll,
+        total_transfer_failed: batches.reduce((s, b) => s + b.transfer_failed, 0),
+        total_answered: totalAnsweredAll,
+        total_no_answer: batches.reduce((s, b) => s + b.no_answer, 0),
+        total_live_humans: batches.reduce((s, b) => s + b.live_humans, 0),
+        total_voicemails: batches.reduce((s, b) => s + b.voicemails, 0),
+        total_failed: batches.reduce((s, b) => s + b.failed, 0),
+        total_minutes: Math.round(batches.reduce((s, b) => s + b.total_minutes, 0) * 100) / 100,
+        active_batches: batches.filter(b => b.is_active).length,
+        connect_rate: totalCallsAll > 0 ? Math.round((totalAnsweredAll / totalCallsAll) * 1000) / 10 : 0,
+        transfer_conversion_rate: totalAnsweredAll > 0 ? Math.round((totalTransfersAll / totalAnsweredAll) * 1000) / 10 : 0,
+        cost_per_transfer: totalTransfersAll > 0 ? Math.round((batches.reduce((s, b) => s + b.total_minutes, 0) / totalTransfersAll) * 100) / 100 : 0,
+      };
+
+      // Today's totals (derived from agents_daily) — includes computed rates
+      const todayTotalCalls = agents_daily.reduce((s, a) => s + a.total_calls_today, 0);
+      const todayAnswered = agents_daily.reduce((s, a) => s + a.answered_today, 0);
+      const todayTransfers = agents_daily.reduce((s, a) => s + a.transfers_from_redial_today, 0);
+      const todayMinutes = Math.round(agents_daily.reduce((s, a) => s + a.total_minutes_today, 0) * 100) / 100;
+      const today = {
+        date: todayET,
+        total_calls: todayTotalCalls,
+        transfer_redials: agents_daily.reduce((s, a) => s + a.transfer_redials_today, 0),
+        human_redials: agents_daily.reduce((s, a) => s + a.human_redials_today, 0),
+        agent_redials: agents_daily.reduce((s, a) => s + a.agent_redials_today, 0),
+        transfer_batches: agents_daily.reduce((s, a) => s + a.transfer_redial_batches_today, 0),
+        human_batches: agents_daily.reduce((s, a) => s + a.human_redial_batches_today, 0),
+        agent_batches: agents_daily.reduce((s, a) => s + a.agent_redial_batches_today, 0),
+        transfers_from_redial: todayTransfers,
+        live_humans_from_redial: agents_daily.reduce((s, a) => s + a.live_humans_from_redial_today, 0),
+        answered: todayAnswered,
+        no_answer: agents_daily.reduce((s, a) => s + a.no_answer_today, 0),
+        failed: agents_daily.reduce((s, a) => s + a.failed_today, 0),
+        voicemails: agents_daily.reduce((s, a) => s + a.voicemails_today, 0),
+        total_minutes: todayMinutes,
+        connect_rate: todayTotalCalls > 0 ? Math.round((todayAnswered / todayTotalCalls) * 1000) / 10 : 0,
+        transfer_conversion_rate: todayAnswered > 0 ? Math.round((todayTransfers / todayAnswered) * 1000) / 10 : 0,
+        cost_per_transfer: todayTransfers > 0 ? Math.round((todayMinutes / todayTransfers) * 100) / 100 : 0,
+      };
+
+      return new Response(JSON.stringify({ success: true, batches, overall, agents_daily, today }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // AGENT_REDIAL: any logged-in agent selects up to 3 contacts to re-dial
@@ -3122,5 +3317,4 @@ function normalizeToE164(input: string): string {
 // deploy3-1787853510
 // deploy4-1787853815
 // deploy-v280-transfer-alerts
-
 
