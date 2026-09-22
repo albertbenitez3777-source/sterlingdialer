@@ -20,13 +20,21 @@ export async function mailbox(db: any, agent: {id: string; role: string}, body: 
       const request = await zadarmaClient(db);
       if (action === 'mailbox_setup') {
         const email = validMailboxEmail(body.email);
+        const existing = await request('/v1/pbx/redirection/', { pbx_number: route.extension });
+        // Preserve the agent's uploaded greeting when delivery is configured again.
+        const greeting = existing.voicemail_greeting === 'own' ? 'own' : 'standart';
         await request('/v1/pbx/redirection/', { pbx_number: route.extension, status: 'on', type: 'voicemail',
-          condition: 'noanswer', destination: email, voicemail_greeting: 'standart' }, 'POST');
+          condition: 'noanswer', destination: email, voicemail_greeting: greeting }, 'POST');
       }
       const data = await request('/v1/pbx/redirection/', { pbx_number: route.extension });
-      return reply({ configured: data.current_status === 'on' && data.type === 'voicemail' && data.condition === 'noanswer',
+      const { data: latestMessage } = await db.from('federal_one_voicemails').select('id')
+        .eq('agent_id', row.id).limit(1).maybeSingle();
+      const receiverConfigured = (Deno.env.get('VOICEMAIL_INGEST_SECRET') || '').length >= 32;
+      return reply({ configured: data.current_status === 'on' && data.type === 'voicemail',
         email: data.type === 'voicemail' ? data.destination : '', condition: data.condition || null,
-        inbox_connected: Boolean(Deno.env.get('VOICEMAIL_INGEST_SECRET')) });
+        greeting: data.voicemail_greeting || null,
+        inbox_connected: receiverConfigured && Boolean(latestMessage),
+        inbox_receiving_configured: receiverConfigured, delivery_verified: Boolean(latestMessage) });
     } catch (e) { return reply({ error: e instanceof Error ? e.message : 'Voicemail setup could not be verified.' }, 400); }
   }
   // Session identity determines the mailbox. A supplied agent_id is never used.
@@ -49,3 +57,4 @@ export async function mailbox(db: any, agent: {id: string; role: string}, body: 
   const { data, error: signedError } = await db.storage.from('agent-voicemail').createSignedUrl(message.storage_path, 300);
   return signedError ? reply({ error: 'The voicemail audio is unavailable.' }, 503) : reply({ url: data.signedUrl });
 }
+
