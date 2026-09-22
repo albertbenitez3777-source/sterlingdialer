@@ -55,8 +55,8 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
     return respond({ caller: lead ? { name: lead.name, phone: lead.telephone_original, address: lead.address, fields: lead.custom_fields } : null });
   }
 
-  if (!['zadarma_callback', 'zadarma_webrtc_key', 'zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming'].includes(action)) return respond({ error: 'Unknown phone action.' }, 400);
-  if (['zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming'].includes(action) && !['owner', 'supervisor'].includes(agent.role)) return respond({ error: 'Owner or supervisor access is required.' }, 403);
+  if (!['zadarma_callback', 'zadarma_webrtc_key', 'zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming', 'zadarma_setup_voicemail'].includes(action)) return respond({ error: 'Unknown phone action.' }, 400);
+  if (['zadarma_setup_webrtc', 'zadarma_check_incoming', 'zadarma_setup_incoming', 'zadarma_setup_voicemail'].includes(action) && !['owner', 'supervisor'].includes(agent.role)) return respond({ error: 'Owner or supervisor access is required.' }, 403);
   const { data: rows, error: configError } = await supabase.from('system_config').select('key,value')
     .in('key', ['zadarma_api_key', 'zadarma_api_secret']);
   if (configError) return respond({ error: 'Phone service settings are unavailable.' }, 503);
@@ -91,12 +91,34 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
       return respond({ numbers, menus, scenarios, pbx_extensions: pbxInfo, domain: DOMAIN });
     }
     if (action === 'zadarma_setup_incoming') {
-      // /pbx/redirection/ forwards FROM an extension; it does not route a DID
-      // TO that extension. Forwarding to its own DID can loop calls.
-      // The documented IVR creation endpoint is rejecting this account's requests.
-      // Require a verified provider setup instead of reporting guessed mutations as success.
       return respond({ ok: false, code: 'INCOMING_ROUTE_SETUP_REQUIRED',
         error: 'Incoming routes need to be configured in the Zadarma PBX dashboard. Route each public number to its assigned extension, then verify an inbound call. Extension forwarding is not an incoming route.' }, 409);
+    }
+    if (action === 'zadarma_setup_voicemail') {
+      const extension = String(body.extension || '');
+      const email = String(body.email || 'albertbenitez3777@gmail.com');
+      if (!extension) return respond({ error: 'Provide extension number.' }, 400);
+      const results: Record<string, unknown> = {};
+      // First check current redirection state
+      try {
+        results.current = await request('/v1/pbx/redirection/', { pbx_number: extension });
+      } catch (e) { results.current_error = e instanceof Error ? e.message : String(e); }
+      // Set voicemail on no-answer with standard greeting
+      try {
+        results.setup = await request('/v1/pbx/redirection/', {
+          pbx_number: extension,
+          status: 'on',
+          type: 'voicemail',
+          destination: email,
+          condition: 'noanswer',
+          voicemail_greeting: 'standart',
+        }, 'POST');
+      } catch (e) { results.setup_error = e instanceof Error ? e.message : String(e); }
+      // Verify the setup
+      try {
+        results.verify = await request('/v1/pbx/redirection/', { pbx_number: extension });
+      } catch (e) { results.verify_error = e instanceof Error ? e.message : String(e); }
+      return respond(results);
     }
     const sip = String(route.zadarma_sip_login || '');
     if (!/^\d+(?:-\d{3})?$/.test(sip)) return respond({ error: 'A valid Zadarma extension must be assigned to this agent.' }, 409);
