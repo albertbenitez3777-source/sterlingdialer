@@ -4,7 +4,7 @@ import {
   Activity, Bookmark, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
   Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
+import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, StartPreflightModal, RedialConfirmModal, TalkrouteDeliveryTimeline, InboundVerificationPanel, LiveHealthMap, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type PreflightCheck, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
 import { maskPhone, formatPhone } from '@/utils/privacy';
 import { useHeartbeat, type AttendanceInfo as HeartbeatAttendance } from '@/utils/useHeartbeat';
 import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
@@ -19,6 +19,7 @@ import { TestCallPanel } from '@/components/TestCallPanel';
 import { ExtraInfo } from '@/components/ExtraInfo';
 import { ProviderQueuePanel } from '@/components/ProviderQueuePanel';
 import CameraWidget from '@/components/CameraWidget';
+import { currentInboundHealth } from '@/utils/inbound-health';
 import type { AgentTodayStats } from '@/components/AgentCockpit';
 import { ShieldCheck, Settings } from 'lucide-react';
 
@@ -59,7 +60,6 @@ type AdminAgentRow = {
   bridge_confirmed_week?: number; talkroute_answered_week?: number;
   bridge_confirmed_all?: number;
   inbound_configured?: boolean;
-  phone_ready?: boolean;
   transfers_requested_today?: number; likely_real_conversation_today?: number;
   productive_minutes_today?: number; wasted_minutes_today?: number; total_minutes_today?: number;
 };
@@ -395,7 +395,11 @@ export default function App() {
   const [transferProof, setTransferProof] = useState<{ since: string; agents: Record<string,unknown>[]; totals: Record<string,number> } | null>(null);
   const [transferProofLoading, setTransferProofLoading] = useState(false);
 
-  const [dialerError, setDialerError] = useState('');
+  // Start campaign preflight modal
+  const [showPreflight, setShowPreflight] = useState(false);
+  const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
 
   // Redial confirm modal
   const [showRedialModal, setShowRedialModal] = useState(false);
@@ -597,7 +601,7 @@ export default function App() {
     setSecretaryCalls([]);
     setAgentAvailable(false);
     setShowOfflineModal(false);
-    setDialerError('');
+    setShowPreflight(false);
     setShowRedialModal(false);
     setPhoneAction(null);
     setExpandedCall(null);
@@ -748,7 +752,6 @@ export default function App() {
       });
       if (result.ok && result.data) {
         const stats = (result.data as Record<string, unknown>).admin_stats || result.data as AdminStats;
-        adminStatsRef.current = stats as AdminStats;
         setAdminStats(stats as AdminStats);
         const s = stats as Record<string, unknown>;
         const summary = s.summary as Record<string, unknown> | undefined;
@@ -1234,35 +1237,110 @@ export default function App() {
 
   // ── Admin Actions ──────────────────────────────────────────────────────
   const [startingCampaign, setStartingCampaign] = useState(false);
-  const startCampaignInFlight = useRef(false);
   const [stoppingCampaign, setStoppingCampaign] = useState(false);
   const [togglingAgent, setTogglingAgent] = useState<string | null>(null);
   const [settingConcurrency, setSettingConcurrency] = useState<string | null>(null);
 
-  const startCampaign = async () => {
-    if (startCampaignInFlight.current) return;
-    startCampaignInFlight.current = true;
-    setStartingCampaign(true);
-    setDialerError('');
+  const runPreflight = useCallback(async (): Promise<PreflightCheck[]> => {
+    const result = await authFetch(PROVIDER_URL, {
+      body: { action: 'inbound_health', session_token: sessionTokenRef.current },
+      onUnauthorized: () => atomicLogoutRef.current?.(),
+    });
+    const health = result.ok ? currentInboundHealth(result.data) : null;
+    const stats = adminStatsRef.current;
+    if (!stats) return [{ key: 'data_health', label: 'Current data', value: 'Unavailable', passed: false }];
+    const s = stats.summary;
+    const activeAgents = stats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner'));
+    const campaignStopped = s.campaign_state === 'stopped';
+    const hasLeads = s.leads_remaining > 0;
+    const hasCap = s.daily_minute_cap === null || s.daily_minute_cap === undefined || (s.daily_minutes_used ?? 0) < (s.daily_minute_cap ?? 0);
+    const healthOk = dataHealthRef.current.status === 'healthy';
+
+    // Eligibility predicate — same gates as dialer_next_batch/count_available_agents:
+    // active_for_dialer, transfer_certified, valid Talkroute (>=10 digits), unique destination
+    const talkrouteNumbers = new Set<string>();
+    const eligibleAgents = activeAgents.filter(a => {
+      const tr = a.talkroute_number || '';
+      if (!a.active_for_dialer) return false;
+      if (!a.transfer_certified) return false;
+      if (!tr || tr.length < 10) return false;
+      if (talkrouteNumbers.has(tr)) return false; // duplicate destination
+      talkrouteNumbers.add(tr);
+      return true;
+    });
+    const eligibleCount = eligibleAgents.length;
+    const excludedAgents = activeAgents.filter(a => {
+      const tr = a.talkroute_number || '';
+      return !a.active_for_dialer || !a.transfer_certified || !tr || tr.length < 10;
+    });
+    const configuredRoutes = health?.ready_agent_count ?? 0;
+    const hasDuplicates = activeAgents.length > talkrouteNumbers.size + excludedAgents.length;
+    const dashboardEligibleCount = activeAgents.filter(a => a.active_for_dialer && a.transfer_certified && a.talkroute_number && a.talkroute_number.length >= 10).length;
+    const countsAgree = eligibleCount === dashboardEligibleCount;
+
+    return [
+      { key: 'campaign_stopped', label: 'Campaign Status', value: campaignStopped ? 'Stopped — ready to start' : `Active (${s.campaign_state})`, passed: campaignStopped, detail: campaignStopped ? undefined : 'Campaign must be stopped before starting' },
+      { key: 'eligible_agents', label: 'Eligible Agents', value: `${eligibleCount} eligible`, passed: eligibleCount > 0, detail: eligibleCount === 0 ? 'No eligible agents (must be active, certified, valid Talkroute)' : `Matches dashboard readiness: ${countsAgree ? 'yes' : 'NO — mismatch'}` },
+      { key: 'campaign_routes', label: 'Campaign Phone Routes', value: health ? `${configuredRoutes} configured routes` : 'Not verified', passed: configuredRoutes > 0, detail: configuredRoutes === 0 ? 'Select an active agent with complete, certified Talkroute routing' : 'Active campaigns deliver to selected Talkroute lines regardless of browser login or temporary availability' },
+      { key: 'provider_routes', label: 'Current Inbound Routes', value: health?.configuration_ready ? 'Provider verified' : health ? 'Route repair required' : 'Not verified', passed: health?.configuration_ready === true, detail: health ? health.results.filter(r => r.selected && !r.configuration_ready).map(r => r.name).join(', ') || 'Destination, callback, transfer instructions and availability lookup checked' : 'Could not verify current provider settings; retry the check' },
+      { key: 'talkroute_destinations', label: 'Talkroute Destinations', value: `${talkrouteNumbers.size} unique valid`, passed: talkrouteNumbers.size > 0 && !hasDuplicates, detail: hasDuplicates ? 'Duplicate destinations detected' : talkrouteNumbers.size === 0 ? 'No valid Talkroute numbers' : undefined },
+      { key: 'concurrency', label: 'Concurrency Limit', value: `${s.concurrency} max parallel`, passed: activeAgents.length > 0, detail: activeAgents.length === 0 ? 'No agents configured' : undefined },
+      { key: 'lead_pool', label: 'Eligible Leads', value: `${s.leads_remaining} leads`, passed: hasLeads, detail: hasLeads ? undefined : 'No leads remaining to dial' },
+      { key: 'call_limit', label: 'Call Limit', value: `${s.provider_call_limit} calls`, passed: s.provider_call_limit > 0, detail: s.provider_call_limit > 0 ? undefined : 'Call limit must be > 0' },
+      { key: 'minute_cap', label: 'Daily Minute Cap', value: hasCap ? 'Within cap' : 'Cap exceeded', passed: hasCap, detail: hasCap ? `${s.daily_minutes_used ?? 0} / ${s.daily_minute_cap ?? '∞'} min used` : 'Cap reached — reset tomorrow' },
+      { key: 'data_health', label: 'Data Health', value: healthOk ? 'Healthy' : dataHealthRef.current.status, passed: healthOk, detail: !healthOk ? dataHealthRef.current.failedMessage ?? undefined : undefined },
+      { key: 'excluded_agents', label: 'Excluded Agents', value: `${excludedAgents.length} excluded`, passed: true, detail: excludedAgents.length === 0 ? 'None excluded' : excludedAgents.map(a => `${a.full_name}: ${!a.active_for_dialer ? 'not active' : !a.transfer_certified ? 'not certified' : 'missing Talkroute'}`).join('; ') },
+    ];
+  }, []);
+
+  const openPreflight = async () => {
+    setShowPreflight(true);
+    setPreflightError(null);
+    setPreflightLoading(true);
+    setPreflightChecks([]);
     try {
-      const result = await authFetch<{ success?: boolean; error?: string; blocking_reason?: string }>(PROVIDER_URL, {
-        body: { action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerSpeed * 3 },
-        timeoutMs: 45000, onUnauthorized: () => atomicLogoutRef.current?.(),
-      });
-      // The server performs current readiness checks and protects the call limit.
-      // Read the resulting state even after a timeout: do not retry a live action.
       await loadAdminStats(sessionToken);
-      if (adminStatsRef.current?.summary.campaign_state === 'running') {
-        setNotice('Dialer started');
-        setTimeout(() => setNotice(''), 4000);
-      } else {
-        setDialerError(result.error || result.data?.blocking_reason || result.data?.error ||
-          (result.data?.success ? 'Startup is not yet confirmed. Refresh the dialer status.' : 'Could not start the dialer.'));
-      }
+      const checks = await runPreflight();
+      setPreflightChecks(checks);
+    } catch {
+      setPreflightError('Failed to run preflight checks — please try again');
     } finally {
-      startCampaignInFlight.current = false;
-      setStartingCampaign(false);
+      setPreflightLoading(false);
     }
+  };
+
+  const startCampaign = async () => {
+    if (startingCampaign) return;
+    setStartingCampaign(true);
+    setPreflightError(null);
+    try {
+      await loadAdminStats(sessionToken);
+      const freshChecks = await runPreflight();
+      setPreflightChecks(freshChecks);
+      if (!freshChecks.length || freshChecks.some(check => !check.passed)) {
+        setPreflightError('Readiness changed or a check failed. Resolve the checks below before starting.');
+        return;
+      }
+      const res = await providerFetch(PROVIDER_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerSpeed * 3 }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await loadAdminStats(sessionToken);
+        const confirmedState = adminStatsRef.current?.summary?.campaign_state;
+        if (confirmedState === 'running') {
+          setNotice('Dialer started');
+          setTimeout(() => setNotice(''), 3000);
+          setShowPreflight(false);
+        } else {
+          setPreflightError(`Start returned success but state is "${confirmedState || 'unknown'}" — refreshing`);
+        }
+      } else {
+        setPreflightError(data.error || data.blocking_reason || 'Failed to start');
+      }
+    } catch { setPreflightError('Network error — please try again'); }
+    finally { setStartingCampaign(false); }
   };
 
   const stopCampaign = async () => {
@@ -1703,7 +1781,6 @@ export default function App() {
         </div>
 
         <div className="content-wrap">
-          {dialerError && <div className="toast" role="alert"><PhoneOff size={14} />{dialerError}<button aria-label="Dismiss dialer error" onClick={() => setDialerError('')}><X size={14} /></button></div>}
           {notice && (
             <div className="toast">
               <Check size={14} />
@@ -1794,7 +1871,7 @@ export default function App() {
                 <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
                 <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
                 <div><small>LEADS READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
-                {canControl && (adminStats?.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
+                {canControl && (adminStats?.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={openPreflight} disabled={startingCampaign}><Play size={16} />Start Dialer</button>)}
               </div>
             </section>
           )}
@@ -1843,8 +1920,8 @@ export default function App() {
                       {stoppingCampaign ? <RefreshCw size={14} className="search-spinner" /> : <Pause size={14} />} {stoppingCampaign ? 'Stopping...' : 'Stop Dialer'}
                     </GlowButton>
                   ) : (
-                    <GlowButton variant="sage" onClick={startCampaign} disabled={startingCampaign}>
-                      {startingCampaign ? <RefreshCw size={14} className="search-spinner" /> : <Play size={14} />} {startingCampaign ? 'Starting…' : 'Start Dialer'}
+                    <GlowButton variant="sage" onClick={openPreflight} disabled={startingCampaign}>
+                      {startingCampaign ? <RefreshCw size={14} className="search-spinner" /> : <Play size={14} />} Start Dialer
                     </GlowButton>
                   ))}
                   <GlowButton variant="ghost" onClick={() => window.open(`${SUPABASE_URL}/functions/v1/wolf-dialer-report`, '_blank')}>
@@ -1969,7 +2046,7 @@ export default function App() {
                     const kpiBridged = mono?.stages[5]?.value ?? 0;
                     const rawTransfer = adminStats.summary.transfers_requested_today ?? 0;
                     const transferDQ = Math.max(0, rawTransfer - kpiTransfer);
-                    const eligibleAgentCount = adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner') && a.active_for_dialer && a.transfer_certified && a.phone_ready && a.talkroute_number && a.talkroute_number.length >= 10).length;
+                    const eligibleAgentCount = adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner') && a.active_for_dialer && a.transfer_certified && a.talkroute_number && a.talkroute_number.length >= 10).length;
                     return (
                   <div className="kpi-strip">
                     <div className="kpi-item accent-steel">
@@ -1995,7 +2072,7 @@ export default function App() {
                     <div className="kpi-item accent-steel">
                       <span className="kpi-label">ELIGIBLE AGENTS</span>
                       <span className="kpi-value">{eligibleAgentCount}</span>
-                      <span className="kpi-hint">Connected desktop phones ready for calls</span>
+                      <span className="kpi-hint">Active, certified, valid Talkroute</span>
                     </div>
                   </div>
                     );
@@ -3134,6 +3211,16 @@ export default function App() {
           providerUrl={FEDERAL_ONE_V2_URL}
           sessionToken={sessionToken}
           onUnauthorized={handleLogout}
+        />
+      )}
+      {isOwner && (
+        <StartPreflightModal
+          open={showPreflight}
+          onClose={() => setShowPreflight(false)}
+          checks={preflightLoading ? [] : preflightChecks}
+          onConfirm={startCampaign}
+          starting={startingCampaign}
+          error={preflightError}
         />
       )}
       {isOwner && (

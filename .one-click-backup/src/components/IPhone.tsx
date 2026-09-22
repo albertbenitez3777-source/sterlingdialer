@@ -3,7 +3,6 @@ import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mi
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
 import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
-import { usePhonePresence } from '@/phone/use-phone-presence';
 import './IPhone.css';
 import { PhoneVoicemail } from './PhoneVoicemail';
 import { useVoicemailCount } from '@/phone/useVoicemailCount';
@@ -50,21 +49,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const phoneIdentityRef = useRef(0);
   const companionOnly = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const inPreview = window.location.hostname !== 'wolf-of-wall-street-ssy3.bolt.host';
-  const presenceError = usePhonePresence(providerUrl, sessionToken, {
-    connection_state: connection, call_state: callState, microphone_granted: micGranted,
-    device_kind: companionOnly ? 'companion' : 'desktop',
-  }, () => unauthorizedRef.current());
-  useEffect(() => {
-    let permission: PermissionStatus | undefined;
-    let disposed = false;
-    const changed = () => { if (permission?.state !== 'granted') setMicGranted(false); };
-    if (navigator.permissions) void navigator.permissions.query({ name: 'microphone' as PermissionName }).then(value => {
-      if (disposed) return;
-      permission = value; permission.addEventListener('change', changed);
-      if (permission.state === 'denied') changed();
-    }).catch(() => {});
-    return () => { disposed = true; permission?.removeEventListener('change', changed); };
-  }, []);
   const instanceIdRef = useRef(crypto.randomUUID());
   const presenceSeqRef = useRef(0);
 
@@ -237,7 +221,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
           {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
-          {presenceError && <div className="ip17-error" role="status">{presenceError}</div>}
           {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
           {view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
