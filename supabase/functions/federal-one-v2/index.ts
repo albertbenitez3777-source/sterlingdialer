@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { zadarma } from "./zadarma.ts";
 import { testCalls } from "./test-calls.ts";
 import { mailbox } from "./mailbox.ts";
+import { phonePresence } from "./phone-presence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,6 +179,10 @@ Deno.serve(async (req: Request) => {
     if (!verified?.valid || !verified.agent?.id) return json({ error: "Invalid or expired session" }, 401);
     const agent = verified.agent as { id: string; full_name: string; role: string };
     const action = String(body.action || "");
+    if (action.startsWith("phone_presence_")) {
+      const result = await phonePresence(supabase, agent, body);
+      return json(result.data, result.status);
+    }
     if (action.startsWith("mailbox_")) {
       const result = await mailbox(supabase, agent, body);
       return json(result.data, result.status);
