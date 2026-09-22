@@ -32,7 +32,7 @@ export function PhoneVoicemail({ sessionToken, providerUrl, onUnauthorized, canC
   }
   async function heard(id: string) {
     const result = await request({ action: 'mailbox_heard', id });
-    if (result.ok) setMessages(rows => rows.map(m => m.id === id ? { ...m, heard_at: new Date().toISOString() } : m));
+    if (result.ok) { setMessages(rows => rows.map(m => m.id === id ? { ...m, heard_at: new Date().toISOString() } : m)); window.dispatchEvent(new Event('f1-voicemail-heard')); }
   }
   return <div className="ip17-voicemail">
     <header><h3>Voicemail</h3><button aria-label="Refresh voicemail" disabled={loading} onClick={() => void load()}><RefreshCw size={17} /></button></header>

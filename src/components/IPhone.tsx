@@ -5,6 +5,7 @@ import { authFetch } from '@/utils/auth-fetch';
 import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
 import './IPhone.css';
 import { PhoneVoicemail } from './PhoneVoicemail';
+import { useVoicemailCount } from '@/phone/useVoicemailCount';
 
 interface IPhoneProps { agentName: string; sessionToken: string; providerUrl: string; onUnauthorized: () => void }
 interface RouteData { talkroute_number?: string; zadarma_number?: string; zadarma_sip_login?: string }
@@ -20,6 +21,7 @@ const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seco
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
   const [open, setOpen] = useState(true);
   const [view, setView] = useState<'keypad' | 'voicemail'>('keypad');
+  const unreadVoicemails = useVoicemailCount(sessionToken, providerUrl);
   const [route, setRoute] = useState<RouteData | null>(null);
   const [connection, setConnection] = useState<Connection>('idle');
   const [callState, setCallState] = useState<PhoneState>('idle');
@@ -200,7 +202,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
           {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
-          {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail</button></nav>}
+          {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
           {view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
             {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
