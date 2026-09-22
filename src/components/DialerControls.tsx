@@ -14,7 +14,7 @@ export function DialerControls({ agents, lines, running, saving, changingAgent, 
   const capacity = Math.min(lines, selected.reduce((n, a) => n + Math.min(a.dialer_concurrency || 3, 7), 0));
   const changing = saving || changingAgent !== null || starting || stopping;
   return <section className="f1-dialer-controls" aria-label="Dialer controls">
-    <header><div><span className="f1-control-eyebrow"><Zap size={13} /> DIALER CONTROL</span><h2>Your lines. Your team.</h2></div>
+    <header><div><span className="f1-control-eyebrow"><Zap size={13} /> {running ? "DIALER RUNNING" : "DIALER STOPPED"}</span><h2>Call controls</h2></div>
       <button className={running ? 'f1-control-stop' : 'f1-control-start'} disabled={running ? stopping : changing || !selected.length} onClick={running ? onStop : onStart}>
         {running ? <Pause size={17} /> : <Play size={17} />}{stopping ? 'Stopping…' : starting ? 'Starting…' : running ? 'Stop Dialer' : 'Start Dialer'}
       </button>
