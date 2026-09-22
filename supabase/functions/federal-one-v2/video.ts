@@ -12,3 +12,4 @@ export async function createVideoGrant(agent:{id:string;full_name:string},room:s
  token.addGrant({roomJoin:true,room:`${project}-${room}`,canPublish:true,canSubscribe:true,canPublishData:false,canUpdateOwnMetadata:false});
  return {data:{url:config.url,token:await token.toJwt()},status:200};
 }
+

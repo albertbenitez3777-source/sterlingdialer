@@ -55,13 +55,13 @@ async function placeBlandCall(
   const elizabethTask = `You are Elizabeth Sterling, the assistant for ${agentName}.
 
 RULES — follow exactly, no exceptions:
-1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail greeting, or automated system — "leave a message", "after the tone", "press pound", "mailbox", "not available", "does not accept solicitations", or any voice that keeps talking without reacting to you — HANG UP immediately. Say nothing. Never transfer to a machine.
+1. VOICEMAIL / MACHINE: Before speaking to the intended person, if you hear an answering machine, voicemail greeting, or automated system — "leave a message", "after the tone", "press pound", "mailbox", "not available", "does not accept solicitations", or any voice that keeps talking without reacting to you — HANG UP immediately. Say nothing. Never transfer a customer answering machine. Once the intended person agrees and you transfer to the agent, allow the agent\'s voicemail greeting and recording to complete if the agent does not answer.
 2. WRONG PERSON: If the person says they are not ${consumerName}, or ${consumerName} is not available, or "doesn't live here" — say "I apologize for the inconvenience" and HANG UP.
-3. RIGHT PERSON: If the person confirms they are ${consumerName}, say: "Thank you for calling back. You've reached ${agentName}'s office. ${agentName} can explain the reason for the call. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain completely silent while it connects.
+3. RIGHT PERSON: If the person confirms they are ${consumerName}, say: "Thank you. ${agentName} would like to speak with you. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain completely silent while it connects.
 4. IDENTITY NOT CONFIRMED: If asked who is calling before identity is confirmed, say only: "I help connect callers with ${agentName}. Is ${consumerName} available?" Never reveal an account, balance, debt, collection purpose, or private matter to an unverified person.
 5. WHY ARE YOU CALLING / WHAT IS THIS ABOUT: Say: "I don't have the details to discuss, but ${agentName} can explain. Would you like me to transfer you?" If they agree, invoke the transfer tool.
 6. I DON'T KNOW THAT AGENT: Say: "That's okay—you don't need to know ${agentName} personally. They can help clarify why you were contacted. May I connect you?" Never require callers to know the agent's name before transferring.
-7. QUESTIONS ABOUT A CASE: Say: "${agentName} is handling your matter and can discuss the details with you. May I connect you?" Never invent legal authority, deadlines, urgency, or private details.
+7. QUESTIONS ABOUT A CASE: Say: "I cannot confirm case details. ${agentName} can help with your question. May I connect you?" Never invent legal authority, deadlines, urgency, or private details.
 8. DECLINE / DNC: ONLY an explicit refusal counts — "no", "not interested", "stop calling", "remove me", "take me off", "do not call". Say "I understand, thank you for your time" and HANG UP. Questions like "who is this?" are NOT a decline.
 9. SILENCE: If there is no reply within 5 seconds, HANG UP.
 10. IF ASKED "Are you a robot/AI?": Answer truthfully: "Yes, I'm an AI assistant for ${agentName}." Then return to the conversation.
@@ -1228,7 +1228,7 @@ Deno.serve(async (req: Request) => {
       const elizabethTask = useTransfer ? `You are Elizabeth Sterling, the assistant for ${agentName}, calling for ${client_name}.
 
 RULES — follow exactly, no exceptions:
-1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail greeting, or automated system — HANG UP immediately. Say nothing.
+1. VOICEMAIL / MACHINE: Before speaking to the intended person, if you hear an answering machine, voicemail greeting, or automated system — HANG UP immediately. Say nothing.
 2. WRONG PERSON: If the person says they are not ${client_name}, or ${client_name} is not available — say "I apologize for the inconvenience" and HANG UP.
 3. RIGHT PERSON: Confirm you are speaking with ${client_name}. Do not transfer an unverified person.
 4. TRANSFER: After confirmation, say: "${agentName} is available to speak with you. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
@@ -1363,7 +1363,7 @@ RULES — follow exactly, no exceptions:
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (agent.role !== "owner" && agent.role !== "administrator") return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const { data, error } = await supabase.rpc("campaign_resume");
-      if (error) return new Response(JSON.stringify({ error: "Failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (error || data?.success === false) return new Response(JSON.stringify({ success: false, error: data?.error || "Could not resume dialing", blocking_reason: data?.blocking_reason || "" }), { status: error ? 500 : 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       // Restart the server-side dialer loop
       if (blandApiKey) {
@@ -1394,85 +1394,19 @@ RULES — follow exactly, no exceptions:
 
     // DIAL_CALLS: picks eligible leads, sends them to Bland.ai, records results
     if (action === "dial_calls") {
-      const { session_token } = body;
-      const agent = await verifySession(session_token);
-      if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (agent.role !== "owner" && agent.role !== "administrator") return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-      if (!blandApiKey) {
-        return new Response(JSON.stringify({ error: "Bland.ai API key is not configured in the server environment." }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Agent availability gate — refuse to dial if no agent is reachable
-      const { data: availCount } = await supabase.rpc("count_available_agents");
-      if ((availCount as number) === 0) {
-        return new Response(JSON.stringify({ success: false, gated: true, error: "No agents available to receive calls. Agents must be logged in and set to Available." }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Get the next batch of leads to dial
-      const { data: batchData, error: batchErr } = await supabase.rpc("dialer_next_batch");
-      if (batchErr || !batchData?.success) {
-        return new Response(JSON.stringify({ error: batchData?.error || "Failed to get dial batch" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const callsToDial: Array<Record<string, unknown>> = batchData.calls || [];
-      if (callsToDial.length === 0) {
-        // If the batch returned "Call limit reached", auto-stop the campaign server-side
-        if (batchData.message === "Call limit reached") {
-          await supabase.rpc("campaign_stop");
-        }
-        return new Response(JSON.stringify({ success: true, dialed: 0, message: batchData.message || "No calls to dial" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const results: Array<Record<string, unknown>> = [];
-      const dialPromises = callsToDial.map(async (call) => {
-        const callId = call.call_id as string;
-        try {
-          const result = await placeBlandCall(
-            callId, call.phone as string, call.bland_number as string,
-            call.bland_voice_id as string, call.name as string, call.agent_name as string,
-            call.talkroute_number as string,
-          );
-
-          if (result.success) {
-            const dest = normalizeToE164(call.talkroute_number as string);
-            await supabase.from("calls").update({
-              provider_call_id: result.provider_call_id,
-              queue: "pending",
-              originating_bland_number: call.bland_number,
-              talkroute_destination: dest,
-              transfer_route_used: "hub",
-            }).eq("id", callId);
-            return { call_id: callId, success: true, provider_call_id: result.provider_call_id };
-          } else {
-            await supabase.from("calls").update({
-              queue: "pending",
-              is_completed: true,
-              agent_notes: `Bland API error: ${result.error}`,
-              originating_bland_number: call.bland_number,
-            }).eq("id", callId);
-            return { call_id: callId, success: false, error: result.error };
-          }
-        } catch (err) {
-          await supabase.from("calls").update({
-            queue: "pending",
-            is_completed: true,
-            agent_notes: `Dialer exception: ${String(err)}`,
-            originating_bland_number: call.bland_number,
-          }).eq("id", callId);
-          return { call_id: callId, success: false, error: String(err) };
-        }
-      });
-      const settled = await Promise.all(dialPromises);
-      results.push(...settled);
-
-      const successCount = results.filter((r) => r.success).length;
-      return new Response(JSON.stringify({
-        success: true,
-        dialed: successCount,
-        attempted: results.length,
-        results,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const agent = await verifySession(body.session_token);
+      if (!agent) return new Response(JSON.stringify({error:"Invalid or expired session"}),{status:401,headers:{...corsHeaders,"Content-Type":"application/json"}});
+      if (!["owner","administrator"].includes(agent.role)) return new Response(JSON.stringify({error:"Administrator access required"}),{status:403,headers:{...corsHeaders,"Content-Type":"application/json"}});
+      const {data:ready,error:readyError}=await supabase.rpc("count_available_agents");
+      if(readyError || !ready) return new Response(JSON.stringify({success:false,gated:true,error:"No connected desktop phones are ready."}),{status:409,headers:{...corsHeaders,"Content-Type":"application/json"}});
+      const {data:campaign,error:campaignError}=await supabase.from("campaigns").select("state").order("created_at",{ascending:false}).limit(1).maybeSingle();
+      if(campaignError || campaign?.state!=="running") return new Response(JSON.stringify({success:false,error:"Campaign is not running."}),{status:409,headers:{...corsHeaders,"Content-Type":"application/json"}});
+      // All campaign calls now use the same serialized worker and its per-call Stop check.
+      EdgeRuntime.waitUntil(fetch(`${supabaseUrl}/functions/v1/wolf-dialer-loop`,{
+        method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${serviceRoleKey}`},
+        body:JSON.stringify({start:true}),signal:AbortSignal.timeout(30000)
+      }).then(response=>{if(!response.ok)console.error("Dialer dispatch request failed",response.status);}).catch(()=>{console.error("Dialer dispatch request could not complete");}));
+      return new Response(JSON.stringify({success:true,scheduled:true,dialed:0,attempted:0,results:[],message:"Dialing requested. Live totals update after provider acceptance."}),{status:200,headers:{...corsHeaders,"Content-Type":"application/json"}});
     }
 
     // ============================================================
@@ -1492,12 +1426,14 @@ RULES — follow exactly, no exceptions:
       }
 
       const inboundResult = await autoConfigureInbound();
+      const verified = inboundResult.attempted > 0 && inboundResult.configured === inboundResult.attempted;
       return new Response(JSON.stringify({
-        success: true,
+        success: verified,
+        error: verified ? undefined : "Some callback settings could not be verified. Review the per-agent results.",
         configured: inboundResult.configured,
         attempted: inboundResult.attempted,
         results: inboundResult.results,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }), { status: verified ? 200 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ============================================================
@@ -1905,10 +1841,10 @@ RULES — follow exactly, no exceptions:
         const urgentTask = `You are Elizabeth Sterling, the assistant for ${agentName}. This is a follow-up call for ${contact.consumer_name || "the prospect"}.
 
 RULES — follow exactly, no exceptions:
-1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
+1. VOICEMAIL / MACHINE: Before speaking to the intended person, if you hear an answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
 2. WRONG PERSON: If the person says they are not ${contact.consumer_name || "the account holder"} — say "I apologize for the inconvenience" and HANG UP.
 3. RIGHT PERSON: Confirm you are speaking with the named person. Do not transfer an unverified person.
-4. TRANSFER: After confirmation, say: "Thank you for calling back. You've reached ${agentName}'s office. ${agentName} can explain the reason for the call. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
+4. TRANSFER: After confirmation, say: "Thank you. ${agentName} would like to speak with you. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
 5. WHY ARE YOU CALLING / WHAT IS THIS ABOUT: Say: "I help connect callers with ${agentName}. I don't have the details to discuss, but ${agentName} can explain. Would you like me to transfer you?"
 6. I DON'T KNOW THAT AGENT: Say: "That's okay—you don't need to know ${agentName} personally. They can help clarify why you were contacted. May I connect you?"
 7. DECLINE / DNC: ONLY explicit refusal — "no", "not interested", "stop calling", "remove me", "do not call". Say "I understand, thank you for your time" and HANG UP.
@@ -2133,10 +2069,10 @@ RULES — follow exactly, no exceptions:
         const pressureTask = `You are Elizabeth Sterling, the assistant for ${agentName}. This is a follow-up call for ${contact.consumer_name || "the prospect"}.
 
 RULES — follow exactly, no exceptions:
-1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
+1. VOICEMAIL / MACHINE: Before speaking to the intended person, if you hear an answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
 2. WRONG PERSON: If the person says they are not ${contact.consumer_name || "the account holder"} — say "I apologize for the inconvenience" and HANG UP.
 3. RIGHT PERSON: Confirm you are speaking with the named person. Do not transfer an unverified person.
-4. TRANSFER: After confirmation, say: "Thank you for calling back. You've reached ${agentName}'s office. ${agentName} can explain the reason for the call. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
+4. TRANSFER: After confirmation, say: "Thank you. ${agentName} would like to speak with you. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
 5. WHY ARE YOU CALLING / WHAT IS THIS ABOUT: Say: "I help connect callers with ${agentName}. I don't have the details to discuss, but ${agentName} can explain. Would you like me to transfer you?"
 6. I DON'T KNOW THAT AGENT: Say: "That's okay—you don't need to know ${agentName} personally. They can help clarify why you were contacted. May I connect you?"
 7. DECLINE / DNC: ONLY explicit refusal — "no", "not interested", "stop calling", "remove me", "do not call". Say "I understand, thank you for your time" and HANG UP.
@@ -2570,7 +2506,7 @@ RULES — follow exactly, no exceptions:
         const task = `You are Elizabeth Sterling, the assistant for ${agentName}. This is a follow-up call for ${contact.consumer_name || "the prospect"}.
 
 RULES — follow exactly, no exceptions:
-1. VOICEMAIL / MACHINE: If you hear any answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
+1. VOICEMAIL / MACHINE: Before speaking to the intended person, if you hear an answering machine, voicemail, or automated system — HANG UP immediately. Say nothing.
 2. WRONG PERSON: If the person says they are not ${contact.consumer_name || "the account holder"} — say "I apologize for the inconvenience" and HANG UP.
 3. RIGHT PERSON: Confirm you are speaking with the named person. Do not transfer an unverified person.
 4. TRANSFER: After confirmation, say: "${agentName} is available to speak with you. May I connect you now?" If they agree, say "Certainly. Please hold while I connect you to ${agentName}." Then invoke the transfer tool immediately and remain silent.
@@ -2839,8 +2775,9 @@ RULES — follow exactly, no exceptions:
       if (!agent) return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (agent.role !== "owner" && agent.role !== "administrator") return new Response(JSON.stringify({ error: "Administrator access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-      const concurrency = (Number.isInteger(reqConc) && reqConc >= 3 && reqConc <= 12) ? reqConc : 5;
+      const concurrency = [3, 6, 9, 12].includes(reqConc) ? reqConc : 3;
       const { data, error } = await supabase.rpc("campaign_start", { p_concurrency: concurrency, p_call_limit: call_limit || 500 });
+      if (!error && data?.success === false) return new Response(JSON.stringify(data), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (error) return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       if (blandApiKey) {
@@ -3382,3 +3319,4 @@ function normalizeToE164(input: string): string {
 // deploy3-1787853510
 // deploy4-1787853815
 // deploy-v280-transfer-alerts
+

@@ -20,3 +20,4 @@ export function createDbClient(_dbUrl: string, supabaseUrl: string, serviceRoleK
   cached = { url: supabaseUrl, key: serviceRoleKey, client };
   return client;
 }
+
