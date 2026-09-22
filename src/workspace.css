@@ -1,4 +1,46 @@
-/* Federal One: authenticated workspace. Login and phone engine are untouched. */
+/* Federal One: authenticated workspace. */
+.f1-dialer-controls {margin:0 0 26px;padding:25px;border:1px solid #68414c;border-radius:18px;background:linear-gradient(130deg,#2d1e27 0%,#1d1b23 55%,#191b21 100%);box-shadow:0 12px 30px #0002,inset 0 1px #ffffff09;color:#f7efec;}
+.f1-dialer-controls header {display:flex;align-items:center;justify-content:space-between;gap:20px;}
+.f1-control-eyebrow {display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.14em;color:#e8a7ad;}
+.f1-dialer-controls h2 {font-size:25px;font-weight:500;letter-spacing:-.025em;margin:9px 0 0;}
+.f1-dialer-controls button {cursor:pointer;transition:background .15s,border-color .15s;color:inherit;}
+.f1-dialer-controls button:disabled,.f1-dialer-controls select:disabled {opacity:.5;cursor:wait;}
+.f1-control-start,.f1-control-stop {display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border:1px solid #f28796;border-radius:10px;background:#a9364b;font-weight:650;}
+.f1-control-stop {background:#33242b;border-color:#b66c79;}
+.f1-control-settings {display:grid;grid-template-columns:1.5fr 1fr 1fr;align-items:start;gap:24px;margin:25px 0;padding:23px 0;border-top:1px solid #ffffff0f;border-bottom:1px solid #ffffff0f;}
+.f1-control-settings label {display:block;font-size:12px;color:#d2c0c4;margin-bottom:10px;}
+.f1-control-presets {display:flex;gap:7px;}
+.f1-control-presets button {min-width:62px;min-height:61px;padding:9px 12px;background:#ffffff04;border:1px solid #57404b;border-radius:9px;font-size:16px;}
+.f1-control-presets button small {display:block;margin-top:3px;color:#b9aaaf;font-size:10px;}
+.f1-control-presets button[aria-pressed="true"] {background:#733044;border-color:#e68192;}
+.f1-control-presets button[aria-pressed="true"] small {color:#f5ced4;}
+.f1-control-line-choice select {width:100%;min-height:43px;padding:9px 13px;border:1px solid #69505b;border-radius:9px;background:#201b24;color:#fff1eb;font-size:16px;}
+.f1-control-line-choice small {display:block;color:#b9aaaf;font-size:10px;margin-top:8px;}
+.f1-control-summary {text-align:right;}
+.f1-control-summary strong {font-size:35px;font-weight:500;font-variant-numeric:tabular-nums;}
+.f1-control-summary strong span {display:block;font-size:11px;font-weight:400;color:#d1bec3;}
+.f1-control-summary > small {display:block;font-size:11px;color:#b9aaaf;margin-top:12px;}
+.f1-control-team-heading {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px;}
+.f1-control-team-heading h3 {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:550;margin:0;}
+.f1-control-team-heading > span {font-size:10px;color:#b9aaaf;}
+.f1-control-agents {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.f1-control-agents article {padding:18px 16px;border:1px solid #443740;border-radius:12px;background:#14151b66;}
+.f1-control-agents article.selected {border-color:#945665;background:linear-gradient(130deg,#68334345,#242029);}
+.f1-control-agent-top {display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.f1-control-agent-top > strong {font-size:14px;font-weight:550;}
+.f1-control-agent-top button {display:flex;align-items:center;gap:6px;border:0;background:none;padding:3px;font-size:11px;}
+.f1-control-agent-top button i {display:block;position:relative;width:32px;height:19px;border-radius:12px;background:#51424a;}
+.f1-control-agent-top button i::after {content:'';position:absolute;left:3px;top:3px;width:13px;height:13px;background:#d0bcc3;border-radius:50%;transition:transform .15s;}
+.f1-control-agent-top button[aria-checked="true"] i {background:#ca6079;}
+.f1-control-agent-top button[aria-checked="true"] i::after {transform:translateX(13px);background:#fff4ef;}
+.f1-control-agents p {margin:13px 0 9px;color:#d7bcc4;font-size:11px;}
+.f1-control-agents small {display:flex;gap:6px;align-items:center;font-size:10px;color:#b6aaaf;}
+.f1-control-footnote {font-size:11px;line-height:1.6;color:#bbaeb3;margin:15px 0 0;}
+.f1-control-warning {color:#e4bc8f!important;font-size:12px;margin-top:10px;}
+.f1-control-feedback {font-size:12px;color:#f5c5d0;margin:14px 0 0;padding:11px 13px;background:#ffffff06;border-radius:7px;}
+.f1-v2-shell .f1-dialer-controls select:focus-visible {outline:2px solid #ffb7c2;outline-offset:3px;}
+@media(max-width:1000px) {.f1-control-agents {grid-template-columns:1fr;}.f1-control-settings {grid-template-columns:1.5fr 1fr;}.f1-control-summary {grid-column:1/-1;text-align:left;display:flex;align-items:center;gap:22px;}.f1-control-summary strong span {display:inline;margin-left:10px;}.f1-control-summary > small {margin-top:0;}}
+@media(max-width:600px) {.f1-dialer-controls {padding:19px 15px;}.f1-dialer-controls h2 {font-size:21px;}.f1-control-settings {grid-template-columns:1fr;gap:18px;}.f1-control-presets button {flex:1;}.f1-control-team-heading {align-items:flex-start;flex-direction:column;gap:6px;}.f1-control-start,.f1-control-stop {padding:0 12px;font-size:12px;}.f1-control-summary {flex-wrap:wrap;gap:7px;}}
 .f1-v2-shell {
   --workspace-bg:#101014; --workspace-panel:#1a1a20; --workspace-line:#343139;
   --workspace-text:#f6f0eb; --workspace-muted:#b8adb1; --workspace-accent:#ef6b77;

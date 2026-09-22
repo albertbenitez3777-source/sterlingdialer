@@ -87,7 +87,7 @@ function CallBadges({ call, isLive }: { call: WorkspaceCall; isLive?: boolean })
       {call.queue === 'voice_message' && <span className="ws-badge ws-badge-vm">VM</span>}
       {call.queue === 'no_answer' && <span className="ws-badge ws-badge-na">NO ANS</span>}
       {call.bridge_confirmed && <span className="ws-badge ws-badge-bridge">BRIDGED</span>}
-      {call.talkroute_voicemail && <span className="ws-badge ws-badge-trvm">TR VM</span>}
+      {call.talkroute_voicemail && <span className="ws-badge ws-badge-trvm">AGENT VOICEMAIL</span>}
       {call.callback_requested && <span className="ws-badge ws-badge-cb">CALLBACK</span>}
       {call.transfer_failure_reason && <span className="ws-badge ws-badge-fail">FAILED</span>}
       {call.is_completed && !isLive && <span className="ws-badge ws-badge-done">DONE</span>}

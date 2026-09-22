@@ -15,6 +15,7 @@ import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
 import { IPhone } from '@/components/IPhone';
+import { DialerControls } from '@/components/DialerControls';
 import { OperationsDashboard } from '@/components/OperationsDashboard';
 import { TestCallPanel } from '@/components/TestCallPanel';
 import { ExtraInfo } from '@/components/ExtraInfo';
@@ -195,6 +196,7 @@ const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
 const FUNCTIONS_BASE = import.meta.env.DEV ? '' : SUPABASE_URL;
 const AUTH_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-auth`;
 const PROVIDER_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-provider`;
+const DIALER_CONTROLS_URL = `${FUNCTIONS_BASE}/functions/v1/dialer-controls`;
 const FEDERAL_ONE_V2_URL = `${FUNCTIONS_BASE}/functions/v1/federal-one-v2`;
 const TZ = 'America/New_York';
 
@@ -338,7 +340,8 @@ export default function App() {
   const [teamHealth, setTeamHealth] = useState<TeamHealth | null>(null);
   const [, setLoadingAdmin] = useState(false);
   const [callLimit, setCallLimit] = useState(500);
-  const [dialerSpeed, setDialerSpeed] = useState(1);
+  const [dialerLines, setDialerLines] = useState(3);
+  const dialerControlsBusy = useRef(false);
   const [savingSpeed, setSavingSpeed] = useState(false);
   const [speedNotice, setSpeedNotice] = useState<string | null>(null);
   const [minuteCap, setMinuteCap] = useState<number | null>(null);
@@ -767,7 +770,7 @@ export default function App() {
         if (loadedSummary?.provider_call_limit) setCallLimit(loadedSummary.provider_call_limit as number);
         if (loadedSummary?.daily_minute_cap !== undefined) setMinuteCap(loadedSummary.daily_minute_cap as number);
         const conc = loadedSummary?.concurrency as number | undefined;
-        if (conc && conc > 0) setDialerSpeed(Math.max(1, Math.min(4, Math.round(conc / 3))));
+        if (conc && conc > 0) setDialerLines(conc);
         setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
         const healthResult = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
           body: { action: 'get_team_status', session_token: token },
@@ -1252,13 +1255,13 @@ export default function App() {
   const [settingConcurrency, setSettingConcurrency] = useState<string | null>(null);
 
   const startCampaign = async () => {
-    if (startCampaignInFlight.current) return;
+    if (startCampaignInFlight.current || dialerControlsBusy.current) return;
     startCampaignInFlight.current = true;
     setStartingCampaign(true);
     setDialerError('');
     try {
-      const result = await authFetch<{ success?: boolean; error?: string; blocking_reason?: string }>(PROVIDER_URL, {
-        body: { action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerSpeed * 3 },
+      const result = await authFetch<{ success?: boolean; error?: string; blocking_reason?: string }>(DIALER_CONTROLS_URL, {
+        body: { action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerLines },
         timeoutMs: 45000, onUnauthorized: () => atomicLogoutRef.current?.(),
       });
       // The server performs current readiness checks and protects the call limit.
@@ -1281,7 +1284,7 @@ export default function App() {
     if (stoppingCampaign) return;
     setStoppingCampaign(true);
     try {
-      const res = await providerFetch(PROVIDER_URL, {
+      const res = await providerFetch(DIALER_CONTROLS_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'stop_campaign', session_token: sessionToken }),
       });
@@ -1306,20 +1309,25 @@ export default function App() {
   };
 
   const toggleAgent = async (agentId: string, current: boolean) => {
-    if (togglingAgent) return;
+    if (dialerControlsBusy.current || startCampaignInFlight.current) return;
+    dialerControlsBusy.current = true;
     setTogglingAgent(agentId);
     try {
-      const res = await providerFetch(PROVIDER_URL, {
+      const res = await providerFetch(DIALER_CONTROLS_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set_agent_dialer_selection', session_token: sessionToken, agent_id: agentId, selected: !current }),
       });
       const data = await res.json();
       if (!data.success) { setNotice(data.error || 'Failed to toggle agent'); setTimeout(() => setNotice(''), 3000); }
-      else loadAdminStats(sessionToken);
+      else {
+        await loadAdminStats(sessionToken);
+        const saved = adminStatsRef.current?.agents.find(a => a.id === agentId);
+        setSpeedNotice(saved?.active_for_dialer === !current ? `${saved.full_name}: ${!current ? 'dialer calls on' : 'dialer calls off'}` : 'Agent setting could not be confirmed. Refresh and check.');
+      }
     } catch {
       setNotice('Network error — could not toggle agent');
       setTimeout(() => setNotice(''), 3000);
-    } finally { setTogglingAgent(null); }
+    } finally { dialerControlsBusy.current = false; setTogglingAgent(null); }
   };
 
   const setConcurrency = async (agentId: string, concurrency: number) => {
@@ -1339,25 +1347,29 @@ export default function App() {
     } finally { setSettingConcurrency(null); }
   };
 
-  const handleDialerSpeed = async (m: number) => {
-    if (savingSpeed || m < 1 || m > 4) return;
+  const handleDialerLines = async (lines: number) => {
+    if (dialerControlsBusy.current || startCampaignInFlight.current || !Number.isInteger(lines) || lines < 1 || lines > 12) return;
+    dialerControlsBusy.current = true;
     setSavingSpeed(true);
     setSpeedNotice(null);
     try {
-      const res = await providerFetch(PROVIDER_URL, {
+      const res = await providerFetch(DIALER_CONTROLS_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set_dialer_speed', session_token: sessionToken, multiplier: m }),
+        body: JSON.stringify({ action: 'set_dialer_lines', session_token: sessionToken, concurrency: lines }),
       });
       const data = await res.json();
       if (data.success) {
-        setDialerSpeed(m);
-        setSpeedNotice(`Speed set to ${m}x (${m * 3} lines)`);
+        setDialerLines(data.concurrency);
+        await loadAdminStats(sessionToken);
+        setSpeedNotice(adminStatsRef.current?.summary.concurrency === data.concurrency ? `Saved: up to ${data.concurrency} lines at a time. Existing calls finish normally.` : 'Line setting could not be confirmed. Refresh and check.');
       } else {
-        setSpeedNotice(data.error || 'Failed to set speed');
+        setSpeedNotice(data.error || 'Failed to save the line limit');
       }
     } catch {
-      setSpeedNotice('Network error — could not set speed');
+      await loadAdminStats(sessionToken);
+      setSpeedNotice('Connection interrupted. Check the saved line count before trying again.');
     } finally {
+      dialerControlsBusy.current = false;
       setSavingSpeed(false);
       setTimeout(() => setSpeedNotice(null), 4000);
     }
@@ -1672,7 +1684,7 @@ export default function App() {
         <div className="f1-command-user">
           {!isOwner && myAttendance && <span className={`f1-presence-dot ${attendanceError ? 'warn' : myAttendance.presence}`} title={attendanceError || `${presenceLabel(myAttendance.presence)} · Today ${fmtAttendanceDuration(myAttendance.todayTotalSeconds)}`} />}
           {!isOwner && <button className={`f1-ready-button ${agentAvailable ? 'available' : ''}`} onClick={handleToggleAvailability} disabled={togglingAvail}>
-            {agentAvailable ? <><Phone size={14} /> Ready</> : <><PhoneOff size={14} /> Not Ready</>}
+            {agentAvailable ? <><Phone size={14} /> At desk</> : <><PhoneOff size={14} /> Away</>}
           </button>}
           <span className={`avatar ${isOwner ? 'gold' : 'green'}`}>{initials(session.agent?.full_name || '')}</span>
           <button className="f1-exit-button" onClick={handleLogout} title={`Log out ${session.agent?.full_name || ''}`}><LogOut size={16} /></button>
@@ -1691,23 +1703,6 @@ export default function App() {
                 <b>{adminStats.summary.campaign_state === 'running' ? (adminStats.summary.dialer_status === 'waiting_for_agents' ? 'WAITING FOR AGENTS' : 'DIALER ACTIVE') : 'DIALER STOPPED'}</b>
               </div>
             )}
-            {isOwner && adminStats && (
-              <div className="dialer-speed-control">
-                <span className="dialer-speed-label">SPEED</span>
-                {[1, 2, 3, 4].map(m => (
-                  <button
-                    key={m}
-                    className={`dialer-speed-btn ${dialerSpeed === m ? 'active' : ''}`}
-                    disabled={savingSpeed}
-                    onClick={() => handleDialerSpeed(m)}
-                  >
-                    {savingSpeed && dialerSpeed !== m ? '...' : `${m}x`}
-                  </button>
-                ))}
-                <span className="dialer-speed-lines">{dialerSpeed * 3} lines</span>
-                {speedNotice && <span className={`dialer-speed-notice ${speedNotice.includes('error') || speedNotice.includes('Failed') ? 'error' : 'success'}`}>{speedNotice}</span>}
-              </div>
-            )}
             <div className="market-indicator">
               <span>{etClock}</span> ET
             </div>
@@ -1715,6 +1710,12 @@ export default function App() {
         </div>
 
         <div className="content-wrap">
+          {isOwner && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines}
+            running={adminStats.summary.campaign_state === 'running'} saving={savingSpeed} changingAgent={togglingAgent}
+            starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
+            onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
+            onStart={() => void startCampaign()} onStop={() => void stopCampaign()} />}
+
           {dialerError && <div className="toast" role="alert"><PhoneOff size={14} />{dialerError}<button aria-label="Dismiss dialer error" onClick={() => setDialerError('')}><X size={14} /></button></div>}
           {notice && (
             <div className="toast">
@@ -1759,19 +1760,19 @@ export default function App() {
                 <>
                   <span className="conn-pulse-dot" />
                   <div className="conn-banner-text">
-                    <strong>ACTIVE</strong>
-                    <span>Your route is selected. Enable your desktop phone to answer; unanswered calls go to voicemail.</span>
+                    <strong>AT DESK</strong>
+                    <span>Enable your desktop phone to answer calls. Unanswered calls go to your voicemail.</span>
                   </div>
                 </>
               ) : (
                 <>
                   <PhoneOff size={28} className="conn-banner-icon" />
                   <div className="conn-banner-text">
-                    <strong>OFFLINE</strong>
-                    <span>Your route is not selected for new AI calls. Your phone number and voicemail remain available.</span>
+                    <strong>AWAY</strong>
+                    <span>Calls assigned by your admin still reach your number and voicemail.</span>
                   </div>
                   <button className="conn-go-available" onClick={handleToggleAvailability} disabled={togglingAvail}>
-                    {togglingAvail ? '...' : 'GO AVAILABLE'}
+                    {togglingAvail ? '...' : 'I’M AT MY DESK'}
                   </button>
                 </>
               )}
