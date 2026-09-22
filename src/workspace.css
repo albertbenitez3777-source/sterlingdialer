@@ -1,0 +1,71 @@
+/* Federal One: authenticated workspace. Login and phone engine are untouched. */
+.f1-v2-shell {
+  --workspace-bg:#101014; --workspace-panel:#1a1a20; --workspace-line:#343139;
+  --workspace-text:#f6f0eb; --workspace-muted:#b8adb1; --workspace-accent:#ef6b77;
+  color:var(--workspace-text); background:var(--workspace-bg);
+}
+.f1-v2-shell > .content-area { background:radial-gradient(ellipse at 95% 0%,#321a24 0,transparent 42%),#101014; }
+.f1-v2-shell .content-wrap { max-width:1600px; padding:30px 36px 100px; }
+.f1-v2-shell .f1-command-bar { background:#141419; border-bottom:1px solid #343139; box-shadow:0 4px 28px #0003; padding:12px 28px; }
+.f1-v2-shell .f1-command-identity strong {color:#f6f0eb;letter-spacing:.15em;}
+.f1-v2-shell .f1-command-identity small {color:#b8adb1;}
+.f1-v2-shell .f1-command-orb {background:#a42f43;color:#fff0f0;border-color:#d55a6d;box-shadow:0 0 24px #a42f4325;}
+.f1-v2-shell .f1-command-link {color:#c5bcbf;font-size:12px;min-height:42px;padding:0 11px;}
+.f1-v2-shell .f1-command-link.active {background:#632537;color:#fff4f3;border-color:#b3465b;box-shadow:inset 0 1px #ffffff12;}
+.f1-v2-shell .f1-command-link:hover {color:#fff;background:#32232b;}
+.f1-v2-shell .f1-status-strip {height:auto;min-height:62px;background:#17171d;border-bottom:1px solid #343139;padding:12px 36px;gap:16px;flex-wrap:wrap;}
+.f1-v2-shell .top-actions {flex-wrap:wrap;gap:12px;}
+.f1-v2-shell .dialer-speed-control {background:#232127;border:1px solid #51414b;border-radius:10px;padding:7px;}
+.f1-v2-shell .dialer-speed-btn {min-height:32px;min-width:37px;color:#d6cdd0;}
+.f1-v2-shell .dialer-speed-btn.active {background:#a42f43;color:white;border-color:#ef6b77;}
+.f1-v2-shell .dialer-speed-label,.f1-v2-shell .dialer-speed-lines {color:#c5bcbf;}
+.f1-v2-shell .f1-simple-home {min-height:0;display:flex;flex-direction:column;align-items:stretch;gap:22px;margin-bottom:24px;}
+.f1-v2-shell .f1-simple-welcome > span {color:#df9da6;font-size:10px;letter-spacing:.16em;}
+.f1-v2-shell .f1-simple-welcome h1 {font:500 36px/1.15 var(--font-display);letter-spacing:-.025em;margin:10px 0;color:#f6f0eb;max-width:none;}
+.f1-v2-shell .f1-simple-welcome p {font-size:14px;color:#b8adb1;max-width:none;}
+.f1-v2-shell .f1-simple-live {order:1;background:linear-gradient(120deg,#2c1d26,#1b1b22);border:1px solid #67404d;padding:20px 24px;min-height:90px;border-radius:14px;flex-wrap:wrap;}
+.f1-v2-shell .f1-simple-live small {color:#c7b9be;font-size:10px;letter-spacing:.08em;}
+.f1-v2-shell .f1-simple-live strong {color:#fff4ef;font-size:22px;font-variant-numeric:tabular-nums;}
+.f1-v2-shell .f1-simple-live button {min-height:44px;background:#b53a4e;color:white;border:1px solid #ee7585;box-shadow:0 5px 20px #a42f4325;}
+.f1-v2-shell .f1-simple-actions {order:2;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.f1-v2-shell .f1-simple-actions > button {min-height:88px;background:linear-gradient(125deg,#222127,#1b1b20);border:1px solid #3d353e;padding:18px;border-radius:12px;box-shadow:inset 0 1px #ffffff05;color:#f6f0eb;}
+.f1-v2-shell .f1-simple-actions > button::after {display:none;}
+.f1-v2-shell .f1-simple-actions > button:hover {background:#30232b;border-color:#a25b6b;transform:translateY(-2px);box-shadow:0 8px 25px #0002;}
+.f1-v2-shell .f1-simple-actions > button > svg:first-child {color:#ed9da9;filter:none;}
+.f1-v2-shell .f1-simple-actions small {color:#b8adb1;font-size:12px;}
+.f1-v2-shell .f1-simple-actions strong {font-size:15px;}
+.f1-v2-shell .f1-team-health {gap:10px;margin:16px 0;}
+.f1-v2-shell .f1-health-service,.f1-v2-shell .f1-health-agent {background:#1a1a20;border:1px solid #38313a;border-radius:10px;padding:15px;}
+.f1-v2-shell .f1-team-health small {color:#b8adb1;font-size:10px;}
+.f1-v2-shell .f1-team-health strong {color:#f0e7e8;}
+.f1-v2-shell .f1-all-metrics {margin:16px 0;}
+.f1-v2-shell .campaign-status-card {background:#211b23;border-color:#5e3b49;}
+.f1-v2-shell .glass-card,.f1-v2-shell .f1-metric-panel,.f1-v2-shell .f1-readiness-rail,.f1-v2-shell .f1-primary-action {background:#1b1b22;border-color:#3d353e;color:#f6f0eb;box-shadow:inset 0 1px #ffffff06;}
+.f1-v2-shell .f1-command-hero {min-height:0;padding:12px 0 24px;}
+.f1-v2-shell .f1-command-copy h1 {font-size:36px;line-height:1.15;color:#f6f0eb;}
+.f1-v2-shell .f1-command-copy p,.f1-v2-shell .f1-primary-action p {color:#b8adb1;}
+.f1-v2-shell .f1-overline,.f1-v2-shell .f1-primary-action small {color:#df9da6;}
+.f1-v2-shell .f1-primary-action {min-height:110px;border-radius:12px;}
+.f1-v2-shell .f1-action-icon {background:#462433;color:#efadb7;border-color:#70404d;}
+.f1-v2-shell .f1-readiness-item small {color:#b8adb1;}
+.f1-v2-shell .f1-readiness-item strong {color:#f6f0eb;}
+.f1-v2-shell .f1-readiness-icon {background:#36212d;color:#efadb7;}
+.f1-v2-shell .agent-momentum-banner {display:none;}
+.f1-v2-shell button:focus-visible,.f1-v2-shell input:focus-visible {outline:2px solid #ffb7c2;outline-offset:3px;}
+.cam-admin-panel,.cam-widget-agent {background:#1b1b22!important;border-color:#63404f!important;box-shadow:0 15px 45px #0007!important;}
+.cam-minimized {background:#3f2532!important;color:#ffe4e9!important;border-color:#9c5366!important;width:auto!important;padding:10px 14px!important;gap:8px;}
+@media (max-width:1250px) and (min-width:761px) {
+ .f1-v2-shell .f1-command-bar {display:flex;flex-wrap:wrap;gap:14px;}
+ .f1-v2-shell .f1-command-nav {order:3;width:100%;justify-content:flex-start;flex-wrap:wrap;}
+ .f1-v2-shell .f1-command-link span {display:inline;}
+ .f1-v2-shell .f1-command-user {margin-left:auto;}
+}
+@media(max-width:760px) {
+ .f1-v2-shell .content-wrap {padding:22px 16px 100px;}
+ .f1-v2-shell .f1-status-strip {padding:12px 16px;}
+ .f1-v2-shell .f1-simple-actions {grid-template-columns:1fr;}
+ .f1-v2-shell .f1-simple-welcome h1,.f1-v2-shell .f1-command-copy h1 {font-size:30px;}
+ .f1-v2-shell .f1-simple-live {display:flex;gap:20px;padding:18px;}
+ .f1-v2-shell .f1-simple-live > div {min-width:95px;}
+ .f1-v2-shell .f1-command-nav.mobile-open {background:#1b1b22;border-color:#63404f;}
+}

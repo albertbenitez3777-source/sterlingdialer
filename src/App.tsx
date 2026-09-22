@@ -1855,22 +1855,23 @@ export default function App() {
             <section className="f1-simple-home">
               <div className="f1-simple-welcome">
                 <span><Activity size={13} /> LIVE WORKSPACE</span>
-                <h1>Your operation, live</h1>
-                <p>Calls, team connections, transfer evidence, and reports are below.</p>
+                <h1>Operations overview</h1>
+                <p>Start or stop calls, choose your speed, and check your team below.</p>
               </div>
               <div className="f1-simple-actions">
+                <button onClick={() => setActiveNav('test')}><Phone size={25} /><span><strong>Test a Call</strong><small>Choose an agent and check a transfer</small></span><ChevronRight size={18} /></button>
                 <button className="extra-info-home-tile" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={25} /><span><strong>Extra Info</strong><small>Find more on a live call</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('contacts')}><Search size={25} /><span><strong>Find a Client</strong><small>Name, phone, email, address, and more</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('calls')}><Phone size={25} /><span><strong>See Calls</strong><small>Live calls, results, recordings, and notes</small></span><ChevronRight size={18} /></button>
                 <button onClick={() => setActiveNav('opportunities')}><Users size={25} /><span><strong>Call Backs</strong><small>People who need attention</small></span><ChevronRight size={18} /></button>
-                <button onClick={() => setActiveNav('system')}><Settings size={25} /><span><strong>Check System</strong><small>Dialer, team, routes, and settings</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('system')}><Settings size={25} /><span><strong>Settings & Team</strong><small>Dialer, team, routes, and settings</small></span><ChevronRight size={18} /></button>
               </div>
               <div className="f1-simple-live">
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
                 <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
                 <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
                 <div><small>LEADS READY</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
-                {canControl && adminStats?.summary.campaign_state !== 'running' && <button onClick={openPreflight}><Play size={14} /> Start Calls</button>}
+                {canControl && (adminStats?.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={openPreflight} disabled={startingCampaign}><Play size={16} />Start Dialer</button>)}
               </div>
             </section>
           )}

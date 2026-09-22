@@ -74,7 +74,7 @@ function ConnectionTimer({ since }: { since: string }) {
 
 export default function CameraWidget({ isOwner, agentId, agentName, sessionToken, providerUrl }: Props) {
   const [cam, setCam] = useState<CamState>('prompt');
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(isOwner);
   const [agents, setAgents] = useState<AgentCam[]>([]);
   const [connectedSince, setConnectedSince] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -168,7 +168,7 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
   if (minimized) {
     return (
       <button className="cam-minimized" onClick={() => setMinimized(false)} title="Show camera">
-        <Camera size={16} />
+        <Camera size={16} /><span>Cameras</span>
         {isOwner && <span className="cam-minimized-count">{agents.filter(isAgentLive).length}</span>}
       </button>
     );
