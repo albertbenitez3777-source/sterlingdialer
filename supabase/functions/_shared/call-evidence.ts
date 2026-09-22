@@ -196,23 +196,35 @@ export function isBridgeConfirmed(body: Record<string, unknown>): boolean {
 
 export function detectLiveHuman(body: Record<string, unknown>, transcript?: string): boolean {
   const answeredBy = String(body.answered_by || "").toLowerCase();
-  if (answeredBy === "voicemail" || answeredBy === "machine") return false;
+  if (answeredBy === "voicemail" || answeredBy === "machine" ||
+      body.voicemail === true || body.is_voicemail === true) return false;
   if (answeredBy === "human" || body.human_answered === true) return true;
   const direction = String(body.call_type || body.direction || "").toLowerCase();
   if (direction === "inbound") return true;
-  if (body.voicemail === true || body.is_voicemail === true) return false;
 
-  // Transcript-based detection for backfill
-  if (transcript) {
-    const t = transcript.toLowerCase();
-    if (t.includes("call ended due to voicemail detection")) return false;
-    if (t.includes("leave a message") || t.includes("after the tone") || t.includes("mailbox")) return false;
-    const lines = t.split("\n");
-    const userLines = lines.filter((line) => line.startsWith("user:") || line.startsWith("human:"));
-    return userLines.some(line => line.replace(/^(user|human):\s*/i, "").trim().length > 2);
-  }
-
-  return false;
+  if (!transcript) return false;
+  // Inspect caller speech only. Script words and echoed assistant speech are
+  // not human evidence. Preserve explicit provider evidence above.
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const lines = transcript.split("\n");
+  const assistant = lines.filter(line => /^\s*(assistant|ai):/i.test(line))
+    .map(line => normalize(line.replace(/^\s*(assistant|ai):\s*/i, "")));
+  const user = lines.filter(line => /^\s*(user|human):/i.test(line))
+    .map(line => normalize(line.replace(/^\s*(user|human):\s*/i, "")));
+  const machine = /leave (?:us |me |your |a )?message|after the (?:tone|beep)|mailbox|to send your message|to mark (?:the |your )?message|remote access code|press (?:any key|pound|star|one|two|three|four|five|six|seven|eight|nine|zero|1|2|3|4|5|6|7|8|9|0)|key to continue|does not have voice|not accept solicitations|you have reached|you ve reached|calls to this number are being screened|smart call blocker|message sent/;
+  const hasMachine = user.some(text => machine.test(text)) ||
+    transcript.toLowerCase().includes("call ended due to voicemail detection");
+  const meaningful = user.filter(text => {
+    if (text.length < 3 || machine.test(text) || /^(?:thank you )?goodbye$/.test(text)) return false;
+    if (text.length >= 12 && assistant.some(spoken =>
+      spoken.length >= 12 && (spoken.includes(text) || text.includes(spoken)))) return false;
+    return true;
+  });
+  if (!hasMachine) return meaningful.length > 0;
+  // A greeting appended to a machine transcript is insufficient. A real
+  // conversational response may follow screening or a voicemail greeting.
+  return meaningful.some(text =>
+    /^(yes|yeah|yep|speaking|this is |who |what |why |no |not interested|stop calling|do not call|wrong number|i am |i m |he is |she is |he s |she s )/.test(text));
 }
 
 // ── Voicemail detection ─────────────────────────────────────────────
