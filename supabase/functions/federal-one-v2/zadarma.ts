@@ -97,27 +97,31 @@ export async function zadarma(supabase: any, agent: { id: string; role: string }
     if (action === 'zadarma_setup_voicemail') {
       const extension = String(body.extension || '');
       const email = String(body.email || 'albertbenitez3777@gmail.com');
+      const greetingType = String(body.greeting_type || 'standart');
       if (!extension) return respond({ error: 'Provide extension number.' }, 400);
+      if (!['standart', 'own', 'no'].includes(greetingType)) return respond({ error: 'greeting_type must be standart, own, or no.' }, 400);
       const results: Record<string, unknown> = {};
-      // First check current redirection state
       try {
         results.current = await request('/v1/pbx/redirection/', { pbx_number: extension });
       } catch (e) { results.current_error = e instanceof Error ? e.message : String(e); }
-      // Set voicemail on no-answer with standard greeting
+      const redirectParams: Params = {
+        pbx_number: extension,
+        status: 'on',
+        type: 'voicemail',
+        destination: email,
+        condition: 'noanswer',
+        voicemail_greeting: greetingType,
+      };
       try {
-        results.setup = await request('/v1/pbx/redirection/', {
-          pbx_number: extension,
-          status: 'on',
-          type: 'voicemail',
-          destination: email,
-          condition: 'noanswer',
-          voicemail_greeting: 'standart',
-        }, 'POST');
+        results.setup = await request('/v1/pbx/redirection/', redirectParams, 'POST');
       } catch (e) { results.setup_error = e instanceof Error ? e.message : String(e); }
-      // Verify the setup
       try {
         results.verify = await request('/v1/pbx/redirection/', { pbx_number: extension });
       } catch (e) { results.verify_error = e instanceof Error ? e.message : String(e); }
+      results.greeting_type_requested = greetingType;
+      results.custom_greeting_note = greetingType === 'own'
+        ? 'Custom greeting requires an mp3/wav file uploaded via POST /v1/pbx/ivr/sounds/upload or the Zadarma PBX dashboard. The redirection is configured to use a custom greeting once uploaded.'
+        : undefined;
       return respond(results);
     }
     const sip = String(route.zadarma_sip_login || '');
