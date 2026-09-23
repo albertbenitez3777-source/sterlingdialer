@@ -186,7 +186,7 @@ Deno.serve(async (req: Request) => {
 
           // Create transfer alert for the agent overlay
           try {
-            const detailRows = await sql`SELECT c.agent_id, c.lead_id, c.consumer_name, c.consumer_phone, c.consumer_address, c.consumer_home_value, c.consumer_income_range, c.consumer_property_info, c.consumer_custom_fields->>'email' AS consumer_email, c.call_direction, l.email as lead_email FROM calls c LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = ${callRows[0].id} LIMIT 1`;
+            const detailRows = await sql`SELECT c.agent_id, c.lead_id, c.consumer_name, c.consumer_phone, c.consumer_address, c.consumer_home_value, c.consumer_income_range, c.consumer_property_info, c.consumer_email, c.call_direction, l.email as lead_email FROM calls c LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = ${callRows[0].id} LIMIT 1`;
             if (detailRows.length > 0 && detailRows[0].agent_id) {
               const d = detailRows[0];
               await sql`SELECT create_transfer_alert(${d.agent_id}::uuid, ${callRows[0].id}::uuid, ${d.lead_id}::uuid, ${d.consumer_name || ''}, ${d.consumer_phone || ''}, ${d.consumer_email || d.lead_email || ''}, ${d.consumer_address || ''}, '', ${JSON.stringify({ home_value: d.consumer_home_value || '', income_range: d.consumer_income_range || '', property_info: d.consumer_property_info || '' })}::jsonb, ${d.call_direction || 'outbound'}, 'AI detected live human, transfer initiated', 'destination_dialed', '[]'::jsonb)`;
@@ -622,7 +622,7 @@ Deno.serve(async (req: Request) => {
       // Check if inbox entry already exists
       const inboxRows = await sql`SELECT id FROM agent_inbox WHERE call_id = ${callInfo.id} LIMIT 1`;
       if (inboxRows.length === 0) {
-        const detailRows = await sql`SELECT consumer_name, consumer_phone, lead_id, consumer_address, consumer_home_value, consumer_income_range, consumer_property_info, consumer_custom_fields->>'email' AS consumer_email FROM calls WHERE id = ${callInfo.id} LIMIT 1`;
+        const detailRows = await sql`SELECT consumer_name, consumer_phone, lead_id, consumer_address, consumer_home_value, consumer_income_range, consumer_property_info, consumer_email FROM calls WHERE id = ${callInfo.id} LIMIT 1`;
         const details = detailRows[0];
         const isOutbound = callInfo.call_direction === "outbound";
 

@@ -248,11 +248,7 @@ window.addEventListener('message', event => {
   try {
     if (data.command === 'connect') { void connect(String(data.key || ''), String(data.sip || '')); return; }
     if (!controller) throw new Error('Enable the phone first.');
-    if (data.command === 'dial') {
-      if (typeof data.expiresAt === 'number' && Date.now() >= data.expiresAt) throw new Error('Call request expired. Please try again.');
-      controller.dial(String(data.number || ''));
-      if (data.requestId) emit({ type: 'dial-result', requestId: data.requestId, accepted: true });
-    }
+    if (data.command === 'dial') controller.dial(String(data.number || ''));
     else if (data.command === 'answer') controller.answer();
     else if (data.command === 'hangup') hangup();
     else if (data.command === 'mute') controller.mute();
@@ -265,10 +261,6 @@ window.addEventListener('message', event => {
         if (controller && ['dialing', 'answering'].includes(controller.state)) { hangup(); fail('The call did not connect within 60 seconds.'); }
       }, 60000);
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Phone action failed.';
-    if (data.command === 'dial' && data.requestId) emit({ type: 'dial-result', requestId: data.requestId, accepted: false, message });
-    fail(message);
-  }
+  } catch (error) { fail(error instanceof Error ? error.message : 'Phone action failed.'); }
 });
 emit({ type: 'frame-ready' });

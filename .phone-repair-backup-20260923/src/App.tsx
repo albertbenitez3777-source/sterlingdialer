@@ -15,7 +15,6 @@ import { contactEmails, contactFieldText } from '@/utils/contact-search';
 import { useContactSearch } from '@/utils/useContactSearch';
 import { WhatsUp } from '@/components/WhatsUp';
 import { IPhone } from '@/components/IPhone';
-import { requestPhoneDial } from '@/phone/dial-request';
 import { DialerControls } from '@/components/DialerControls';
 import { OperationsDashboard } from '@/components/OperationsDashboard';
 import { TestCallPanel } from '@/components/TestCallPanel';
@@ -3934,9 +3933,7 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
   onSecretaryCall: () => void; placingSecretaryCall: boolean;
   providerUrl: string; sessionToken: string; onUnauthorized: () => void;
 }) {
-  const [directDialStatus, setDirectDialStatus] = useState<'idle' | 'pending' | 'requested' | 'failed'>('idle');
-  const [directDialError, setDirectDialError] = useState('');
-  const directDialRef = useRef<AbortController | null>(null);
+  const [copied, setCopied] = useState(false);
   const [directCallId, setDirectCallId] = useState('');
   const [directCallSaved, setDirectCallSaved] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(true);
@@ -3951,29 +3948,14 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
   const last10 = digits.slice(-10);
   const display = last10.length === 10 ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}` : phone;
 
-  useEffect(() => () => { directDialRef.current?.abort(); }, [sessionToken, phone]);
-
-  const handleZadarma = async () => {
-    if (directDialRef.current && !directDialRef.current.signal.aborted) return;
-    const abort = new AbortController();
-    directDialRef.current = abort;
-    setDirectDialStatus('pending'); setDirectDialError(''); setDirectCallId(''); setDirectCallSaved(false);
-    const dialResult = await requestPhoneDial(phone, { signal: abort.signal });
-    if (abort.signal.aborted) return;
-    if (dialResult.status !== 'requested') {
-      setDirectDialStatus('failed'); setDirectDialError(dialResult.error || 'The phone could not accept the call.');
-      directDialRef.current = null;
-      return;
-    }
-    setDirectDialStatus('requested');
-    const result = await authFetch<{ direct_call: { id: string } }>(providerUrl, {
+  const handleZadarma = () => {
+    setCopied(true);
+    void authFetch<{ direct_call: { id: string } }>(providerUrl, {
       body: { action: 'log_direct_call', session_token: sessionToken, client_name: name, client_phone: phone },
-      onUnauthorized, signal: abort.signal,
-    });
-    if (abort.signal.aborted) return;
-    if (result.ok && result.data?.direct_call?.id) setDirectCallId(result.data.direct_call.id);
-    else setDirectDialError('Dial requested, but the call log could not be saved. Check the phone before trying again.');
-    directDialRef.current = null;
+      onUnauthorized,
+    }).then(result => { if (result.ok && result.data?.direct_call.id) setDirectCallId(result.data.direct_call.id); });
+    window.dispatchEvent(new CustomEvent('wolf:phone:dial', { detail: { phone, name } }));
+    setTimeout(() => setCopied(false), 3000);
   };
 
   const saveDirectOutcome = async (outcome: string) => {
@@ -4075,15 +4057,14 @@ function PhoneActionModal({ name, phone, email = '', address = '', canCall, onCl
             </div>
             {placingSecretaryCall && <RefreshCw size={16} className="search-spinner" />}
           </button>}
-          {canCall && <button className="phone-action-option" onClick={() => void handleZadarma()} disabled={directDialStatus === 'pending'}>
+          {canCall && <button className="phone-action-option" onClick={handleZadarma}>
             <div className="phone-action-icon talkroute-icon"><Phone size={22} /></div>
             <div className="phone-action-text">
               <strong>Call with my phone</strong>
-              <span>{directDialStatus === 'pending' ? 'Waiting for your phone…' : directDialStatus === 'requested' ? 'Dial requested · check your phone for ringing or errors' : 'Call this client through your Zadarma line'}</span>
+              <span>{copied ? 'Check your on-screen phone' : 'Call this client through your Zadarma line'}</span>
             </div>
-            {directDialStatus === 'pending' && <RefreshCw size={16} className="search-spinner" />}
+            {copied && <Check size={16} style={{ color: '#22c55e', flexShrink: 0 }} />}
           </button>}
-          {directDialError && <p role="alert" className="sourceview-notice">{directDialError}</p>}
           <button className="phone-action-option" onClick={() => { setSourceOpen(true); void startEverywhereSearch(); }}>
             <div className="phone-action-icon sourceview-icon"><Search size={22} /></div>
             <div className="phone-action-text">

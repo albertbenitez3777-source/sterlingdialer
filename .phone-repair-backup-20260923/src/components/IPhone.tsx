@@ -3,7 +3,6 @@ import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mi
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
 import { normalizeDialNumber, type PhoneState } from '@/phone/call-controller';
-import { PHONE_DIAL_EVENT, type PhoneDialRequest } from '@/phone/dial-request';
 import { usePhonePresence } from '@/phone/use-phone-presence';
 import './IPhone.css';
 import { PhoneVoicemail } from './PhoneVoicemail';
@@ -27,7 +26,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const unreadVoicemails = useVoicemailCount(sessionToken, providerUrl);
   const unreadActivity = usePhoneActivityCount(sessionToken, providerUrl);
   const [route, setRoute] = useState<RouteData | null>(null);
-  const [routeLoading, setRouteLoading] = useState(false);
   const [connection, setConnection] = useState<Connection>('idle');
   const [callState, setCallState] = useState<PhoneState>('idle');
   const [digits, setDigits] = useState('');
@@ -47,8 +45,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const unauthorizedRef = useRef(onUnauthorized); unauthorizedRef.current = onUnauthorized;
   const startingRef = useRef(false);
   const pendingCallRef = useRef(false);
-  const pendingRequestRef = useRef<PhoneDialRequest | null>(null);
-  const dialGenerationRef = useRef(0);
   const callRef = useRef<{ number: string; name?: string; direction: 'incoming' | 'outgoing'; answered: boolean } | null>(null);
   const lookupSequence = useRef(0);
   const stateRef = useRef(callState); stateRef.current = callState;
@@ -79,15 +75,12 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     phone?.wolfPhone?.unlockAudio();
   }, []);
   const requestMic = useCallback(async () => {
-    const identity = phoneIdentityRef.current;
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open the published HTTPS website to use the microphone.');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(track => track.stop());
-      if (identity !== phoneIdentityRef.current) return false;
       setMicGranted(true); return true;
     } catch (e) {
-      if (identity !== phoneIdentityRef.current) return false;
       setMicGranted(false);
       setConnection('failed');
       setError(e instanceof Error && e.name === 'NotAllowedError'
@@ -98,30 +91,18 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     }
   }, []);
 
-  const loadRoute = useCallback(async (signal?: AbortSignal) => {
-    const identity = phoneIdentityRef.current;
-    setRouteLoading(true);
-    const result = await authFetch<{ route: RouteData }>(providerUrl, {
-      body: { action: 'get_federal_one_v2', session_token: sessionToken }, signal,
-      onUnauthorized: () => unauthorizedRef.current(),
-    });
-    if (signal?.aborted || identity !== phoneIdentityRef.current) return null;
-    setRouteLoading(false);
-    if (result.ok && result.data?.route) { setRoute(result.data.route); return result.data.route; }
-    setError(result.error || 'Could not load phone settings. Retry phone setup.');
-    return null;
-  }, [providerUrl, sessionToken]);
-
   useEffect(() => {
     const abort = new AbortController();
-    setRoute(null);
-    void loadRoute(abort.signal);
-    return () => {
-      abort.abort(); phoneIdentityRef.current++; dialGenerationRef.current++; credentialsRef.current = null;
-      pendingRequestRef.current?.respond({ status: 'cancelled', error: 'The phone session changed. Please sign in again.' });
-      pendingRequestRef.current = null; pendingCallRef.current = false;
-    };
-  }, [loadRoute]);
+    void authFetch<{ route: RouteData }>(providerUrl, {
+      body: { action: 'get_federal_one_v2', session_token: sessionToken }, signal: abort.signal,
+      onUnauthorized: () => unauthorizedRef.current(),
+    }).then(result => {
+      if (abort.signal.aborted) return;
+      if (result.ok && result.data) setRoute(result.data.route);
+      else setError(result.error || 'Could not load phone settings.');
+    });
+    return () => { abort.abort(); phoneIdentityRef.current++; credentialsRef.current = null; };
+  }, [providerUrl, sessionToken]);
 
   const lookupCaller = useCallback(async (phone: string) => {
     const sequence = ++lookupSequence.current;
@@ -141,17 +122,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         setConnection(data.state); startingRef.current = data.state === 'connecting';
         if (data.state === 'ready') setError('');
       }
-      if (data.type === 'error') {
-        setError(String(data.message)); pendingCallRef.current = false;
-        pendingRequestRef.current?.respond({ status: 'failed', error: String(data.message) });
-        pendingRequestRef.current = null;
-      }
-      const request = pendingRequestRef.current;
-      if (data.type === 'dial-result' && request && request.requestId === data.requestId) {
-        pendingRequestRef.current = null;
-        request.respond(data.accepted ? { status: 'requested' } : { status: 'failed', error: String(data.message || 'The phone rejected the call request.') });
-        if (!data.accepted) pendingCallRef.current = false;
-      }
+      if (data.type === 'error') { setError(String(data.message)); pendingCallRef.current = false; }
       if (data.type === 'incoming' || data.type === 'outgoing') {
         const number = String(data.number || 'Unknown caller');
         const name = typeof data.name === 'string' ? data.name : undefined;
@@ -193,16 +164,9 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   }, [callState]);
 
   const enable = useCallback(async () => {
-    if (companionOnly || startingRef.current || stateRef.current !== 'idle') return;
+    if (companionOnly || !route?.zadarma_sip_login || startingRef.current || stateRef.current !== 'idle') return;
     const identity = phoneIdentityRef.current;
     startingRef.current = true; setError(''); unlockAudio();
-    const currentRoute = route?.zadarma_sip_login ? route : await loadRoute();
-    if (identity !== phoneIdentityRef.current) return;
-    if (!currentRoute?.zadarma_sip_login) {
-      startingRef.current = false; setConnection('failed');
-      if (currentRoute) setError('No phone extension is assigned. Ask your supervisor to check your phone assignment.');
-      return;
-    }
     if (!await requestMic()) { startingRef.current = false; return; }
     if (identity !== phoneIdentityRef.current) return;
     setConnection('connecting');
@@ -216,56 +180,28 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     credentialsRef.current = result.data;
     if (reconnecting) { setFrameReady(false); setFrameVersion(version => version + 1); }
     else if (frameReady) command('connect', result.data);
-  }, [companionOnly, route, loadRoute, unlockAudio, requestMic, providerUrl, sessionToken, frameReady, command]);
+  }, [companionOnly, route, unlockAudio, requestMic, providerUrl, sessionToken, frameReady, command]);
 
-  const dial = useCallback(async (number: string, request?: PhoneDialRequest) => {
+  const dial = useCallback(async (number: string) => {
     setOpen(true); setView('keypad'); setError(''); unlockAudio();
-    const reject = (message: string) => { setError(message); request?.respond({ status: 'failed', error: message }); };
-    if (request?.signal.aborted) return;
-    if (companionOnly) { reject('Use your desktop to make and receive calls.'); return; }
-    if (connection !== 'ready') { setDigits(number); reject('Enable your phone and wait for Ready, then try again.'); return; }
-    if (stateRef.current !== 'idle' || pendingCallRef.current) { reject('Finish the current call first.'); return; }
-    const identity = phoneIdentityRef.current;
-    const generation = ++dialGenerationRef.current;
+    if (companionOnly) { setError('Use your desktop to make and receive calls.'); return; }
+    if (connection !== 'ready') { setDigits(number); setError('Press Enable phone and wait for Ready, then press Call.'); return; }
+    if (stateRef.current !== 'idle' || pendingCallRef.current) { setError('Finish the current call first.'); return; }
     try {
       const normalized = normalizeDialNumber(number);
       pendingCallRef.current = true;
-      if (request) {
-        pendingRequestRef.current = request;
-        request.signal.addEventListener('abort', () => {
-          if (pendingRequestRef.current !== request) return;
-          pendingRequestRef.current = null; pendingCallRef.current = false;
-          dialGenerationRef.current++;
-        }, { once: true });
-      }
-      const hasMicrophone = await requestMic();
-      if (identity !== phoneIdentityRef.current || generation !== dialGenerationRef.current) return;
-      if (!hasMicrophone) { pendingCallRef.current = false; pendingRequestRef.current = null; request?.respond({ status: 'failed', error: 'Microphone access is required. Check the on-screen phone.' }); return; }
-      if (identity !== phoneIdentityRef.current || request?.signal.aborted || (request && Date.now() >= request.expiresAt)) {
-        pendingCallRef.current = false;
-        if (pendingRequestRef.current === request) pendingRequestRef.current = null;
-        request?.respond({ status: 'cancelled', error: 'Call request expired or cancelled. Please try again.' });
-        return;
-      }
-      if (stateRef.current !== 'idle') { pendingCallRef.current = false; pendingRequestRef.current = null; reject('Finish the current call first.'); return; }
-      command('dial', { number: normalized, requestId: request?.requestId, expiresAt: request?.expiresAt });
-    } catch (e) {
-      pendingCallRef.current = false;
-      if (pendingRequestRef.current === request) pendingRequestRef.current = null;
-      reject(e instanceof Error ? e.message : 'Invalid number.');
-    }
+      if (!await requestMic()) { pendingCallRef.current = false; return; }
+      command('dial', { number: normalized });
+    } catch (e) { pendingCallRef.current = false; setError(e instanceof Error ? e.message : 'Invalid number.'); }
   }, [companionOnly, connection, command, requestMic, unlockAudio]);
 
   useEffect(() => {
     const handle = (event: Event) => {
-      const detail = (event as CustomEvent<PhoneDialRequest>).detail;
-      if (!event.defaultPrevented && detail?.phone && typeof detail.respond === 'function') {
-        event.preventDefault();
-        void dial(detail.phone, detail);
-      }
+      const detail = (event as CustomEvent<{ phone: string }>).detail;
+      if (detail?.phone) void dial(detail.phone);
     };
-    window.addEventListener(PHONE_DIAL_EVENT, handle);
-    return () => window.removeEventListener(PHONE_DIAL_EVENT, handle);
+    window.addEventListener('wolf:phone:dial', handle);
+    return () => window.removeEventListener('wolf:phone:dial', handle);
   }, [dial]);
 
   const answer = async () => { unlockAudio(); if (await requestMic()) command('answer'); };
@@ -287,7 +223,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'activity' ? 'page' : undefined} onClick={() => setView('activity')}>Recents{unreadActivity > 0 && <span className="ip17-vm-badge">{unreadActivity}</span>}</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
           {view === 'activity' && !active ? <PhoneActivity sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
-            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={routeLoading || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{routeLoading ? 'Loading phone settings…' : connection === 'connecting' ? 'Connecting…' : !route ? 'Retry phone setup' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
+            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={!route?.zadarma_sip_login || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
             {micGranted && !active && <div className="ip17-mic-status"><Mic size={13} />Microphone allowed</div>}
             {connection === 'ready' && !micGranted && <button className="ip17-enable" onClick={() => { unlockAudio(); void requestMic(); }}>Enable microphone and sound</button>}
             {active ? <div className="ip17-active">

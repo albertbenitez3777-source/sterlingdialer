@@ -24,7 +24,7 @@ export function usePhonePresence(url: string, token: string, state: Presence, on
       timeoutMs: 10000, onUnauthorized: () => unauthorized.current(),
     });
     if (mounted.current && currentSequence === sequence.current) {
-      setError(result.ok ? '' : 'Phone status could not sync. Retrying status updates…');
+      setError(result.ok ? '' : 'Phone status could not sync. Reconnecting automatically…');
     }
   }, [url, token, instanceId]);
 
