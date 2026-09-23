@@ -26,7 +26,6 @@ export interface AgentTodayStats {
   live_humans?: number;
   active_calls_now?: number;
   today_total?: number;
-  completed_today?: number;
 }
 
 type V2Message = {
@@ -220,12 +219,12 @@ export function AgentCockpit(props: AgentCockpitProps) {
   };
 
   const pipeline = useMemo(() => [
-    { label: 'Active now', value: todayStats?.active_calls_now ?? '—', icon: PhoneCall },
-    { label: 'Live humans', value: todayStats?.live_humans ?? todayStats?.human_drops ?? '—', icon: Users },
-    { label: 'Transfers', value: todayStats?.fire_transfers ?? '—', icon: PhoneForwarded },
-    { label: 'Callbacks', value: todayStats?.callbacks_due ?? '—', icon: PhoneIncoming },
-    { label: 'Completed', value: todayStats?.completed_today ?? '—', icon: CheckCircle2 },
-    { label: 'Needs review', value: todayStats?.failed_transfers ?? '—', icon: XCircle },
+    { label: 'Active now', value: todayStats?.active_calls_now ?? 0, icon: PhoneCall },
+    { label: 'Live humans', value: todayStats?.live_humans ?? todayStats?.human_drops ?? humanDrops.length, icon: Users },
+    { label: 'Transfers', value: todayStats?.fire_transfers ?? fireTransfers.length, icon: PhoneForwarded },
+    { label: 'Callbacks', value: todayStats?.callbacks_due ?? 0, icon: PhoneIncoming },
+    { label: 'Completed', value: todayStats?.today_total ?? 0, icon: CheckCircle2 },
+    { label: 'Needs review', value: todayStats?.failed_transfers ?? 0, icon: XCircle },
   ], [todayStats, fireTransfers.length, humanDrops.length]);
 
   const firstName = agentName.split(' ')[0] || 'Agent';

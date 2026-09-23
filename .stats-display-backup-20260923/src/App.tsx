@@ -809,9 +809,6 @@ export default function App() {
         if (Array.isArray(raw.today_activity)) {
           setTodayActivity(raw.today_activity as QueueRecord[]);
         }
-        setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
-      } else if (!result.loggedOut) {
-        setDataHealth(h => ({ status: 'degraded', lastSuccess: h.lastSuccess, failedAction: 'get_agent_queues', failedMessage: result.error || 'Agent statistics could not refresh.' }));
       }
     } catch { /* authFetch handles 401 internally */ }
     finally { setLoadingQueues(false); }
@@ -1833,7 +1830,7 @@ export default function App() {
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
             </div>
           )}
-          {((isOwner && ['dashboard', 'system'].includes(activeNav)) || (!isOwner && activeNav === 'dashboard')) && (
+          {isOwner && ['dashboard', 'system'].includes(activeNav) && (
             <DataHealthBanner health={dataHealth} />
           )}
           {isOwner && ['dashboard', 'system'].includes(activeNav) && dashTab === 'overview' && (
