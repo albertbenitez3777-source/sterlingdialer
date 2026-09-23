@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-// v2: Web Crypto HMAC auth
+// v3: Web Crypto HMAC auth – deploy 2026-09-23
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
