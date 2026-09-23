@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -8,7 +8,6 @@ import {
   TrendingUp, BarChart3, Clock, AlertTriangle, RefreshCw, Users, Zap, PhoneOff, Mic,
 } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
-import { startSerialPoll } from '@/utils/serial-poll';
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
 const PROVIDER_URL = `${SUPABASE_URL}/functions/v1/wolf-provider`;
@@ -89,30 +88,29 @@ export function AdminCharts({ sessionToken, onUnauthorized }: { sessionToken: st
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
-  const auth = useRef(onUnauthorized);
-  auth.current = onUnauthorized;
-  useEffect(() => {
-    if (!sessionToken) return;
-    const poll = startSerialPoll(async signal => {
+  const load = useCallback(async (token: string) => {
     setLoading(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
-        body: { action: 'get_admin_chart_data_v2', session_token: sessionToken },
-        signal, onUnauthorized: () => auth.current(),
+        body: { action: 'get_admin_chart_data_v2', session_token: token },
+        onUnauthorized,
       });
-      if (signal.aborted) return false;
       if (result.ok && result.data) {
         setData(result.data as ChartV2);
         setErr('');
       } else {
         setErr(result.error || 'Failed to load charts');
       }
-      return result.ok;
-    } catch { if (!signal.aborted) setErr('Network error loading charts'); return false; }
-    finally { if (!signal.aborted) setLoading(false); }
-    }, 30000, { paused: () => document.visibilityState === 'hidden' });
-    return () => poll.stop();
-  }, [sessionToken]);
+    } catch { setErr('Network error loading charts'); }
+    finally { setLoading(false); }
+  }, [onUnauthorized]);
+
+  useEffect(() => { if (sessionToken) load(sessionToken); }, [sessionToken, load]);
+  useEffect(() => {
+    if (!sessionToken) return;
+    const iv = setInterval(() => load(sessionToken), 30000);
+    return () => clearInterval(iv);
+  }, [sessionToken, load]);
 
   if (loading && !data) {
     return (

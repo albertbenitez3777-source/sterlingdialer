@@ -28,27 +28,23 @@ export function OperationsDashboard({sessionToken, providerUrl, onUnauthorized}:
   const [error, setError] = useState('');
   const auth = useRef(onUnauthorized); auth.current = onUnauthorized;
   const sequence = useRef(0);
-  const request = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
-    if (request.current) return;
-    const controller = new AbortController();
-    request.current = controller;
     const current = ++sequence.current;
     setBusy(true);
     try {
-      const result = await authFetch<OperationsOverview>(providerUrl, {body:{action:'operations_overview',session_token:sessionToken,window:windowName},signal:controller.signal,onUnauthorized:()=>auth.current()});
+      const result = await authFetch<OperationsOverview>(providerUrl, {body:{action:'operations_overview',session_token:sessionToken,window:windowName},onUnauthorized:()=>auth.current()});
       if (current !== sequence.current) return;
       if (result.ok && result.data?.lines) { setData(result.data); setError(''); }
       else setError(result.error || 'Call statistics could not refresh.');
     } catch { if(current === sequence.current) setError('Call statistics could not refresh.'); }
-    finally { if(request.current === controller) request.current = null; if(current === sequence.current) setBusy(false); }
+    finally { if(current === sequence.current) setBusy(false); }
   }, [sessionToken,providerUrl,windowName]);
   useEffect(() => {
     setData(null); void load();
     const refresh = () => { if(document.visibilityState !== 'hidden') void load(); };
     const timer = window.setInterval(refresh,15000);
     document.addEventListener('visibilitychange',refresh);
-    return () => { ++sequence.current; request.current?.abort(); request.current = null; window.clearInterval(timer); document.removeEventListener('visibilitychange',refresh); };
+    return () => { ++sequence.current; window.clearInterval(timer); document.removeEventListener('visibilitychange',refresh); };
   },[load]);
   return <OperationsView data={data} windowName={windowName} busy={busy} error={error} onWindow={setWindowName} onRefresh={()=>void load()}/>;
 }

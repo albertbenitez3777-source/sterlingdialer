@@ -5,7 +5,6 @@ import {
   Search, Send, ShieldCheck, Sparkles, Users, Video, XCircle,
 } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
-import { startSerialPoll } from '@/utils/serial-poll';
 import { formatPhone } from '@/utils/privacy';
 
 type QueueRecord = {
@@ -94,37 +93,34 @@ export function AgentCockpit(props: AgentCockpitProps) {
   const [noteSaving, setNoteSaving] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const auth = useRef(onUnauthorized);
-  auth.current = onUnauthorized;
+
+  const loadWorkspace = useCallback(async () => {
+    if (!providerUrl || !sessionToken) return;
+    const result = await authFetch<V2Workspace>(providerUrl, {
+      body: { action: 'get_federal_one_v2', session_token: sessionToken },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+    if (result.ok && result.data) setWorkspace(result.data);
+  }, [providerUrl, sessionToken, onUnauthorized]);
 
   useEffect(() => {
-    if (!providerUrl || !sessionToken) return;
     const mobile = window.matchMedia('(max-width: 760px)').matches;
     setIsMobile(mobile);
-    const poll = startSerialPoll(async signal => {
-      const result = await authFetch<V2Workspace>(providerUrl, {
-        body: { action: 'get_federal_one_v2', session_token: sessionToken },
-        signal, onUnauthorized: () => auth.current?.(),
-      });
-      if (!signal.aborted && result.ok && result.data) setWorkspace(result.data);
-      return result.ok;
-    }, 5000, { paused: () => document.visibilityState === 'hidden' });
+    loadWorkspace();
+    const poll = window.setInterval(loadWorkspace, 5000);
     let deviceKey = window.localStorage.getItem('federal-one-device-key');
     if (!deviceKey) {
       deviceKey = crypto.randomUUID();
       window.localStorage.setItem('federal-one-device-key', deviceKey);
     }
-    const heartbeatPoll = startSerialPoll(async signal => {
-      const result = await authFetch(providerUrl, {
-        body: { action: 'device_heartbeat', session_token: sessionToken, device_key: deviceKey, device_kind: mobile ? 'phone' : 'desktop' },
-        signal, onUnauthorized: () => auth.current?.(),
-      });
-      return result.ok;
-    }, 15000, { maxBackoffMs: 30000 });
-    const visible = () => { if (document.visibilityState !== 'hidden') poll.refresh(); };
-    document.addEventListener('visibilitychange', visible);
-    return () => { poll.stop(); heartbeatPoll.stop(); document.removeEventListener('visibilitychange', visible); };
-  }, [providerUrl, sessionToken]);
+    const heartbeat = () => authFetch(providerUrl || '', {
+      body: { action: 'device_heartbeat', session_token: sessionToken, device_key: deviceKey, device_kind: mobile ? 'phone' : 'desktop' },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+    if (providerUrl && sessionToken) void heartbeat();
+    const heartbeatPoll = window.setInterval(() => { if (providerUrl && sessionToken) void heartbeat(); }, 15000);
+    return () => { window.clearInterval(poll); window.clearInterval(heartbeatPoll); };
+  }, [loadWorkspace, providerUrl, sessionToken, onUnauthorized]);
 
   const changeDialerState = async () => {
     if (!providerUrl || !sessionToken || dialerChanging) return;

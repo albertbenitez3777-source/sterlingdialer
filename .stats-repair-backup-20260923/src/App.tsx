@@ -1786,7 +1786,7 @@ export default function App() {
             </div>
           )}
 
-          {isOwner && activeNav === 'test' && <TestCallPanel sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />}
+          {isOwner && activeNav === 'test' && <TestCallPanel sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
           {isOwner && activeNav === 'dashboard' && (
             <section className="f1-simple-home">
               <div className="f1-simple-welcome">
@@ -1804,10 +1804,10 @@ export default function App() {
               </div>
               <div className="f1-simple-live">
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
-                <div><small>DIALER</small><strong>{!adminStats ? 'Loading status…' : adminStats.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
-                <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? '—'}</strong></div>
+                <div><small>DIALER</small><strong>{adminStats?.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
+                <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? 0}</strong></div>
                 <div><small>NEW LEADS</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
-                {canControl && adminStats && (adminStats.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
+                {canControl && (adminStats?.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
               </div>
             </section>
           )}
@@ -1832,9 +1832,6 @@ export default function App() {
           )}
           {isOwner && ['dashboard', 'system'].includes(activeNav) && (
             <DataHealthBanner health={dataHealth} />
-          )}
-          {isOwner && ['dashboard', 'system'].includes(activeNav) && dashTab === 'overview' && (
-            <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
           )}
           {isOwner && ['dashboard', 'system'].includes(activeNav) && adminStats && (
             <>
@@ -1894,6 +1891,7 @@ export default function App() {
               {/* ── OVERVIEW TAB: KPI strip, corrected funnel, recent failures, agent readiness ── */}
               {dashTab === 'overview' && (
                 <>
+                  <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
 
                   <details className="ops-details"><summary>Detailed transfer evidence &amp; routing checks</summary>
                   {/* Owner Alert Overview */}
@@ -2359,7 +2357,7 @@ export default function App() {
                     </Reveal>
                   )}
 
-                  <AdminCharts sessionToken={sessionToken} onUnauthorized={atomicLogout} />
+                  <AdminCharts sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} />
                 </>
               )}
 
@@ -2737,7 +2735,7 @@ export default function App() {
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={() => atomicLogoutRef.current?.()}
               onNavTo={setActiveNav}
               onExtraInfo={(p) => { setExtraInfoPrefill(p); setActiveNav('extra'); }}
             />
@@ -2749,7 +2747,7 @@ export default function App() {
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={() => atomicLogoutRef.current?.()}
               onNavTo={setActiveNav}
               onExtraInfo={(p) => { setExtraInfoPrefill(p); setActiveNav('extra'); }}
             />
@@ -2895,7 +2893,7 @@ export default function App() {
               onDismiss={handleAlertDismiss}
               onExtraInfo={(name, phone, address) => { setExtraInfoPrefill({ name, phone, address }); setActiveNav('extra'); }}
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={handleLogout}
               agentName={session?.agent?.full_name ?? 'Agent'}
             />
           )}
@@ -2907,7 +2905,7 @@ export default function App() {
               loading={activeTransfersLoading}
               error={activeTransfersError}
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={handleLogout}
               onDismiss={(id) => setDismissedTransferIds(prev => new Set(prev).add(id))}
               onExtraInfo={(name, phone, address) => { setExtraInfoPrefill({ name, phone, address }); setActiveNav('extra'); }}
             />
@@ -2928,7 +2926,7 @@ export default function App() {
               activeNav={activeNav}
               providerUrl={FEDERAL_ONE_V2_URL}
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={handleLogout}
             />
           )}
 
@@ -2936,7 +2934,7 @@ export default function App() {
           {activeNav === 'opportunities' && (
             <OpportunitiesFeed
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={handleLogout}
               isOwner={isOwner}
               onCallback={(name, phone) => {
                 setSecClientName(name);
@@ -2951,7 +2949,7 @@ export default function App() {
             <AgentWorkspaceView
               providerUrl={PROVIDER_URL}
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={() => atomicLogoutRef.current?.()}
               expandedCall={expandedCall}
               setExpandedCall={setExpandedCall}
               onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
@@ -2971,7 +2969,7 @@ export default function App() {
           {!isOwner && activeNav === 'inbox' && (
             <AgentInbox
               sessionToken={sessionToken}
-              onUnauthorized={atomicLogout}
+              onUnauthorized={handleLogout}
               providerUrl={PROVIDER_URL}
               agentId={session?.agent?.id ?? ''}
             />
@@ -3002,7 +3000,7 @@ export default function App() {
           )}
 
           {activeNav === 'extra' && (
-            <ExtraInfo sessionToken={sessionToken} onUnauthorized={atomicLogout} prefill={extraInfoPrefill} />
+            <ExtraInfo sessionToken={sessionToken} onUnauthorized={() => atomicLogoutRef.current?.()} prefill={extraInfoPrefill} />
           )}
         </div>
       </div>
@@ -3015,7 +3013,7 @@ export default function App() {
           placingSecretaryCall={placingQuickSecretaryCall}
           providerUrl={FEDERAL_ONE_V2_URL}
           sessionToken={sessionToken}
-          onUnauthorized={atomicLogout}
+          onUnauthorized={handleLogout}
         />
       )}
       {isOwner && (
@@ -3028,8 +3026,8 @@ export default function App() {
           error={redialModalError}
         />
       )}
-      <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={atomicLogout} />
-      {!isStrictOwner && <IPhone key={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />}
+      <WhatsUp sessionToken={sessionToken} agentId={session.agent!.id} onUnauthorized={handleLogout} />
+      {!isStrictOwner && <IPhone key={session.agent!.id} agentName={session.agent!.full_name} sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={handleLogout} />}
       {showOfflineModal && !isStrictOwner && (
         <div className="modal-overlay" onClick={() => setShowOfflineModal(false)}>
           <div className="offline-modal" onClick={e => e.stopPropagation()}>
