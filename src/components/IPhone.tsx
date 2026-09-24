@@ -15,11 +15,37 @@ interface RouteData { talkroute_number?: string; zadarma_number?: string; zadarm
 interface Caller { name?: string; phone?: string; address?: string; summary?: string; transcript?: string; fields?: Record<string, unknown> }
 interface RecentCall { number: string; name?: string; direction: 'outgoing' | 'incoming' | 'missed'; time: Date }
 type Connection = 'idle' | 'connecting' | 'ready' | 'failed';
+type AudioStatus = 'ok' | 'sound-blocked' | 'mic-denied' | 'mic-missing' | 'mic-in-use' | 'sender-ended' | 'unknown';
+
+interface WolfPhone {
+  unlockAudio: () => void;
+  enableSound: () => void;
+  restoreMicTrack: () => Promise<{ ok: boolean; error?: string }>;
+  getMicSenderState: () => { hasConnection: boolean; hasSender: boolean; trackState: string | null };
+  getRemoteStreamState: () => { hasSrcObject: boolean; trackCount: number; liveTrackCount: number; muted: boolean; paused: boolean };
+  startRingtone: () => void;
+  stopRingtone: () => void;
+  testSpeaker: () => void;
+  setOutputDevice: (deviceId: string) => Promise<boolean>;
+}
+
 const CHANNEL = 'wolf-zadarma-v1';
 const CALLING_URL = 'https://wolf-of-wall-street-ssy3.bolt.host/';
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 const LETTERS = ['', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS', 'TUV', 'WXYZ', '', '+', ''];
 const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
+function audioStatusMessage(status: AudioStatus): string {
+  if (status === 'sound-blocked') return 'Browser is blocking audio playback. Click the button below. If sound still does not work, check that this site is allowed to play sound and use the microphone in your browser settings (click the lock icon in the address bar).';
+  if (status === 'mic-denied') return 'Microphone access was denied. Click the lock or site-settings icon in your browser address bar, allow Microphone, then click the button below.';
+  if (status === 'mic-missing') return 'No microphone found. Connect a headset or microphone and click the button below.';
+  if (status === 'mic-in-use') return 'Your microphone is being used by another app. Close that app and click the button below.';
+  if (status === 'sender-ended') return 'Your outgoing audio stopped. Click the button below to restore it without dropping the call.';
+  if (status === 'unknown') return 'An audio problem occurred. Click the button below to try again.';
+  return '';
+}
+
+const HAS_SET_SINK_ID = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
   const [open, setOpen] = useState(true);
@@ -40,8 +66,9 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const [showDtmf, setShowDtmf] = useState(false);
   const [error, setError] = useState('');
   const [micGranted, setMicGranted] = useState(false);
-  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<AudioStatus>('ok');
   const [enablingSound, setEnablingSound] = useState(false);
+  const [testingSpk, setTestingSpk] = useState(false);
   const [frameVersion, setFrameVersion] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
   const [recents, setRecents] = useState<RecentCall[]>([]);
@@ -56,12 +83,18 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const stateRef = useRef(callState); stateRef.current = callState;
   const credentialsRef = useRef<{ key: string; sip: string } | null>(null);
   const phoneIdentityRef = useRef(0);
+  const connectionRef = useRef(connection); connectionRef.current = connection;
   const companionOnly = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const inPreview = window.location.hostname !== 'wolf-of-wall-street-ssy3.bolt.host';
   const presenceError = usePhonePresence(providerUrl, sessionToken, {
     connection_state: connection, call_state: callState, microphone_granted: micGranted,
     device_kind: companionOnly ? 'companion' : 'desktop',
   }, () => unauthorizedRef.current());
+
+  const getPhone = useCallback((): (Window & { wolfPhone?: WolfPhone }) | null => {
+    return frameRef.current?.contentWindow as (Window & { wolfPhone?: WolfPhone }) | null;
+  }, []);
+
   useEffect(() => {
     let permission: PermissionStatus | undefined;
     let disposed = false;
@@ -73,54 +106,85 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     }).catch(() => {});
     return () => { disposed = true; permission?.removeEventListener('change', changed); };
   }, []);
-  const command = useCallback((command: string, extra: Record<string, unknown> = {}) => {
-    frameRef.current?.contentWindow?.postMessage({ channel: CHANNEL, command, ...extra }, window.location.origin);
+
+  const command = useCallback((cmd: string, extra: Record<string, unknown> = {}) => {
+    frameRef.current?.contentWindow?.postMessage({ channel: CHANNEL, command: cmd, ...extra }, window.location.origin);
   }, []);
+
   const unlockAudio = useCallback(() => {
-    const phone = frameRef.current?.contentWindow as (Window & { wolfPhone?: { unlockAudio: () => void; enableSound: () => void } }) | null;
-    phone?.wolfPhone?.unlockAudio();
-  }, []);
-  const requestMic = useCallback(async () => {
+    getPhone()?.wolfPhone?.unlockAudio();
+  }, [getPhone]);
+
+  const requestMic = useCallback(async (): Promise<{ granted: boolean; error?: string; errorName?: string }> => {
     const identity = phoneIdentityRef.current;
     try {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open the published HTTPS website to use the microphone.');
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        return { granted: false, error: 'Open the published HTTPS website to use the microphone.', errorName: 'insecure' };
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(track => track.stop());
-      if (identity !== phoneIdentityRef.current) return false;
-      setMicGranted(true); return true;
+      if (identity !== phoneIdentityRef.current) return { granted: false };
+      setMicGranted(true);
+      return { granted: true };
     } catch (e) {
-      if (identity !== phoneIdentityRef.current) return false;
+      if (identity !== phoneIdentityRef.current) return { granted: false };
       setMicGranted(false);
-      setConnection('failed');
-      setError(e instanceof Error && e.name === 'NotAllowedError'
+      const name = e instanceof Error ? e.name : '';
+      const message = name === 'NotAllowedError'
         ? window.self !== window.top ? 'Open the calling app in its own tab, then allow microphone access.' : 'Microphone access is blocked. Allow it in this website\'s browser settings, then retry.'
-        : e instanceof Error && e.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or headset, then retry.'
-        : e instanceof Error ? e.message : 'The microphone is unavailable.');
-      return false;
+        : name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or headset, then retry.'
+        : name === 'NotReadableError' ? 'Your microphone is being used by another app. Close it, then retry.'
+        : e instanceof Error ? e.message : 'The microphone is unavailable.';
+      return { granted: false, error: message, errorName: name };
     }
   }, []);
+
   const enableSound = useCallback(async () => {
     setEnablingSound(true);
-    // 1. Synchronous in the click activation: play() + AudioContext.resume() in BOTH
-    //    the parent frame and the same-origin engine iframe (direct property access,
-    //    not postMessage, so user activation propagates).
-    const phone = frameRef.current?.contentWindow as (Window & { wolfPhone?: { unlockAudio: () => void; enableSound: () => void } }) | null;
-    phone?.wolfPhone?.enableSound();
-    phone?.wolfPhone?.unlockAudio();
-    try { const ctx = new AudioContext(); void ctx.resume().then(() => ctx.close()).catch(() => {}); } catch {}
-    // 2. If microphone permission is missing, request it now. During an active call
-    //    this cannot replace the SIP session's existing audio track, but it CAN
-    //    re-prompt the browser permission so a subsequent call works. The JsSIP SDK
-    //    manages its own getUserMedia during call setup — we cannot inject a track
-    //    into the live peer connection without session renegotiation, so we do not
-    //    attempt that. Mute/unmute uses track.enabled on the SDK's existing sender.
-    if (!micGranted) {
-      await requestMic();
+    try {
+      const phone = getPhone();
+      // Synchronous in click activation: play/resume in both frames
+      phone?.wolfPhone?.enableSound();
+      phone?.wolfPhone?.unlockAudio();
+      const ACtx = typeof AudioContext !== 'undefined' ? AudioContext : (window as any).webkitAudioContext as typeof AudioContext | undefined;
+      if (ACtx) { try { const ctx = new ACtx(); void ctx.resume().then(() => ctx.close()).catch(() => {}); } catch {} }
+
+      if (!micGranted) {
+        const mic = await requestMic();
+        if (!mic.granted && mic.error) {
+          const status: AudioStatus = mic.errorName === 'NotAllowedError' ? 'mic-denied'
+            : mic.errorName === 'NotFoundError' ? 'mic-missing'
+            : mic.errorName === 'NotReadableError' ? 'mic-in-use' : 'unknown';
+          setAudioStatus(status);
+          return;
+        }
+      }
+
+      if (stateRef.current === 'active') {
+        const senderState = phone?.wolfPhone?.getMicSenderState();
+        if (senderState?.hasConnection && senderState.hasSender && senderState.trackState !== 'live') {
+          const result = await phone!.wolfPhone!.restoreMicTrack();
+          if (!result.ok) {
+            const status: AudioStatus = result.error === 'mic-denied' ? 'mic-denied'
+              : result.error === 'mic-missing' ? 'mic-missing'
+              : result.error === 'mic-in-use' ? 'mic-in-use' : 'sender-ended';
+            setAudioStatus(status);
+            return;
+          }
+        }
+      }
+
+      setAudioStatus('ok');
+    } finally {
+      setEnablingSound(false);
     }
-    // enablingSound is cleared by audio-recovered / audio-blocked events from the
-    // engine, or after a timeout if neither arrives (e.g. no active audio element).
-    setTimeout(() => setEnablingSound(false), 3000);
-  }, [micGranted, requestMic]);
+  }, [micGranted, requestMic, getPhone]);
+
+  const testSpeaker = useCallback(() => {
+    setTestingSpk(true);
+    getPhone()?.wolfPhone?.testSpeaker();
+    setTimeout(() => setTestingSpk(false), 2500);
+  }, [getPhone]);
 
   const loadRoute = useCallback(async (signal?: AbortSignal) => {
     const identity = phoneIdentityRef.current;
@@ -165,8 +229,8 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         setConnection(data.state); startingRef.current = data.state === 'connecting';
         if (data.state === 'ready') setError('');
       }
-      if (data.type === 'audio-blocked') { setAudioBlocked(true); setEnablingSound(false); }
-      if (data.type === 'audio-recovered') { setAudioBlocked(false); setEnablingSound(false); }
+      if (data.type === 'audio-blocked') { setAudioStatus('sound-blocked'); }
+      if (data.type === 'audio-recovered') { setAudioStatus('ok'); }
       if (data.type === 'error') {
         setError(String(data.message)); pendingCallRef.current = false;
         pendingRequestRef.current?.respond({ status: 'failed', error: String(data.message) });
@@ -194,6 +258,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           const call = callRef.current;
           if (call) setRecents(previous => [{ number: call.number, name: call.name, time: new Date(), direction: call.direction === 'incoming' && !call.answered ? 'missed' as const : call.direction }, ...previous].slice(0, 20));
           callRef.current = null; setCaller(null); setCallNumber(''); setShowDtmf(false); setSpeakerOff(false); setSeconds(0);
+          setAudioStatus('ok');
         }
       }
       if (data.type === 'controls') {
@@ -229,7 +294,13 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (currentRoute) setError('No phone extension is assigned. Ask your supervisor to check your phone assignment.');
       return;
     }
-    if (!await requestMic()) { startingRef.current = false; return; }
+    const mic = await requestMic();
+    if (!mic.granted) {
+      startingRef.current = false;
+      setConnection('failed');
+      setError(mic.error || 'Microphone access is required.');
+      return;
+    }
     if (identity !== phoneIdentityRef.current) return;
     setConnection('connecting');
     const result = await authFetch<{ key: string; sip: string }>(providerUrl, {
@@ -264,9 +335,14 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           dialGenerationRef.current++;
         }, { once: true });
       }
-      const hasMicrophone = await requestMic();
+      const mic = await requestMic();
       if (identity !== phoneIdentityRef.current || generation !== dialGenerationRef.current) return;
-      if (!hasMicrophone) { pendingCallRef.current = false; pendingRequestRef.current = null; request?.respond({ status: 'failed', error: 'Microphone access is required. Check the on-screen phone.' }); return; }
+      if (!mic.granted) {
+        pendingCallRef.current = false; pendingRequestRef.current = null;
+        reject(mic.error || 'Microphone access is required. Check the on-screen phone.');
+        request?.respond({ status: 'failed', error: mic.error || 'Microphone access is required.' });
+        return;
+      }
       if (identity !== phoneIdentityRef.current || request?.signal.aborted || (request && Date.now() >= request.expiresAt)) {
         pendingCallRef.current = false;
         if (pendingRequestRef.current === request) pendingRequestRef.current = null;
@@ -294,12 +370,18 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     return () => window.removeEventListener(PHONE_DIAL_EVENT, handle);
   }, [dial]);
 
-  const answer = async () => { unlockAudio(); if (await requestMic()) command('answer'); };
-  const status = connection === 'ready' ? 'Ready' : connection === 'connecting' ? 'Connecting…' : connection === 'failed' ? 'Not connected' : 'Enable phone';
+  const answer = async () => { unlockAudio(); const mic = await requestMic(); if (mic.granted) command('answer'); };
+  const status = connection === 'ready' ? 'Ready' : connection === 'connecting' ? 'Connecting\u2026' : connection === 'failed' ? 'Not connected' : 'Enable phone';
   const dot = connection === 'ready' ? 'connected' : connection === 'connecting' ? 'connecting' : 'offline';
   const myNumber = route?.zadarma_number || route?.talkroute_number;
   const active = callState !== 'idle';
+  const showAudioBanner = audioStatus !== 'ok';
   const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
+
+  // Separate status indicators
+  const spkOk = audioStatus === 'ok' || audioStatus === 'mic-denied' || audioStatus === 'mic-missing' || audioStatus === 'mic-in-use';
+  const micOk = micGranted && audioStatus !== 'mic-denied' && audioStatus !== 'mic-missing' && audioStatus !== 'mic-in-use';
+  const connOk = connection === 'ready';
 
   return <>
     {frame}
@@ -308,28 +390,50 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
-          {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>×</button></div>}
-          {audioBlocked && <div className="ip17-audio-recovery" role="alert"><button className="ip17-audio-btn" disabled={enablingSound} onClick={() => void enableSound()}><Volume2 size={20} />{enablingSound ? 'Enabling sound…' : 'Enable microphone & sound'}</button><p className="ip17-audio-hint">If sound still does not work after clicking, check that this site is allowed to play audio and use the microphone in your browser settings.</p></div>}
+
+          {/* Separate status row: connection / speaker / mic */}
+          {connection === 'ready' && <div className="ip17-health-row">
+            <span className={`ip17-health-chip ${connOk ? 'ok' : 'err'}`}>Connection {connOk ? '\u2713' : '\u2717'}</span>
+            <span className={`ip17-health-chip ${spkOk ? 'ok' : 'err'}`}>Speaker {spkOk ? '\u2713' : '\u2717'}</span>
+            <span className={`ip17-health-chip ${micOk ? 'ok' : 'err'}`}>Mic {micOk ? '\u2713' : '\u2717'}</span>
+          </div>}
+
+          {error && <div className="ip17-error" role="alert">{error}<button aria-label="Dismiss phone error" onClick={() => setError('')}>{'\u00d7'}</button></div>}
+
+          {showAudioBanner && <div className="ip17-audio-recovery" role="alert">
+            <p className="ip17-audio-status-msg">{audioStatusMessage(audioStatus)}</p>
+            <button className="ip17-audio-btn" disabled={enablingSound} onClick={() => void enableSound()}>
+              <Volume2 size={20} />{enablingSound ? 'Restoring audio\u2026' : 'Enable microphone & sound'}
+            </button>
+            {!HAS_SET_SINK_ID && <p className="ip17-audio-hint">Your browser does not support output device selection. To change speakers, use your operating system sound settings (Windows: Sound settings; Mac: System Settings &gt; Sound &gt; Output).</p>}
+          </div>}
           {presenceError && <div className="ip17-error" role="status">{presenceError}</div>}
+
           {!active && <nav className="ip17-tabs" aria-label="Phone views"><button aria-current={view === 'keypad' ? 'page' : undefined} onClick={() => setView('keypad')}>Keypad</button><button aria-current={view === 'activity' ? 'page' : undefined} onClick={() => setView('activity')}>Recents{unreadActivity > 0 && <span className="ip17-vm-badge">{unreadActivity}</span>}</button><button aria-current={view === 'voicemail' ? 'page' : undefined} onClick={() => setView('voicemail')}>Voicemail{unreadVoicemails != null && unreadVoicemails > 0 && <span className="ip17-vm-badge" aria-label={`${unreadVoicemails} unheard messages`}> {unreadVoicemails}</span>}</button></nav>}
           {view === 'activity' && !active ? <PhoneActivity sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : view === 'voicemail' && !active ? <PhoneVoicemail sessionToken={sessionToken} providerUrl={providerUrl} onUnauthorized={onUnauthorized} canCall={!companionOnly && connection === 'ready'} onCall={number => void dial(number)} /> : companionOnly ? <div className="ip17-mode-notice">Your phone is for client information. Open this app on your desktop to take calls.</div> : <>
             {inPreview && !active && <div className="ip17-mode-notice">For calling and microphone access, <a href={CALLING_URL} target="_blank" rel="noopener noreferrer">open the calling app in its own tab</a>.</div>}
-            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={routeLoading || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{routeLoading ? 'Loading phone settings…' : connection === 'connecting' ? 'Connecting…' : !route ? 'Retry phone setup' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
-            {micGranted && !active && <div className="ip17-mic-status"><Mic size={13} />Microphone allowed</div>}
-            {connection === 'ready' && !micGranted && !audioBlocked && <button className="ip17-enable" onClick={() => { unlockAudio(); void requestMic(); }}>Enable microphone and sound</button>}
+            {!active && connection !== 'ready' && <button className="ip17-enable" disabled={routeLoading || connection === 'connecting'} onClick={() => void enable()}><RotateCcw size={16} />{routeLoading ? 'Loading phone settings\u2026' : connection === 'connecting' ? 'Connecting\u2026' : !route ? 'Retry phone setup' : connection === 'failed' ? 'Retry connection' : 'Enable microphone & phone'}</button>}
+            {/* Test speaker + mic status when idle and ready */}
+            {!active && connection === 'ready' && <div className="ip17-audio-tools">
+              <button className="ip17-test-spk" disabled={testingSpk} onClick={testSpeaker}><Volume2 size={14} />{testingSpk ? 'Playing\u2026' : 'Test speaker & ringtone'}</button>
+              {!micGranted && audioStatus === 'ok' && <button className="ip17-enable ip17-enable-sm" onClick={() => { unlockAudio(); void requestMic(); }}><Mic size={14} />Enable microphone</button>}
+              {micGranted && audioStatus === 'ok' && <span className="ip17-mic-status"><Mic size={13} />Microphone allowed</span>}
+            </div>}
             {active ? <div className="ip17-active">
-              <div className="ip17-active-header"><h3 className="ip17-caller">{caller?.name || formatPhone(callNumber)}</h3>{caller?.name && <p>{formatPhone(callNumber)}</p>}<p className="ip17-timer" aria-live="polite">{callState === 'ringing-in' ? 'Incoming call' : callState === 'dialing' ? 'Calling…' : callState === 'answering' ? 'Connecting call…' : callState === 'ending' ? 'Ending call…' : `${held ? 'On hold · ' : ''}${duration(seconds)}`}</p></div>
+              <div className="ip17-active-header"><h3 className="ip17-caller">{caller?.name || formatPhone(callNumber)}</h3>{caller?.name && <p>{formatPhone(callNumber)}</p>}<p className="ip17-timer" aria-live="polite">{callState === 'ringing-in' ? 'Incoming call' : callState === 'dialing' ? 'Calling\u2026' : callState === 'answering' ? 'Connecting call\u2026' : callState === 'ending' ? 'Ending call\u2026' : `${held ? 'On hold \u00b7 ' : ''}${duration(seconds)}`}</p></div>
               {caller?.address && <p className="ip17-caller-detail">{caller.address}</p>}
               {caller?.summary && <p className="ip17-caller-detail">{caller.summary}</p>}
               {caller?.fields && Object.keys(caller.fields).length > 0 && <details className="ip17-caller-detail"><summary>Client details</summary>{Object.entries(caller.fields).map(([key, value]) => <p key={key}><strong>{key.replace(/_/g, ' ')}:</strong> {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}</p>)}</details>}
               {caller?.transcript && <details className="ip17-caller-detail"><summary>AI conversation</summary><p>{caller.transcript}</p></details>}
+              {/* Enable sound banner during ringing-in too */}
+              {callState === 'ringing-in' && <button className="ip17-audio-btn ip17-ring-enable" onClick={() => void enableSound()} disabled={enablingSound}><Volume2 size={18} />{enablingSound ? 'Enabling\u2026' : 'Enable sound to hear ringtone & caller'}</button>}
               {callState === 'active' && <>
                 <div className="ip17-call-controls">
                   <button className={`ip17-ctrl-btn${muted ? ' active' : ''}`} aria-pressed={muted} onClick={() => command('mute')}>{muted ? <MicOff size={22} /> : <Mic size={22} />}<span>{muted ? 'Unmute' : 'Mute'}</span></button>
                   <button className={`ip17-ctrl-btn${held ? ' active' : ''}`} aria-pressed={held} onClick={() => command('hold')}>{held ? <Play size={22} /> : <Pause size={22} />}<span>{held ? 'Resume' : 'Hold'}</span></button>
                   <button className={`ip17-ctrl-btn${speakerOff ? ' active' : ''}`} aria-pressed={speakerOff} onClick={() => command('speaker')}>{speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}<span>{speakerOff ? 'Sound on' : 'Sound off'}</span></button>
                   <button className="ip17-ctrl-btn" onClick={() => setShowDtmf(value => !value)}><Grid3X3 size={22} /><span>Keypad</span></button>
-                  <button className="ip17-ctrl-btn" onClick={() => void enableSound()}><Volume2 size={22} /><span>Enable sound</span></button>
+                  <button className={`ip17-ctrl-btn${audioStatus !== 'ok' ? ' ip17-ctrl-warn' : ''}`} onClick={() => void enableSound()} disabled={enablingSound}><Volume2 size={22} /><span>{enablingSound ? 'Fixing\u2026' : 'Fix audio'}</span></button>
                 </div>
                 {showDtmf && <div className="ip17-dtmf-pad">{KEYS.map(key => <button key={key} className="ip17-dtmf-key" onClick={() => command('dtmf', { tone: key })}>{key}</button>)}</div>}
               </>}

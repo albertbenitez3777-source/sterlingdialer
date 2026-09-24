@@ -769,6 +769,13 @@
   text-align: center;
 }
 
+.ip17-audio-status-msg {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e0c060;
+}
+
 .ip17-audio-btn {
   display: flex;
   align-items: center;
@@ -792,11 +799,59 @@
 .ip17-audio-btn:disabled { opacity: .6; cursor: wait; }
 .ip17-audio-btn:focus-visible { outline: 2px solid #ffb340; outline-offset: 2px; }
 
-.ip17-audio-hint {
-  margin: 8px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #b8a060;
+.ip17-ctrl-warn { background: #2a1a00 !important; color: #ff9f0a !important; }
+.ip17-ctrl-warn span { color: #ff9f0a !important; opacity: 1 !important; }
+
+/* ─── Health status row ─── */
+.ip17-health-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 20px 8px;
+}
+.ip17-health-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  letter-spacing: .2px;
+}
+.ip17-health-chip.ok { background: #0a2a12; color: #34c759; }
+.ip17-health-chip.err { background: #2a0a0a; color: #ff453a; }
+
+/* ─── Audio tools row (test speaker, mic enable) ─── */
+.ip17-audio-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 20px 8px;
+}
+.ip17-test-spk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  background: #1c1c1e;
+  color: #e5e5ea;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.ip17-test-spk:hover:not(:disabled) { background: #2c2c2e; border-color: #4a4a4e; }
+.ip17-test-spk:disabled { opacity: .5; cursor: wait; }
+.ip17-enable-sm { padding: 8px 16px; font-size: 12px; margin: 0; }
+
+/* ─── Ringtone enable button during ringing ─── */
+.ip17-ring-enable {
+  margin: 12px auto;
+  max-width: 280px;
+  font-size: 13px;
+  padding: 12px 16px;
 }
 
 /* ─── Bottom home indicator ─── */

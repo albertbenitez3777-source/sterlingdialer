@@ -1,7 +1,5 @@
 import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession, type PhoneState } from './call-controller';
 
-// Run the provider's SDK in its own same-origin frame. Removing the frame on
-// logout/reconnect closes every SDK socket, timer, audio track and global hook.
 const CHANNEL = 'wolf-zadarma-v1';
 const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/';
 interface Socket {
@@ -19,12 +17,27 @@ interface Sdk extends PhoneApi {
   zadarmaCallbackCancel(data: unknown): void;
 }
 type IoFactory = ((url: string, options: unknown) => Socket) & Record<string, unknown>;
+const ACtx = typeof AudioContext !== 'undefined' ? AudioContext
+  : typeof (window as any).webkitAudioContext !== 'undefined' ? (window as any).webkitAudioContext as typeof AudioContext : null;
 type PhoneWindow = Window & typeof globalThis & {
   ZDRMscriptDiv: HTMLElement;
   ZadarmaWebphoneAPI: new () => Sdk;
   io: IoFactory;
-  wolfPhone?: { unlockAudio: () => void; enableSound: () => void };
+  wolfPhone?: WolfPhoneApi;
 };
+
+interface WolfPhoneApi {
+  unlockAudio: () => void;
+  enableSound: () => void;
+  restoreMicTrack: () => Promise<{ ok: boolean; error?: string }>;
+  getMicSenderState: () => { hasConnection: boolean; hasSender: boolean; trackState: string | null };
+  getRemoteStreamState: () => { hasSrcObject: boolean; trackCount: number; liveTrackCount: number; muted: boolean; paused: boolean };
+  startRingtone: () => void;
+  stopRingtone: () => void;
+  testSpeaker: () => void;
+  setOutputDevice: (deviceId: string) => Promise<boolean>;
+}
+
 const host = window as PhoneWindow;
 let controller: CallController | undefined;
 let initialized = false;
@@ -35,24 +48,35 @@ const sockets = new Set<Socket>();
 let connectionTimer: ReturnType<typeof setTimeout>;
 let callTimer: ReturnType<typeof setTimeout>;
 let endingTimer: ReturnType<typeof setTimeout>;
+let ringtoneLoopTimer: ReturnType<typeof setInterval> | undefined;
+let selectedOutputDevice: string | undefined;
 const boundSessions = new WeakSet<PhoneSession>();
 const emit = (event: PhoneEvent) => {
   if (window.parent !== window) window.parent.postMessage({ channel: CHANNEL, ...event }, window.location.origin);
 };
 const fail = (message: string) => emit({ type: 'error', message });
 const remote = () => document.getElementById('zdrm-webRTCRemoteView') as HTMLMediaElement;
+const ringtoneEl = () => document.getElementById('zdrm-incomingRing') as HTMLAudioElement | null;
+
+function hasSinkId(el: HTMLMediaElement): el is HTMLMediaElement & { setSinkId: (id: string) => Promise<void>; sinkId: string } {
+  return typeof (el as any).setSinkId === 'function';
+}
+
+async function applySinkId(el: HTMLMediaElement) {
+  if (selectedOutputDevice && hasSinkId(el)) {
+    try { await el.setSinkId(selectedOutputDevice); } catch { /* device unavailable, use default */ }
+  }
+}
 
 function failConnection(message: string) {
   if (connectionFailed) return;
   connectionFailed = true;
   clearTimeout(connectionTimer);
   if (controller) controller.ready = false;
-  // Stop the vendor's automatic reconnect loop before closing its socket.
-  // A rejected authorization must remain failed until the agent retries.
   if (providerApi) {
     providerApi.unreg_flag = true;
-    try { providerApi.unreg_old?.(); } catch { /* Continue closing the push connection. */ }
-    try { providerApi.unreg(); } catch { /* The socket may already have closed. */ }
+    try { providerApi.unreg_old?.(); } catch {}
+    try { providerApi.unreg(); } catch {}
   }
   for (const socket of sockets) socket.close();
   emit({ type: 'connection', state: 'failed' });
@@ -80,12 +104,57 @@ function createMedia() {
   }
 }
 createMedia();
+
+function getAudioSender(): RTCRtpSender | null {
+  const pc = providerApi?.webCallSession?.connection;
+  if (!pc) return null;
+  return pc.getSenders().find(s => s.track?.kind === 'audio' || (s as any).kind === 'audio') ?? null;
+}
+
+function rebindRemoteStream(): boolean {
+  const pc = providerApi?.webCallSession?.connection;
+  if (!pc) return false;
+  const tracks = pc.getReceivers().map(r => r.track).filter(t => t && t.kind === 'audio');
+  if (!tracks.length) return false;
+  const el = remote();
+  el.srcObject = new MediaStream(tracks);
+  el.muted = speakerMuted;
+  void applySinkId(el);
+  void el.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
+  return true;
+}
+
+function stopRingtone() {
+  if (ringtoneLoopTimer !== undefined) { clearInterval(ringtoneLoopTimer); ringtoneLoopTimer = undefined; }
+  const ring = ringtoneEl();
+  if (ring) { ring.pause(); ring.currentTime = 0; ring.loop = false; }
+}
+
+function startRingtone() {
+  stopRingtone();
+  const ring = ringtoneEl();
+  if (!ring) return;
+  ring.loop = true;
+  ring.volume = 0.7;
+  void applySinkId(ring);
+  void ring.play().catch(() => {
+    ring.loop = false;
+    ringtoneLoopTimer = setInterval(() => {
+      if (controller?.state !== 'ringing-in') { stopRingtone(); return; }
+      void ring.play().catch(() => {});
+    }, 2000);
+  });
+}
+
 host.wolfPhone = {
   unlockAudio() {
+    const el = remote();
     document.querySelectorAll('audio').forEach(audio => {
       if (audio.id.includes('Self')) return;
-      if (audio === remote() && controller?.state === 'active') {
-        void audio.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' })); return;
+      if (audio === el && controller?.state === 'active') {
+        if (audio.muted && !speakerMuted) audio.muted = false;
+        void audio.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
+        return;
       }
       if (controller && controller.state !== 'idle') return;
       const previous = audio.volume; audio.volume = 0;
@@ -95,12 +164,108 @@ host.wolfPhone = {
   enableSound() {
     const el = remote();
     if (!el) { emit({ type: 'audio-blocked', reason: 'playback' }); return; }
+    if (el.muted && !speakerMuted) el.muted = false;
+
+    const src = el.srcObject as MediaStream | null;
+    const hasLiveTracks = src && src.getAudioTracks().some(t => t.readyState === 'live');
+    if (!hasLiveTracks && controller && controller.state === 'active') {
+      if (rebindRemoteStream()) {
+        emit({ type: 'audio-recovered' });
+        return;
+      }
+    }
+
     void el.play().then(() => {
       emit({ type: 'audio-recovered' });
     }).catch(() => {
-      emit({ type: 'audio-blocked', reason: 'playback' });
+      if (controller?.state === 'active' && rebindRemoteStream()) {
+        emit({ type: 'audio-recovered' });
+      } else {
+        emit({ type: 'audio-blocked', reason: 'playback' });
+      }
     });
-    try { const ctx = new AudioContext(); void ctx.resume().then(() => ctx.close()).catch(() => {}); } catch {}
+    if (ACtx) { try { const ctx = new ACtx(); void ctx.resume().then(() => ctx.close()).catch(() => {}); } catch {} }
+
+    if (controller?.state === 'ringing-in') startRingtone();
+  },
+  async restoreMicTrack() {
+    const pc = providerApi?.webCallSession?.connection;
+    if (!pc) return { ok: false, error: 'no-connection' };
+    const sender = pc.getSenders().find(s => s.track?.kind === 'audio' || (!s.track && (s as any)._kind === 'audio'));
+    if (!sender) return { ok: false, error: 'no-sender' };
+    if (sender.track && sender.track.readyState === 'live' && sender.track.enabled) return { ok: true };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const newTrack = stream.getAudioTracks()[0];
+      if (!newTrack) { stream.getTracks().forEach(t => t.stop()); return { ok: false, error: 'no-track' }; }
+      await sender.replaceTrack(newTrack);
+      if (controller?.muted) newTrack.enabled = false;
+      return { ok: true };
+    } catch (e) {
+      const name = e instanceof Error ? e.name : '';
+      if (name === 'NotAllowedError') return { ok: false, error: 'mic-denied' };
+      if (name === 'NotFoundError') return { ok: false, error: 'mic-missing' };
+      if (name === 'NotReadableError') return { ok: false, error: 'mic-in-use' };
+      return { ok: false, error: e instanceof Error ? e.message : 'unknown' };
+    }
+  },
+  getMicSenderState() {
+    const pc = providerApi?.webCallSession?.connection;
+    if (!pc) return { hasConnection: false, hasSender: false, trackState: null };
+    const sender = getAudioSender();
+    return { hasConnection: true, hasSender: !!sender, trackState: sender?.track ? sender.track.readyState : null };
+  },
+  getRemoteStreamState() {
+    const el = remote();
+    const src = el?.srcObject as MediaStream | null;
+    const tracks = src?.getAudioTracks() ?? [];
+    return {
+      hasSrcObject: !!src,
+      trackCount: tracks.length,
+      liveTrackCount: tracks.filter(t => t.readyState === 'live').length,
+      muted: el?.muted ?? true,
+      paused: el?.paused ?? true,
+    };
+  },
+  startRingtone,
+  stopRingtone,
+  testSpeaker() {
+    if (!ACtx) return;
+    try {
+      const ctx = new ACtx();
+      if (selectedOutputDevice && typeof (ctx as any).setSinkId === 'function') {
+        void (ctx as any).setSinkId(selectedOutputDevice).catch(() => {});
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 440;
+      gain.gain.value = 0.15;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+      osc.stop(ctx.currentTime + 0.85);
+      osc.onended = () => ctx.close();
+    } catch {}
+    const ring = ringtoneEl();
+    if (ring) {
+      const prev = ring.volume;
+      ring.volume = 0.3;
+      ring.currentTime = 0;
+      void applySinkId(ring);
+      void ring.play().then(() => { setTimeout(() => { ring.pause(); ring.currentTime = 0; ring.volume = prev; }, 2000); }).catch(() => {});
+    }
+  },
+  async setOutputDevice(deviceId: string) {
+    selectedOutputDevice = deviceId;
+    const el = remote();
+    if (!hasSinkId(el)) return false;
+    try {
+      await el.setSinkId(deviceId);
+      const ring = ringtoneEl();
+      if (ring && hasSinkId(ring)) await ring.setSinkId(deviceId);
+      return true;
+    } catch { return false; }
   },
 };
 
@@ -118,24 +283,24 @@ function loadScript(name: string) {
 function endCall() {
   clearTimeout(callTimer);
   clearTimeout(endingTimer);
-  document.querySelectorAll('audio').forEach(audio => { audio.pause(); });
+  stopRingtone();
+  document.querySelectorAll('audio').forEach(audio => { if (audio !== ringtoneEl()) audio.pause(); });
   speakerMuted = false; remote().muted = false;
   controller?.ended();
 }
 
 function bindSession(session: PhoneSession) {
-  // The SDK assigns the same session from both newRTCSession and UA.call().
-  // Bind once, and prevent late events from an old session changing a new call.
   if (boundSessions.has(session)) return;
   boundSessions.add(session);
   const isCurrent = () => providerApi?.webCallSession === session;
-  // Use JsSIP session methods for mute, hold and all 12 DTMF keys.
-  // The vendor widget's visual control helpers do not support these reliably.
   const bindAudio = (connection: RTCPeerConnection) => {
     const play = (stream: MediaStream) => {
       if (!isCurrent()) return;
-      remote().srcObject = stream;
-      void remote().play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
+      const el = remote();
+      el.srcObject = stream;
+      el.muted = false;
+      void applySinkId(el);
+      void el.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
     };
     connection.addEventListener('track', event => play(event.streams[0] || new MediaStream([event.track])));
     const tracks = connection.getReceivers().map(receiver => receiver.track).filter(Boolean);
@@ -143,7 +308,13 @@ function bindSession(session: PhoneSession) {
   };
   session.on('peerconnection', ({ peerconnection }: { peerconnection: RTCPeerConnection }) => bindAudio(peerconnection));
   if (session.connection) bindAudio(session.connection);
-  session.on('confirmed', () => { if (isCurrent()) { clearTimeout(callTimer); controller?.confirmed(); } });
+  session.on('confirmed', () => {
+    if (isCurrent()) {
+      clearTimeout(callTimer);
+      stopRingtone();
+      controller?.confirmed();
+    }
+  });
   session.on('ended', () => { if (isCurrent()) endCall(); });
   session.on('failed', (event: { cause?: string }) => { if (isCurrent()) { endCall(); fail(`Call failed: ${event.cause || 'connection unavailable'}`); } });
   session.on('hold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
@@ -155,6 +326,7 @@ function hangup() {
   const previous = controller.state;
   clearTimeout(callTimer);
   clearTimeout(endingTimer);
+  stopRingtone();
   endingTimer = setTimeout(() => {
     if (controller?.state !== 'ending') return;
     failConnection('Call ending could not be confirmed. The phone disconnected; press Retry connection.');
@@ -162,7 +334,6 @@ function hangup() {
   }, 15000);
   try { controller.hangup(); }
   catch (error) { clearTimeout(endingTimer); throw error; }
-  // A canceled outgoing credential lookup has no SIP leg to terminate.
   if (previous === 'dialing' && !controller.api.webCallSession && (controller.state as PhoneState) === 'ending') endCall();
 }
 
@@ -171,7 +342,6 @@ async function connect(key: string, sip: string) {
   initialized = true;
   emit({ type: 'connection', state: 'connecting' });
   try {
-    // Ordered loading avoids the race in the vendor's asynchronous loader.
     for (const script of ['socket.io.js', 'detectWebRTC.min.js', 'jssip.min.js?v=7', 'md5.min.js', 'widget-api.min.js?sub_v=68']) await loadScript(script);
     const originalIo = host.io;
     host.io = Object.assign((url: string, options: unknown) => {
@@ -211,7 +381,6 @@ async function connect(key: string, sip: string) {
       get: () => currentSession,
       set: (session: PhoneSession | null) => { currentSession = session; if (session) bindSession(session); },
     });
-    // A late JSONP response must never start a call the agent already cancelled.
     for (const method of ['zadarmaCallbackCall', 'zadarmaCallbackAnswer', 'zadarmaCallbackCancel'] as const) {
       const original = api[method].bind(api);
       api[method] = data => {
@@ -222,8 +391,6 @@ async function connect(key: string, sip: string) {
     connectionTimer = setTimeout(() => {
       if (!controller?.ready) failConnection('Zadarma did not confirm the connection. Press Retry connection.');
     }, 20000);
-    // /v1/webrtc/get_key/ issues a website widget key, not a CRM integration key.
-    // CRM mode rejects this valid key with integrationDisabled.
     api.init({ key, sip, type: 'site', language: 'en',
       getSipsCallback: (sips: { all?: Array<{ name: string }> } | undefined, code: unknown) => {
         if (connectionFailed) return;
@@ -236,18 +403,20 @@ async function connect(key: string, sip: string) {
           failConnection('Zadarma did not authorize your assigned extension. Ask your supervisor to check the phone assignment.');
           return;
         }
-        // Only open the push connection after the assigned extension is authorized.
         api.reg(sip);
       },
       callbackGetPrice: () => {}, callbackEndCall: endCall,
       getStatusMessage: (status: string, data?: { caller?: string; callername?: string }) => {
-        if (status === 'incoming') controller?.incoming(String(data?.caller || 'Unknown caller'), String(data?.callername || ''));
+        if (status === 'incoming') {
+          controller?.incoming(String(data?.caller || 'Unknown caller'), String(data?.callername || ''));
+          startRingtone();
+        }
         if (['canceled', 'busy', 'rejected'].includes(status)) {
-          endCall(); if (status !== 'canceled') fail(status === 'busy' ? 'The number is busy.' : 'The call was rejected.');
+          stopRingtone();
+          endCall();
+          if (status !== 'canceled') fail(status === 'busy' ? 'The number is busy.' : 'The call was rejected.');
         }
         if (status === 'BROWSER_NOT_SUPPORTED') failConnection('Use a current desktop browser with microphone access.');
-        // 'registered', 'connected' and 'accepted' are optimistic SDK UI messages.
-        // Readiness uses the authenticated push handshake; answer uses SIP confirmed.
       },
     });
   } catch (error) { failConnection(error instanceof Error ? error.message : 'Phone setup failed.'); }
@@ -264,7 +433,7 @@ window.addEventListener('message', event => {
       controller.dial(String(data.number || ''));
       if (data.requestId) emit({ type: 'dial-result', requestId: data.requestId, accepted: true });
     }
-    else if (data.command === 'answer') controller.answer();
+    else if (data.command === 'answer') { stopRingtone(); controller.answer(); }
     else if (data.command === 'hangup') hangup();
     else if (data.command === 'mute') controller.mute();
     else if (data.command === 'hold') controller.hold();
