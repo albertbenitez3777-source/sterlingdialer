@@ -247,6 +247,18 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         const number = String(data.number || 'Unknown caller');
         const name = typeof data.name === 'string' ? data.name : undefined;
         callRef.current = { number, name, direction: data.type === 'incoming' ? 'incoming' : 'outgoing', answered: false };
+        // When a callback-dial is pending, the incoming ring is from Zadarma
+        // calling our extension back. Auto-answer it and treat as outgoing.
+        if (data.type === 'incoming' && callbackDialRef.current) {
+          callbackDialRef.current = false;
+          clearTimeout(callbackTimerRef.current);
+          const dialedNumber = callbackNumberRef.current || number;
+          callRef.current = { number: dialedNumber, direction: 'outgoing', answered: false };
+          setCallNumber(dialedNumber); setOpen(true); setView('keypad');
+          unlockAudio();
+          command('answer');
+          return;
+        }
         setCallNumber(number); setCaller(name ? { name } : null); setOpen(true); setView('keypad');
         void lookupCaller(number);
       }
@@ -256,6 +268,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         if (next === 'active' && callRef.current) callRef.current.answered = true;
         if (next === 'idle') {
           pendingCallRef.current = false; lookupSequence.current++;
+          callbackDialRef.current = false; clearTimeout(callbackTimerRef.current);
           const call = callRef.current;
           if (call) setRecents(previous => [{ number: call.number, name: call.name, time: new Date(), direction: call.direction === 'incoming' && !call.answered ? 'missed' as const : call.direction }, ...previous].slice(0, 20));
           callRef.current = null; setCaller(null); setCallNumber(''); setShowDtmf(false); setSpeakerOff(false); setSeconds(0);
@@ -330,6 +343,10 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     void enable(true);
   }, [companionOnly, connection, callState, micGranted, error, enable]);
 
+  const callbackDialRef = useRef(false);
+  const callbackNumberRef = useRef('');
+  const callbackTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
   const dial = useCallback(async (number: string, request?: PhoneDialRequest) => {
     setOpen(true); setView('keypad'); setError(''); unlockAudio();
     const reject = (message: string) => { setError(message); request?.respond({ status: 'failed', error: message }); };
@@ -365,13 +382,45 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         return;
       }
       if (stateRef.current !== 'idle') { pendingCallRef.current = false; pendingRequestRef.current = null; reject('Finish the current call first.'); return; }
-      command('dial', { number: normalized, requestId: request?.requestId, expiresAt: request?.expiresAt });
+      // Use server-side callback API for outbound calls. The Zadarma callback
+      // rings this extension first, then connects to the destination. We auto-
+      // answer the callback leg so the agent experience is seamless.
+      callbackDialRef.current = true;
+      callbackNumberRef.current = normalized;
+      setCallNumber(normalized);
+      setCaller(null);
+      void lookupCaller(normalized);
+      clearTimeout(callbackTimerRef.current);
+      callbackTimerRef.current = setTimeout(() => {
+        if (callbackDialRef.current) {
+          callbackDialRef.current = false;
+          pendingCallRef.current = false;
+          setError('The call did not connect. Zadarma did not ring back in time. Try again.');
+        }
+      }, 20000);
+      const result = await authFetch<{ ok: boolean; error?: string }>(providerUrl, {
+        body: { action: 'zadarma_callback', session_token: sessionToken, to: normalized },
+        onUnauthorized: () => unauthorizedRef.current(),
+      });
+      if (identity !== phoneIdentityRef.current || generation !== dialGenerationRef.current) return;
+      if (!result.ok || !result.data?.ok) {
+        callbackDialRef.current = false;
+        clearTimeout(callbackTimerRef.current);
+        pendingCallRef.current = false;
+        if (pendingRequestRef.current === request) pendingRequestRef.current = null;
+        reject(result.data?.error || result.error || 'The call could not be started. Try again.');
+        return;
+      }
+      request?.respond({ status: 'requested' });
+      if (pendingRequestRef.current === request) pendingRequestRef.current = null;
     } catch (e) {
+      callbackDialRef.current = false;
+      clearTimeout(callbackTimerRef.current);
       pendingCallRef.current = false;
       if (pendingRequestRef.current === request) pendingRequestRef.current = null;
       reject(e instanceof Error ? e.message : 'Invalid number.');
     }
-  }, [companionOnly, connection, command, requestMic, unlockAudio]);
+  }, [companionOnly, connection, requestMic, unlockAudio, providerUrl, sessionToken, lookupCaller]);
 
   useEffect(() => {
     const handle = (event: Event) => {
