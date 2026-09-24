@@ -1,7 +1,7 @@
 import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession, type PhoneState } from './call-controller';
 
 const CHANNEL = 'wolf-zadarma-v1';
-const PHONE_BUILD = '421';
+const PHONE_BUILD = '422';
 const SILENT_AUDIO = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/';
 interface Socket {
@@ -59,6 +59,8 @@ let selectedOutputDevice: string | undefined;
 let answerStage = 'not requested';
 let answerFailureShown = false;
 let providerEndReason = '';
+let registrationRefreshUsed = false;
+let registrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
 const boundVoiceAgents = new WeakSet<VoiceAgent>();
 function reportAnswerFailure(reason: string) {
   answerFailureShown = true;
@@ -309,6 +311,8 @@ function loadScript(name: string) {
 }
 
 function endCall() {
+  clearTimeout(registrationRetryTimer);
+  registrationRetryTimer = undefined;
   clearTimeout(callTimer);
   clearTimeout(endingTimer);
   stopRingtone();
@@ -327,8 +331,24 @@ function bindVoiceAgent(ua: VoiceAgent) {
   ua.on('registrationFailed', (event: { response?: { status_code?: number } }) => {
     if (!answering()) return;
     const code = event.response?.status_code;
-    reportAnswerFailure('voice-line registration failed' +
-      (Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : ''));
+    // JsSIP already handles the normal 401 challenge internally. This event is
+    // terminal failure. Refresh provider-issued voice details once, for this
+    // still-pending incoming call only; never place another call or loop.
+    if (code === 401 && !registrationRefreshUsed && !providerApi?.webCallSession) {
+      registrationRefreshUsed = true;
+      answerStage = 'refreshing voice authorization';
+      registrationRetryTimer = setTimeout(() => {
+        registrationRetryTimer = undefined;
+        if (!answering() || connectionFailed || providerApi?.webCallSession) return;
+        try { providerApi?.answer(); }
+        catch { failConnection('Call did not connect [phone ' + PHONE_BUILD + ']: voice authorization refresh failed. Press Retry connection.'); endCall(); }
+      }, 250);
+      return;
+    }
+    const suffix = Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : '';
+    answerFailureShown = true;
+    failConnection('Call did not connect [phone ' + PHONE_BUILD + ']: voice-line registration failed' + suffix + '. Press Retry connection to renew phone authorization; if it repeats, provider assistance is required.');
+    endCall();
   });
   ua.on('disconnected', (event: { error?: boolean; code?: number }) => {
     if (!answering() || !event.error) return;
@@ -525,7 +545,7 @@ window.addEventListener('message', event => {
     else if (data.command === 'answer') {
       stopRingtone();
       if (controller.state === 'ringing-in') {
-        answerStage = 'requesting voice connection'; answerFailureShown = false; providerEndReason = '';
+        answerStage = 'requesting voice connection'; answerFailureShown = false; providerEndReason = ''; registrationRefreshUsed = false; clearTimeout(registrationRetryTimer);
         controller.answer();
       }
     }
