@@ -761,6 +761,44 @@
 
 .ip17-error button { color: #636366; font-size: 16px; padding: 0 4px; }
 
+/* ─── Audio Recovery Banner ─── */
+.ip17-audio-recovery {
+  padding: 10px 20px 12px;
+  background: #1a1400;
+  border-bottom: 1px solid #3a3000;
+  text-align: center;
+}
+
+.ip17-audio-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 14px;
+  background: #ff9f0a;
+  color: #1a0e00;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+}
+
+.ip17-audio-btn:hover:not(:disabled) { background: #ffb340; transform: scale(1.02); }
+.ip17-audio-btn:active:not(:disabled) { transform: scale(.97); }
+.ip17-audio-btn:disabled { opacity: .6; cursor: wait; }
+.ip17-audio-btn:focus-visible { outline: 2px solid #ffb340; outline-offset: 2px; }
+
+.ip17-audio-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #b8a060;
+}
+
 /* ─── Bottom home indicator ─── */
 .ip17-body::after {
   content: '';

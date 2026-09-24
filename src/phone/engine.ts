@@ -23,7 +23,7 @@ type PhoneWindow = Window & typeof globalThis & {
   ZDRMscriptDiv: HTMLElement;
   ZadarmaWebphoneAPI: new () => Sdk;
   io: IoFactory;
-  wolfPhone?: { unlockAudio: () => void };
+  wolfPhone?: { unlockAudio: () => void; enableSound: () => void };
 };
 const host = window as PhoneWindow;
 let controller: CallController | undefined;
@@ -80,18 +80,29 @@ function createMedia() {
   }
 }
 createMedia();
-host.wolfPhone = { unlockAudio() {
-  // Called synchronously by a click in the parent, before awaiting microphone access.
-  document.querySelectorAll('audio').forEach(audio => {
-    if (audio.id.includes('Self')) return;
-    if (audio === remote() && controller?.state === 'active') {
-      void audio.play().catch(() => fail('Click Enable sound to hear the caller.')); return;
-    }
-    if (controller && controller.state !== 'idle') return;
-    const previous = audio.volume; audio.volume = 0;
-    void audio.play().then(() => { audio.pause(); audio.currentTime = 0; audio.volume = previous; }).catch(() => { audio.volume = previous; });
-  });
-} };
+host.wolfPhone = {
+  unlockAudio() {
+    document.querySelectorAll('audio').forEach(audio => {
+      if (audio.id.includes('Self')) return;
+      if (audio === remote() && controller?.state === 'active') {
+        void audio.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' })); return;
+      }
+      if (controller && controller.state !== 'idle') return;
+      const previous = audio.volume; audio.volume = 0;
+      void audio.play().then(() => { audio.pause(); audio.currentTime = 0; audio.volume = previous; }).catch(() => { audio.volume = previous; });
+    });
+  },
+  enableSound() {
+    const el = remote();
+    if (!el) { emit({ type: 'audio-blocked', reason: 'playback' }); return; }
+    void el.play().then(() => {
+      emit({ type: 'audio-recovered' });
+    }).catch(() => {
+      emit({ type: 'audio-blocked', reason: 'playback' });
+    });
+    try { const ctx = new AudioContext(); void ctx.resume().then(() => ctx.close()).catch(() => {}); } catch {}
+  },
+};
 
 function loadScript(name: string) {
   return new Promise<void>((resolve, reject) => {
@@ -124,7 +135,7 @@ function bindSession(session: PhoneSession) {
     const play = (stream: MediaStream) => {
       if (!isCurrent()) return;
       remote().srcObject = stream;
-      void remote().play().catch(() => fail('Click Enable sound to hear the caller.'));
+      void remote().play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
     };
     connection.addEventListener('track', event => play(event.streams[0] || new MediaStream([event.track])));
     const tracks = connection.getReceivers().map(receiver => receiver.track).filter(Boolean);
