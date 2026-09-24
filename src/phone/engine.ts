@@ -61,8 +61,7 @@ let selectedOutputDevice: string | undefined;
 let answerStage = 'not requested';
 let answerFailureShown = false;
 let providerEndReason = '';
-let registrationRefreshUsed = false;
-let registrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingRegistrationFailure = '';
 const boundVoiceAgents = new WeakSet<VoiceAgent>();
 function reportAnswerFailure(reason: string) {
   answerFailureShown = true;
@@ -313,14 +312,16 @@ function loadScript(name: string) {
 }
 
 function endCall() {
-  clearTimeout(registrationRetryTimer);
-  registrationRetryTimer = undefined;
+  const registrationFailure = pendingRegistrationFailure;
+  pendingRegistrationFailure = '';
   clearTimeout(callTimer);
   clearTimeout(endingTimer);
   stopRingtone();
   document.querySelectorAll('audio').forEach(audio => { if (audio !== ringtoneEl()) audio.pause(); });
   speakerMuted = false; remote().muted = false;
   controller?.ended();
+  // Only retire the transport after the provider has ended this attempt.
+  if (registrationFailure) failConnection(registrationFailure);
 }
 
 function bindVoiceAgent(ua: VoiceAgent) {
@@ -333,24 +334,12 @@ function bindVoiceAgent(ua: VoiceAgent) {
   ua.on('registrationFailed', (event: { response?: { status_code?: number } }) => {
     if (!answering()) return;
     const code = event.response?.status_code;
-    // JsSIP already handles the normal 401 challenge internally. This event is
-    // terminal failure. Refresh provider-issued voice details once, for this
-    // still-pending incoming call only; never place another call or loop.
-    if (code === 401 && !registrationRefreshUsed && !providerApi?.webCallSession) {
-      registrationRefreshUsed = true;
-      answerStage = 'refreshing voice authorization';
-      registrationRetryTimer = setTimeout(() => {
-        registrationRetryTimer = undefined;
-        if (!answering() || connectionFailed || providerApi?.webCallSession) return;
-        try { providerApi?.answer(); }
-        catch { failConnection('Call did not connect [phone ' + PHONE_BUILD + ']: voice authorization refresh failed. Press Retry connection.'); endCall(); }
-      }, 250);
-      return;
-    }
+    // Preserve the provider's native answer flow. A REGISTER failure is not a
+    // session-ended event: another answer() rotates details and closes the UA
+    // while an incoming INVITE may still arrive on that same connection.
     const suffix = Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : '';
-    answerFailureShown = true;
-    failConnection('Call did not connect [phone ' + PHONE_BUILD + ']: voice-line registration failed' + suffix + '. Press Retry connection to renew phone authorization; if it repeats, provider assistance is required.');
-    endCall();
+    pendingRegistrationFailure = 'Call did not connect [phone ' + PHONE_BUILD + ']: voice-line registration failed' + suffix + '. The phone will renew its connection after this attempt ends.';
+    reportAnswerFailure('voice registration reported a failure' + suffix + '; waiting for the provider call outcome');
   });
   ua.on('disconnected', (event: { error?: boolean; code?: number }) => {
     if (!answering() || !event.error) return;
@@ -383,6 +372,7 @@ function bindSession(session: PhoneSession) {
       clearTimeout(callTimer);
       stopRingtone();
       answerStage = 'connected';
+      pendingRegistrationFailure = '';
       controller?.confirmed();
     }
   });
@@ -547,7 +537,7 @@ window.addEventListener('message', event => {
     else if (data.command === 'answer') {
       stopRingtone();
       if (controller.state === 'ringing-in') {
-        answerStage = 'requesting voice connection'; answerFailureShown = false; providerEndReason = ''; registrationRefreshUsed = false; clearTimeout(registrationRetryTimer);
+        answerStage = 'requesting voice connection'; answerFailureShown = false; providerEndReason = ''; pendingRegistrationFailure = '';
         controller.answer();
       }
     }
