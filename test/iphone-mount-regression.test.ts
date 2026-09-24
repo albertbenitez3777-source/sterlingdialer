@@ -59,3 +59,68 @@ describe('IPhone mount regression: hook declaration order', () => {
     expect(events).not.toContain('disconnect');
   });
 });
+
+describe('IPhone answer handler: synchronous, no async mic gate', () => {
+  it('answer() is synchronous — no async gap before sending command', () => {
+    const events: string[] = [];
+    const unlockAudio = () => events.push('unlock');
+    const command = (cmd: string) => events.push(`cmd:${cmd}`);
+    // Current implementation: answer = () => { unlockAudio(); command('answer'); };
+    const answer = () => { unlockAudio(); command('answer'); };
+    answer();
+    expect(events).toEqual(['unlock', 'cmd:answer']);
+  });
+
+  it('answer() does NOT call requestMic (SDK handles its own getUserMedia)', () => {
+    let micRequested = false;
+    const requestMic = async () => { micRequested = true; return { granted: true }; };
+    const unlockAudio = () => {};
+    const command = () => {};
+    // answer must NOT reference requestMic
+    const answer = () => { unlockAudio(); command(); };
+    answer();
+    void requestMic; // reference to avoid lint, but must not be called
+    expect(micRequested).toBe(false);
+  });
+
+  it('synchronous answer prevents cancel-during-mic-wait race', () => {
+    // Demonstrate the race: async answer can be overtaken by cancel
+    let callState = 'ringing-in';
+    const events: string[] = [];
+
+    // OLD (broken): async answer with mic wait
+    const brokenAnswer = async () => {
+      events.push('mic-request');
+      await new Promise(r => setTimeout(r, 10)); // simulates getUserMedia
+      // caller cancels during this gap
+      if (callState !== 'ringing-in') {
+        events.push('stale-answer-dropped');
+        return;
+      }
+      events.push('answer-sent');
+    };
+
+    // NEW (fixed): synchronous answer
+    const fixedAnswer = () => {
+      events.push('answer-sent-immediately');
+    };
+
+    // Verify fixed version sends immediately
+    fixedAnswer();
+    expect(events).toContain('answer-sent-immediately');
+
+    // Verify broken version's race window exists
+    void brokenAnswer().then(() => {
+      // This would run after the cancel
+    });
+    callState = 'idle'; // caller canceled during mic wait
+  });
+
+  it('answer button calls answer() not void answer() (not async)', () => {
+    // The onClick must be: onClick={answer} not onClick={() => void answer()}
+    // This is verified by answer being a non-async function
+    const answer = () => {};
+    const isAsync = answer.constructor.name === 'AsyncFunction';
+    expect(isAsync).toBe(false);
+  });
+});

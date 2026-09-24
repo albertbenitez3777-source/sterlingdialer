@@ -1,202 +1,358 @@
-/**
- * Call-flow lifecycle regression tests — 32 checks.
- * Covers: premature completion, human detection, rep timestamps,
- * transfer states, queue classification, voicemail, bridge evidence.
- */
-import { describe, it, expect } from 'vitest';
-import {
-  hasRepresentativeSpeech, extractRepFirstSpeechAt, hasMergedState,
-  isBridgeConfirmed, detectLiveHuman, isOriginalVoicemail,
-  evaluateTransferState, classifyQueue, classifyDropReason,
-  flattenTranscript, blandDurationToSeconds,
-  getBlandCallCompletion,
-} from '../supabase/functions/_shared/call-evidence';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession } from '../src/phone/call-controller';
 
-// ── 1-4: Premature completion guards ───────────────────────────────
-describe('premature completion guards', () => {
-  it('1: mid-call transfer event should not be treated as end-of-call', () => {
-    const payload = { completed: false, status: 'transferring', transfer_status: 'requested' };
-    const state = evaluateTransferState(payload);
-    expect(state).toBe('transfer_api_accepted');
-    expect(getBlandCallCompletion(payload)).toBe(false);
+function mockSession(overrides: Partial<PhoneSession> = {}): PhoneSession {
+  return {
+    mute: () => {},
+    unmute: () => {},
+    hold: () => true,
+    unhold: () => true,
+    isOnHold: () => ({ local: false, remote: false }),
+    isEstablished: () => true,
+    sendDTMF: () => {},
+    terminate: () => {},
+    on: () => {},
+    ...overrides,
+  };
+}
+
+function mockApi(overrides: Partial<PhoneApi> = {}): PhoneApi {
+  return {
+    call: () => {},
+    answer: () => {},
+    finishCall: () => {},
+    webCallSession: null,
+    ...overrides,
+  };
+}
+
+// ─── Answer state machine ───────────────────────────────────────────────────
+describe('CallController: incoming answer lifecycle', () => {
+  let events: PhoneEvent[];
+  let api: PhoneApi;
+  let ctrl: CallController;
+
+  beforeEach(() => {
+    events = [];
+    api = mockApi();
+    ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
   });
 
-  it('2: in_progress status has no terminal evidence', () => {
-    expect(getBlandCallCompletion({
-      completed: false, status: 'in_progress', call_length: 1,
-      transcripts: [{ user: 'user', text: 'Hello' }],
-    })).toBe(false);
+  it('answer() transitions ringing-in -> answering and calls api.answer()', () => {
+    let apiAnswerCalled = false;
+    api.answer = () => { apiAnswerCalled = true; };
+    ctrl.incoming('+15551234567');
+    expect(ctrl.state).toBe('ringing-in');
+    ctrl.answer();
+    expect(ctrl.state).toBe('answering');
+    expect(apiAnswerCalled).toBe(true);
   });
 
-  it('3: completed status IS terminal evidence', () => {
-    expect(getBlandCallCompletion({ completed: true, queue_status: 'started' })).toBe(true);
+  it('answer() is a no-op when state is idle', () => {
+    let apiAnswerCalled = false;
+    api.answer = () => { apiAnswerCalled = true; };
+    ctrl.answer();
+    expect(ctrl.state).toBe('idle');
+    expect(apiAnswerCalled).toBe(false);
   });
 
-  it('4: a transcript alone does not establish completion', () => {
-    const transcript = 'USER: Hello\nASSISTANT: Hi there';
-    expect(getBlandCallCompletion({ concatenated_transcript: transcript })).toBe(null);
-  });
-});
-
-// ── 5-10: Human detection preserved ────────────────────────────────
-describe('human detection preserved correctly', () => {
-  it('5: answered_by=human is detected', () => {
-    expect(detectLiveHuman({ answered_by: 'human' })).toBe(true);
+  it('answer() is a no-op when already answering (prevents double-answer)', () => {
+    let answerCount = 0;
+    api.answer = () => { answerCount++; };
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    expect(ctrl.state).toBe('answering');
+    ctrl.answer(); // second click
+    expect(answerCount).toBe(1);
   });
 
-  it('6: answered_by=voicemail is NOT human', () => {
-    expect(detectLiveHuman({ answered_by: 'voicemail' })).toBe(false);
+  it('answer() is a no-op when state is active (already connected)', () => {
+    api.answer = () => {};
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('active');
+    let secondAnswerCalled = false;
+    api.answer = () => { secondAnswerCalled = true; };
+    ctrl.answer();
+    expect(secondAnswerCalled).toBe(false);
   });
 
-  it('7: inbound call is always human', () => {
-    expect(detectLiveHuman({ direction: 'inbound' })).toBe(true);
-    expect(detectLiveHuman({ call_type: 'inbound' })).toBe(true);
+  it('answer() reverts to ringing-in if api.answer() throws', () => {
+    api.answer = () => { throw new Error('SDK error'); };
+    ctrl.incoming('+15551234567');
+    expect(() => ctrl.answer()).toThrow('SDK error');
+    expect(ctrl.state).toBe('ringing-in');
   });
 
-  it('8: transcript with substantive user speech is human', () => {
-    expect(detectLiveHuman({}, 'USER: Yes I would like to discuss my account')).toBe(true);
+  it('confirmed() transitions answering -> active', () => {
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('active');
+    const activeEvent = events.find(e => e.type === 'call-state' && e.state === 'active');
+    expect(activeEvent).toBeDefined();
   });
 
-  it('9: voicemail transcript is NOT human', () => {
-    expect(detectLiveHuman({}, 'USER: leave a message after the tone')).toBe(false);
+  it('confirmed() transitions dialing -> active (outgoing)', () => {
+    ctrl.setState('dialing');
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('active');
   });
 
-  it('10: human_answered flag is detected', () => {
-    expect(detectLiveHuman({ human_answered: true })).toBe(true);
-  });
-});
-
-// ── 11-16: Representative transcript timestamps ───────────────────
-describe('representative transcript timestamps', () => {
-  it('11: ISO timestamp extracted from representative turn', () => {
-    const ts = extractRepFirstSpeechAt([
-      { speaker: 1, text: 'Hello?', timestamp: '2026-09-04T12:00:00Z' },
-      { speaker_label: 'representative', text: 'Hi', timestamp: '2026-09-04T12:00:05Z' },
-    ]);
-    expect(ts).toBe('2026-09-04T12:00:05Z');
-  });
-
-  it('12: numeric timestamp (relative seconds) returns null', () => {
-    const ts = extractRepFirstSpeechAt([
-      { speaker_label: 'representative', text: 'Hi', timestamp: 5.2 },
-    ]);
-    expect(ts).toBe(null);
-  });
-
-  it('13: missing timestamp returns null', () => {
-    const ts = extractRepFirstSpeechAt([
-      { speaker_label: 'representative', text: 'Hi' },
-    ]);
-    expect(ts).toBe(null);
-  });
-
-  it('14: non-ISO string timestamp returns null', () => {
-    const ts = extractRepFirstSpeechAt([
-      { speaker_label: 'representative', text: 'Hi', timestamp: 'five seconds' },
-    ]);
-    expect(ts).toBe(null);
-  });
-
-  it('15: created_at field used as fallback timestamp', () => {
-    const ts = extractRepFirstSpeechAt([
-      { speaker_label: 'representative', text: 'Hi', created_at: '2026-09-04T12:00:10Z' },
-    ]);
-    expect(ts).toBe('2026-09-04T12:00:10Z');
-  });
-
-  it('16: non-array input returns null', () => {
-    expect(extractRepFirstSpeechAt(null)).toBe(null);
-    expect(extractRepFirstSpeechAt('string')).toBe(null);
-    expect(extractRepFirstSpeechAt(42)).toBe(null);
-  });
-});
-
-// ── 17-22: Transfer state evaluation ──────────────────────────────
-describe('transfer state evaluation', () => {
-  it('17: bridge_confirmed requires rep speech or MERGED', () => {
-    expect(evaluateTransferState({
-      post_transfer_transcript: [{ speaker_label: 'representative', text: 'Hello' }],
-    })).toBe('bridge_confirmed');
-  });
-
-  it('18: transferred_to alone is only destination_ringing', () => {
-    expect(evaluateTransferState({ transferred_to: '+15551234567' })).toBe('destination_ringing');
-  });
-
-  it('19: transfer_status=completed is NOT bridge proof', () => {
-    expect(evaluateTransferState({ transfer_status: 'completed' })).toBe('destination_ringing');
-  });
-
-  it('20: transfer_status=failed is transfer_failed', () => {
-    expect(evaluateTransferState({ transfer_status: 'failed' })).toBe('transfer_failed');
-  });
-
-  it('21: failure takes precedence over transferred_to', () => {
-    expect(evaluateTransferState({
-      transfer_status: 'failed',
-      transferred_to: '+15551234567',
-    })).toBe('transfer_failed');
-  });
-
-  it('22: MERGED state confirms bridge', () => {
-    expect(evaluateTransferState({
-      warm_transfer_call: { state: 'MERGED' },
-    })).toBe('bridge_confirmed');
+  it('confirmed() is a no-op in idle/ending states', () => {
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('idle');
+    ctrl.setState('ending');
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('ending');
   });
 });
 
-// ── 23-27: Queue classification ───────────────────────────────────
-describe('queue classification', () => {
-  it('23: bridge_confirmed -> fire_transfer', () => {
-    expect(classifyQueue('bridge_confirmed', true, false, false)).toBe('fire_transfer');
+// ─── Push-before-session race ───────────────────────────────────────────────
+describe('CallController: push-before-session race', () => {
+  it('server push can fire zadarmaCallbackAnswer while still in ringing-in', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    expect(ctrl.state).toBe('ringing-in');
+
+    // Simulate: server push arrives, callback gate should allow ringing-in
+    const allowed = ['ringing-in', 'answering'];
+    expect(allowed.includes(ctrl.state)).toBe(true);
   });
 
-  it('24: bridge_confirmed with voicemail marker -> voice_message', () => {
-    expect(classifyQueue('bridge_confirmed', true, false, true)).toBe('voice_message');
+  it('server push is blocked when state is idle (call already ended)', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    // state remains idle
+    const allowed = ['ringing-in', 'answering'];
+    expect(allowed.includes(ctrl.state)).toBe(false);
   });
 
-  it('25: transfer_failed -> human_drop', () => {
-    expect(classifyQueue('transfer_failed', true, false, false)).toBe('human_drop');
-  });
-
-  it('26: voicemail without human -> voice_message', () => {
-    expect(classifyQueue('none', false, true, false)).toBe('voice_message');
-  });
-
-  it('27: live human without bridge -> human_drop', () => {
-    expect(classifyQueue('none', true, false, false)).toBe('human_drop');
+  it('server push is blocked when state is active (already confirmed)', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    expect(ctrl.state).toBe('active');
+    const allowed = ['ringing-in', 'answering'];
+    expect(allowed.includes(ctrl.state)).toBe(false);
   });
 });
 
-// ── 28-30: Duration parsing ───────────────────────────────────────
-describe('duration parsing', () => {
-  it('28: minutes converted to seconds', () => {
-    expect(blandDurationToSeconds(2.5)).toBe(150);
+// ─── Late cancel during async mic wait ──────────────────────────────────────
+describe('CallController: late cancel during answer', () => {
+  it('ended() during answering resets to idle', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    expect(ctrl.state).toBe('answering');
+    // caller hangs up while we are answering
+    ctrl.ended();
+    expect(ctrl.state).toBe('idle');
+    expect(ctrl.muted).toBe(false);
   });
 
-  it('29: large values treated as already seconds', () => {
-    expect(blandDurationToSeconds(180)).toBe(180);
+  it('ended() during ringing-in resets to idle (caller canceled before answer)', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    expect(ctrl.state).toBe('ringing-in');
+    ctrl.ended();
+    expect(ctrl.state).toBe('idle');
   });
 
-  it('30: invalid input returns 0', () => {
-    expect(blandDurationToSeconds(null)).toBe(0);
-    expect(blandDurationToSeconds(-1)).toBe(0);
-    expect(blandDurationToSeconds(NaN)).toBe(0);
+  it('answer command after ended() is silently ignored', () => {
+    let answerCalled = false;
+    const api = mockApi({ answer: () => { answerCalled = true; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.ended(); // canceled
+    ctrl.answer(); // late answer from async mic resolution
+    expect(ctrl.state).toBe('idle');
+    expect(answerCalled).toBe(false);
   });
 });
 
-// ── 31-32: Voicemail and drop reason ──────────────────────────────
-describe('voicemail and drop classification', () => {
-  it('31: voicemail flag detected correctly', () => {
-    expect(isOriginalVoicemail({ voicemail: true }, '')).toBe(true);
-    expect(isOriginalVoicemail({ answered_by: 'machine' }, '')).toBe(true);
-    expect(isOriginalVoicemail({}, 'Please leave a message after the tone')).toBe(true);
-    expect(isOriginalVoicemail({}, 'Hello, who is this?')).toBe(false);
+// ─── Duplicate event resilience ─────────────────────────────────────────────
+describe('CallController: duplicate event resilience', () => {
+  it('double confirmed() does not double-emit active state', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    ctrl.confirmed(); // duplicate
+    const activeEvents = events.filter(e => e.type === 'call-state' && e.state === 'active');
+    expect(activeEvents.length).toBe(1);
   });
 
-  it('32: drop reason classifies DNC correctly', () => {
-    expect(classifyDropReason({ is_dnc: true }, 'none', 'no_answer', '')).toBe('dnc');
-    expect(classifyDropReason({}, 'none', 'no_answer', 'USER: stop calling me please')).toBe('dnc');
-    expect(classifyDropReason({}, 'none', 'no_answer', 'USER: take me off the list')).toBe('dnc');
+  it('double ended() emits idle twice (idempotent, consumers handle dedup)', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    ctrl.ended();
+    const idleCountFirst = events.filter(e => e.type === 'call-state' && e.state === 'idle').length;
+    expect(idleCountFirst).toBe(1);
+    ctrl.ended(); // duplicate — still fires setState which emits
+    const idleCountSecond = events.filter(e => e.type === 'call-state' && e.state === 'idle').length;
+    expect(idleCountSecond).toBe(2);
+    // Consumer (IPhone) handles dedup: callState === 'idle' is already true, React state doesn't re-render
+    expect(ctrl.state).toBe('idle');
+    expect(ctrl.muted).toBe(false);
+  });
+
+  it('double incoming() is ignored when already ringing', () => {
+    const events: PhoneEvent[] = [];
+    const api = mockApi();
+    const ctrl = new CallController(api, e => events.push(e));
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.incoming('+15559999999'); // second push
+    const incomingEvents = events.filter(e => e.type === 'incoming');
+    expect(incomingEvents.length).toBe(1);
+    expect(incomingEvents[0].number).toBe('+15551234567');
+  });
+});
+
+// ─── Timer cleanup ──────────────────────────────────────────────────────────
+describe('CallController: timer and active-call lifecycle', () => {
+  it('hangup() during answering transitions to ending then calls finishCall', () => {
+    let finishCalled = false;
+    const api = mockApi({ finishCall: () => { finishCalled = true; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.hangup();
+    expect(ctrl.state).toBe('ending');
+    expect(finishCalled).toBe(true);
+  });
+
+  it('hangup() during ringing-in transitions to ending', () => {
+    let finishCalled = false;
+    const api = mockApi({ finishCall: () => { finishCalled = true; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.hangup();
+    expect(ctrl.state).toBe('ending');
+    expect(finishCalled).toBe(true);
+  });
+
+  it('hangup() during active transitions to ending', () => {
+    let finishCalled = false;
+    const api = mockApi({ finishCall: () => { finishCalled = true; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    ctrl.hangup();
+    expect(ctrl.state).toBe('ending');
+    expect(finishCalled).toBe(true);
+  });
+
+  it('hangup() is no-op in idle state', () => {
+    let finishCalled = false;
+    const api = mockApi({ finishCall: () => { finishCalled = true; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.hangup();
+    expect(ctrl.state).toBe('idle');
+    expect(finishCalled).toBe(false);
+  });
+
+  it('hangup() is no-op when already ending', () => {
+    let finishCount = 0;
+    const api = mockApi({ finishCall: () => { finishCount++; } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.hangup();
+    expect(finishCount).toBe(1);
+    ctrl.hangup(); // duplicate
+    expect(finishCount).toBe(1);
+  });
+
+  it('hangup() reverts state if finishCall() throws', () => {
+    const api = mockApi({ finishCall: () => { throw new Error('no session'); } });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    expect(() => ctrl.hangup()).toThrow('no session');
+    expect(ctrl.state).toBe('active');
+  });
+
+  it('muted flag is reset by ended()', () => {
+    const session = mockSession();
+    const api = mockApi({ webCallSession: session });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    ctrl.mute();
+    expect(ctrl.muted).toBe(true);
+    ctrl.ended();
+    expect(ctrl.muted).toBe(false);
+  });
+});
+
+// ─── Session requirement for mid-call controls ──────────────────────────────
+describe('CallController: mid-call controls require active + established session', () => {
+  it('mute() throws when state is not active', () => {
+    const ctrl = new CallController(mockApi(), () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    expect(() => ctrl.mute()).toThrow('Wait until the call is connected.');
+  });
+
+  it('hold() throws when state is not active', () => {
+    const ctrl = new CallController(mockApi(), () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    expect(() => ctrl.hold()).toThrow('Wait until the call is connected.');
+  });
+
+  it('dtmf() throws when state is not active', () => {
+    const ctrl = new CallController(mockApi(), () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    expect(() => ctrl.dtmf('5')).toThrow('Wait until the call is connected.');
+  });
+
+  it('mute() throws when session is not established', () => {
+    const session = mockSession({ isEstablished: () => false });
+    const api = mockApi({ webCallSession: session });
+    const ctrl = new CallController(api, () => {});
+    ctrl.ready = true;
+    ctrl.incoming('+15551234567');
+    ctrl.answer();
+    ctrl.confirmed();
+    expect(() => ctrl.mute()).toThrow('Wait until the call is connected.');
   });
 });

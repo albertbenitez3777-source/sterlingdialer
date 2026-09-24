@@ -370,7 +370,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     return () => window.removeEventListener(PHONE_DIAL_EVENT, handle);
   }, [dial]);
 
-  const answer = async () => { unlockAudio(); const mic = await requestMic(); if (mic.granted) command('answer'); };
+  const answer = () => { unlockAudio(); command('answer'); };
   const status = connection === 'ready' ? 'Ready' : connection === 'connecting' ? 'Connecting\u2026' : connection === 'failed' ? 'Not connected' : 'Enable phone';
   const dot = connection === 'ready' ? 'connected' : connection === 'connecting' ? 'connecting' : 'offline';
   const myNumber = route?.zadarma_number || route?.talkroute_number;
@@ -437,7 +437,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
                 </div>
                 {showDtmf && <div className="ip17-dtmf-pad">{KEYS.map(key => <button key={key} className="ip17-dtmf-key" onClick={() => command('dtmf', { tone: key })}>{key}</button>)}</div>}
               </>}
-              <div className="ip17-answer-row">{callState === 'ringing-in' && <button className="ip17-dial-btn" aria-label="Answer call" onClick={() => void answer()}><Phone size={28} /></button>}<button className="ip17-hangup-btn" disabled={callState === 'ending'} aria-label={callState === 'ringing-in' ? 'Decline call' : 'End call'} onClick={() => command('hangup')}><PhoneOff size={28} /></button></div>
+              <div className="ip17-answer-row">{callState === 'ringing-in' && <button className="ip17-dial-btn" aria-label="Answer call" onClick={answer}><Phone size={28} /></button>}<button className="ip17-hangup-btn" disabled={callState === 'ending'} aria-label={callState === 'ringing-in' ? 'Decline call' : 'End call'} onClick={() => command('hangup')}><PhoneOff size={28} /></button></div>
             </div> : <>
               <div className="ip17-idle"><div className="ip17-display"><input aria-label="Number to call" value={digits} onChange={event => setDigits(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void dial(digits); }} placeholder="Enter number" type="tel" autoComplete="off" />{digits && <button className="ip17-backspace" aria-label="Delete digit" onClick={() => setDigits(value => value.slice(0, -1))}><Delete size={20} /></button>}</div>
                 <div className="ip17-dialpad">{KEYS.map((key, index) => <button key={key} className="ip17-key" onClick={() => setDigits(value => value + key)}><span className="ip17-key-digit">{key}</span><span className="ip17-key-sub">{LETTERS[index]}</span></button>)}</div>

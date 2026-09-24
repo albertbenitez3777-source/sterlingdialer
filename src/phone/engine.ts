@@ -384,8 +384,10 @@ async function connect(key: string, sip: string) {
     for (const method of ['zadarmaCallbackCall', 'zadarmaCallbackAnswer', 'zadarmaCallbackCancel'] as const) {
       const original = api[method].bind(api);
       api[method] = data => {
-        const expected = method === 'zadarmaCallbackCall' ? 'dialing' : method === 'zadarmaCallbackAnswer' ? 'answering' : 'ending';
-        if (!connectionFailed && controller?.state === expected) original(data);
+        const allowed = method === 'zadarmaCallbackCall' ? ['dialing']
+          : method === 'zadarmaCallbackAnswer' ? ['ringing-in', 'answering']
+          : ['ending'];
+        if (!connectionFailed && controller && allowed.includes(controller.state)) original(data);
       };
     }
     connectionTimer = setTimeout(() => {
@@ -433,7 +435,12 @@ window.addEventListener('message', event => {
       controller.dial(String(data.number || ''));
       if (data.requestId) emit({ type: 'dial-result', requestId: data.requestId, accepted: true });
     }
-    else if (data.command === 'answer') { stopRingtone(); controller.answer(); }
+    else if (data.command === 'answer') {
+      stopRingtone();
+      if (controller.state === 'ringing-in') {
+        controller.answer();
+      }
+    }
     else if (data.command === 'hangup') hangup();
     else if (data.command === 'mute') controller.mute();
     else if (data.command === 'hold') controller.hold();
