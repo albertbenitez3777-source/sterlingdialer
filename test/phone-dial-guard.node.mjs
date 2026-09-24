@@ -23,7 +23,7 @@ function fixture(connection = 'ready') {
   });
   new vm.Script(code).runInContext(context);
   const request = { requestId: 'synthetic-dial', expiresAt: Date.now() + 10000, signal: abort.signal, respond: result => results.push(result) };
-  return { context, commands, results, request, abort, resolveMic: value => microphoneResolve(value) };
+  return { context, commands, results, request, abort, resolveMic: value => microphoneResolve({ granted: value }) };
 }
 
 test('not-ready phones reject without posting any dial command', async () => {
