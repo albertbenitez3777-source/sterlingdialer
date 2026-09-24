@@ -80,6 +80,25 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     const phone = frameRef.current?.contentWindow as (Window & { wolfPhone?: { unlockAudio: () => void; enableSound: () => void } }) | null;
     phone?.wolfPhone?.unlockAudio();
   }, []);
+  const requestMic = useCallback(async () => {
+    const identity = phoneIdentityRef.current;
+    try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open the published HTTPS website to use the microphone.');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      if (identity !== phoneIdentityRef.current) return false;
+      setMicGranted(true); return true;
+    } catch (e) {
+      if (identity !== phoneIdentityRef.current) return false;
+      setMicGranted(false);
+      setConnection('failed');
+      setError(e instanceof Error && e.name === 'NotAllowedError'
+        ? window.self !== window.top ? 'Open the calling app in its own tab, then allow microphone access.' : 'Microphone access is blocked. Allow it in this website\'s browser settings, then retry.'
+        : e instanceof Error && e.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or headset, then retry.'
+        : e instanceof Error ? e.message : 'The microphone is unavailable.');
+      return false;
+    }
+  }, []);
   const enableSound = useCallback(async () => {
     setEnablingSound(true);
     // 1. Synchronous in the click activation: play() + AudioContext.resume() in BOTH
@@ -102,25 +121,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     // engine, or after a timeout if neither arrives (e.g. no active audio element).
     setTimeout(() => setEnablingSound(false), 3000);
   }, [micGranted, requestMic]);
-  const requestMic = useCallback(async () => {
-    const identity = phoneIdentityRef.current;
-    try {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open the published HTTPS website to use the microphone.');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-      if (identity !== phoneIdentityRef.current) return false;
-      setMicGranted(true); return true;
-    } catch (e) {
-      if (identity !== phoneIdentityRef.current) return false;
-      setMicGranted(false);
-      setConnection('failed');
-      setError(e instanceof Error && e.name === 'NotAllowedError'
-        ? window.self !== window.top ? 'Open the calling app in its own tab, then allow microphone access.' : 'Microphone access is blocked. Allow it in this website’s browser settings, then retry.'
-        : e instanceof Error && e.name === 'NotFoundError' ? 'No microphone was found. Connect a microphone or headset, then retry.'
-        : e instanceof Error ? e.message : 'The microphone is unavailable.');
-      return false;
-    }
-  }, []);
 
   const loadRoute = useCallback(async (signal?: AbortSignal) => {
     const identity = phoneIdentityRef.current;
