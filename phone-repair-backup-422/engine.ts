@@ -1,11 +1,9 @@
 import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession, type PhoneState } from './call-controller';
 
 const CHANNEL = 'wolf-zadarma-v1';
-const PHONE_BUILD = '423';
+const PHONE_BUILD = '422';
 const SILENT_AUDIO = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
-// Keep the SIP client and widget API on the matched version advertised by Zadarma.
-// v9 guards stale answered notifications and avoids all-contact unregister after BYE.
-const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v9/js/';
+const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/';
 interface Socket {
   on(event: string, callback: (...args: any[]) => void): Socket;
   close(): void;
@@ -421,7 +419,7 @@ async function connect(key: string, sip: string) {
   initialized = true;
   emit({ type: 'connection', state: 'connecting' });
   try {
-    for (const script of ['socket.io.js', 'detectWebRTC.min.js', 'jssip.min.js?v=2', 'md5.min.js', 'widget-api.min.js?sub_v=1.1']) await loadScript(script);
+    for (const script of ['socket.io.js', 'detectWebRTC.min.js', 'jssip.min.js?v=7', 'md5.min.js', 'widget-api.min.js?sub_v=68']) await loadScript(script);
     const originalIo = host.io;
     host.io = Object.assign((url: string, options: unknown) => {
       const socket = originalIo(url, options);
