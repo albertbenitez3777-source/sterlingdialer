@@ -1,0 +1,15 @@
+src/components/IPhone.tsx(6,9): error TS2304: Cannot find name 'companionOnly'.
+src/components/IPhone.tsx(6,26): error TS2304: Cannot find name 'connection'.
+src/components/IPhone.tsx(6,53): error TS2304: Cannot find name 'callState'.
+src/components/IPhone.tsx(7,10): error TS2304: Cannot find name 'micGranted'.
+src/components/IPhone.tsx(7,25): error TS2304: Cannot find name 'credentialsRef'.
+src/components/IPhone.tsx(7,51): error TS2304: Cannot find name 'automaticRecoveryUsedRef'.
+src/components/IPhone.tsx(8,10): error TS2304: Cannot find name 'error'.
+src/components/IPhone.tsx(9,5): error TS2304: Cannot find name 'automaticRecoveryUsedRef'.
+src/components/IPhone.tsx(10,10): error TS2304: Cannot find name 'enable'.
+src/components/IPhone.tsx(11,7): error TS2304: Cannot find name 'companionOnly'.
+src/components/IPhone.tsx(11,22): error TS2304: Cannot find name 'connection'.
+src/components/IPhone.tsx(11,34): error TS2304: Cannot find name 'callState'.
+src/components/IPhone.tsx(11,45): error TS2304: Cannot find name 'micGranted'.
+src/components/IPhone.tsx(11,57): error TS2552: Cannot find name 'error'. Did you mean 'Error'?
+src/components/IPhone.tsx(11,64): error TS2304: Cannot find name 'enable'.
