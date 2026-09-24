@@ -339,7 +339,7 @@ function bindVoiceAgent(ua: VoiceAgent) {
     // while an incoming INVITE may still arrive on that same connection.
     const suffix = Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : '';
     pendingRegistrationFailure = 'Call did not connect [phone ' + PHONE_BUILD + ']: voice-line registration failed' + suffix + '. The phone will renew its connection after this attempt ends.';
-    reportAnswerFailure('voice registration reported a failure' + suffix + '; waiting for the provider call outcome');
+    answerStage = 'waiting for provider call confirmation after registration response';
   });
   ua.on('disconnected', (event: { error?: boolean; code?: number }) => {
     if (!answering() || !event.error) return;
