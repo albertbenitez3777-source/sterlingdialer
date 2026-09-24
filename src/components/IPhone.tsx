@@ -227,7 +227,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (data.type === 'frame-ready') setFrameReady(true);
       if (data.type === 'connection') {
         setConnection(data.state); startingRef.current = data.state === 'connecting';
-        if (data.state === 'ready') setError('');
+        if (data.state === 'ready') setError(previous => previous.startsWith('Call did not connect') ? previous : '');
       }
       if (data.type === 'audio-blocked') { setAudioStatus('sound-blocked'); }
       if (data.type === 'audio-recovered') { setAudioStatus('ok'); }

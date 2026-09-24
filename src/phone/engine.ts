@@ -6,7 +6,11 @@ interface Socket {
   on(event: string, callback: (...args: any[]) => void): Socket;
   close(): void;
 }
+interface VoiceAgent {
+  on(event: string, callback: (...args: any[]) => void): unknown;
+}
 interface Sdk extends PhoneApi {
+  webPhoneUA?: VoiceAgent | null;
   init(options: Record<string, unknown>): unknown;
   reg(sip: string): unknown;
   unreg(): void;
@@ -52,6 +56,8 @@ let ringtoneLoopTimer: ReturnType<typeof setInterval> | undefined;
 let selectedOutputDevice: string | undefined;
 let answerStage = 'not requested';
 let answerFailureShown = false;
+let providerEndReason = '';
+const boundVoiceAgents = new WeakSet<VoiceAgent>();
 function reportAnswerFailure(reason: string) {
   answerFailureShown = true;
   fail('Call did not connect (' + answerStage + '): ' + reason + '. Please give this message to your supervisor.');
@@ -295,6 +301,25 @@ function endCall() {
   controller?.ended();
 }
 
+function bindVoiceAgent(ua: VoiceAgent) {
+  if (boundVoiceAgents.has(ua)) return;
+  boundVoiceAgents.add(ua);
+  const answering = () => providerApi?.webPhoneUA === ua && controller?.state === 'answering';
+  ua.on('connecting', () => { if (answering()) answerStage = 'connecting to voice server'; });
+  ua.on('connected', () => { if (answering()) answerStage = 'registering agent voice line'; });
+  ua.on('registered', () => { if (answering()) answerStage = 'voice line registered; waiting for call'; });
+  ua.on('registrationFailed', (event: { response?: { status_code?: number } }) => {
+    if (!answering()) return;
+    const code = event.response?.status_code;
+    reportAnswerFailure('voice-line registration failed' +
+      (Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : ''));
+  });
+  ua.on('disconnected', (event: { error?: boolean; code?: number }) => {
+    if (!answering() || !event.error) return;
+    reportAnswerFailure('secure voice connection could not stay open; check the network or provider voice service');
+  });
+}
+
 function bindSession(session: PhoneSession) {
   if (boundSessions.has(session)) return;
   boundSessions.add(session);
@@ -381,7 +406,13 @@ async function connect(key: string, sip: string) {
       socket.on('connect_error', () => {
         failConnection('Cannot connect to Zadarma. Check the network and retry.');
       });
-      socket.on('update', (message: { error?: unknown; errorCode?: unknown }) => {
+      socket.on('update', (raw: unknown) => {
+        let message: { error?: unknown; errorCode?: unknown; action?: unknown } | null = null;
+        try { message = typeof raw === 'string' ? JSON.parse(raw) : raw as typeof message; } catch { return; }
+        if (controller?.state === 'answering' && message?.action === 'answered')
+          providerEndReason = 'provider reported the call answered before this browser received its voice session';
+        if (controller?.state === 'answering' && message?.action === 'cancel')
+          providerEndReason = 'provider canceled the incoming call before its voice session arrived';
         if (message?.error || message?.errorCode) {
           failConnection('Zadarma rejected the phone connection. Check the extension and authorized website.');
         }
@@ -391,6 +422,12 @@ async function connect(key: string, sip: string) {
     const api = new host.ZadarmaWebphoneAPI();
     providerApi = api;
     controller = new CallController(api, emit);
+    let currentVoiceAgent: VoiceAgent | null = null;
+    Object.defineProperty(api, 'webPhoneUA', {
+      configurable: true,
+      get: () => currentVoiceAgent,
+      set: (ua: VoiceAgent | null) => { currentVoiceAgent = ua; if (ua) bindVoiceAgent(ua); },
+    });
     let currentSession: PhoneSession | null = null;
     Object.defineProperty(api, 'webCallSession', {
       configurable: true,
@@ -437,7 +474,7 @@ async function connect(key: string, sip: string) {
         }
         if (['canceled', 'busy', 'rejected'].includes(status)) {
           if (status === 'canceled' && controller?.state === 'answering' && !answerFailureShown) {
-            reportAnswerFailure('provider canceled before the agent connection was confirmed');
+            reportAnswerFailure(providerEndReason || 'provider canceled before the agent connection was confirmed');
           }
           stopRingtone();
           endCall();
@@ -463,8 +500,7 @@ window.addEventListener('message', event => {
     else if (data.command === 'answer') {
       stopRingtone();
       if (controller.state === 'ringing-in') {
-        answerStage = 'requesting voice connection';
-        answerFailureShown = false;
+        answerStage = 'requesting voice connection'; answerFailureShown = false; providerEndReason = '';
         controller.answer();
       }
     }
