@@ -1,15 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-  // A terminal incoming-call failure closes the old SDK transport. Renew the
-  // phone once after it is idle so that one failed call cannot strand outbound
-  // dialing. Never replay an Accept or Dial command and never loop on rejection.
-  useEffect(() => {
-    if (companionOnly || connection !== 'failed' || callState !== 'idle' ||
-        !micGranted || !credentialsRef.current || automaticRecoveryUsedRef.current ||
-        !error.startsWith('Call did not connect')) return;
-    automaticRecoveryUsedRef.current = true;
-    void enable(true);
-  }, [companionOnly, connection, callState, micGranted, error, enable]);
-
 import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mic, MicOff, Volume2, VolumeX, Grid3X3, Pause, Play } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
@@ -86,7 +75,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const frameRef = useRef<HTMLIFrameElement>(null);
   const unauthorizedRef = useRef(onUnauthorized); unauthorizedRef.current = onUnauthorized;
   const startingRef = useRef(false);
-  const automaticRecoveryUsedRef = useRef(false);
   const pendingCallRef = useRef(false);
   const pendingRequestRef = useRef<PhoneDialRequest | null>(null);
   const dialGenerationRef = useRef(0);
@@ -295,13 +283,10 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     return () => clearInterval(timer);
   }, [callState]);
 
-  const enable = useCallback(async (automatic = false) => {
+  const enable = useCallback(async () => {
     if (companionOnly || startingRef.current || stateRef.current !== 'idle') return;
     const identity = phoneIdentityRef.current;
-    if (!automatic) automaticRecoveryUsedRef.current = false;
-    startingRef.current = true;
-    if (!automatic) setError('');
-    unlockAudio();
+    startingRef.current = true; setError(''); unlockAudio();
     const currentRoute = route?.zadarma_sip_login ? route : await loadRoute();
     if (identity !== phoneIdentityRef.current) return;
     if (!currentRoute?.zadarma_sip_login) {
@@ -391,7 +376,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const myNumber = route?.zadarma_number || route?.talkroute_number;
   const active = callState !== 'idle';
   const showAudioBanner = audioStatus !== 'ok';
-  const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html?build=424" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
+  const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html?build=423" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
 
   // Separate status indicators
   const spkOk = audioStatus === 'ok' || audioStatus === 'mic-denied' || audioStatus === 'mic-missing' || audioStatus === 'mic-in-use';
@@ -404,7 +389,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} />{(unreadActivity + (unreadVoicemails || 0)) > 0 && <span className="ip17-vm-badge">{unreadActivity + (unreadVoicemails || 0)}</span>}</button> : <>
         <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
-          <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status} · Phone 424</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
+          <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status} · Phone 423</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
 
           {/* Separate status row: connection / speaker / mic */}
           {connection === 'ready' && <div className="ip17-health-row">
