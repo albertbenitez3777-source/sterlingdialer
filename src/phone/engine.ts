@@ -380,10 +380,13 @@ function bindSession(session: PhoneSession) {
   session.on('failed', (event: { cause?: string; response?: { status_code?: number } }) => {
     if (!isCurrent()) return;
     const causes = ['User Denied Media Access', 'WebRTC Error', 'RTP Timeout', 'Connection Error', 'Request Timeout', 'Canceled', 'Rejected', 'Busy', 'Unavailable', 'No Answer', 'SIP Failure Code'];
-    const reason = causes.includes(event.cause || '') ? event.cause! : 'provider or media connection failed';
+    const rawCause = event.cause || '';
+    const reason = causes.includes(rawCause) ? rawCause : 'provider or media connection failed';
     const code = event.response?.status_code;
-    if (controller?.state === 'answering') reportAnswerFailure(reason + (Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : ''));
-    else fail('Call failed: ' + reason);
+    const suffix = (Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : '')
+      + (!causes.includes(rawCause) && rawCause ? ' [' + rawCause.slice(0, 80) + ']' : '');
+    if (controller?.state === 'answering') reportAnswerFailure(reason + suffix);
+    else fail('Call failed: ' + reason + suffix);
     endCall();
   });
   session.on('hold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
