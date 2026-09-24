@@ -50,6 +50,12 @@ let callTimer: ReturnType<typeof setTimeout>;
 let endingTimer: ReturnType<typeof setTimeout>;
 let ringtoneLoopTimer: ReturnType<typeof setInterval> | undefined;
 let selectedOutputDevice: string | undefined;
+let answerStage = 'not requested';
+let answerFailureShown = false;
+function reportAnswerFailure(reason: string) {
+  answerFailureShown = true;
+  fail('Call did not connect (' + answerStage + '): ' + reason + '. Please give this message to your supervisor.');
+}
 const boundSessions = new WeakSet<PhoneSession>();
 const emit = (event: PhoneEvent) => {
   if (window.parent !== window) window.parent.postMessage({ channel: CHANNEL, ...event }, window.location.origin);
@@ -292,6 +298,7 @@ function endCall() {
 function bindSession(session: PhoneSession) {
   if (boundSessions.has(session)) return;
   boundSessions.add(session);
+  if (controller?.state === 'answering') answerStage = 'negotiating audio';
   const isCurrent = () => providerApi?.webCallSession === session;
   const bindAudio = (connection: RTCPeerConnection) => {
     const play = (stream: MediaStream) => {
@@ -312,11 +319,20 @@ function bindSession(session: PhoneSession) {
     if (isCurrent()) {
       clearTimeout(callTimer);
       stopRingtone();
+      answerStage = 'connected';
       controller?.confirmed();
     }
   });
   session.on('ended', () => { if (isCurrent()) endCall(); });
-  session.on('failed', (event: { cause?: string }) => { if (isCurrent()) { endCall(); fail(`Call failed: ${event.cause || 'connection unavailable'}`); } });
+  session.on('failed', (event: { cause?: string; response?: { status_code?: number } }) => {
+    if (!isCurrent()) return;
+    const causes = ['User Denied Media Access', 'WebRTC Error', 'RTP Timeout', 'Connection Error', 'Request Timeout', 'Canceled', 'Rejected', 'Busy', 'Unavailable', 'No Answer', 'SIP Failure Code'];
+    const reason = causes.includes(event.cause || '') ? event.cause! : 'provider or media connection failed';
+    const code = event.response?.status_code;
+    if (controller?.state === 'answering') reportAnswerFailure(reason + (Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : ''));
+    else fail('Call failed: ' + reason);
+    endCall();
+  });
   session.on('hold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
   session.on('unhold', () => { if (isCurrent()) emit({ type: 'controls', held: session.isOnHold().local }); });
 }
@@ -387,7 +403,13 @@ async function connect(key: string, sip: string) {
         const allowed = method === 'zadarmaCallbackCall' ? ['dialing']
           : method === 'zadarmaCallbackAnswer' ? ['ringing-in', 'answering']
           : ['ending'];
-        if (!connectionFailed && controller && allowed.includes(controller.state)) original(data);
+        if (!connectionFailed && controller && allowed.includes(controller.state)) {
+          if (method === 'zadarmaCallbackAnswer') answerStage = 'opening secure voice connection';
+          try { original(data); } catch (error) {
+            if (method === 'zadarmaCallbackAnswer') reportAnswerFailure('phone provider initialization failed');
+            throw error;
+          }
+        }
       };
     }
     connectionTimer = setTimeout(() => {
@@ -414,6 +436,9 @@ async function connect(key: string, sip: string) {
           startRingtone();
         }
         if (['canceled', 'busy', 'rejected'].includes(status)) {
+          if (status === 'canceled' && controller?.state === 'answering' && !answerFailureShown) {
+            reportAnswerFailure('provider canceled before the agent connection was confirmed');
+          }
           stopRingtone();
           endCall();
           if (status !== 'canceled') fail(status === 'busy' ? 'The number is busy.' : 'The call was rejected.');
@@ -438,6 +463,8 @@ window.addEventListener('message', event => {
     else if (data.command === 'answer') {
       stopRingtone();
       if (controller.state === 'ringing-in') {
+        answerStage = 'requesting voice connection';
+        answerFailureShown = false;
         controller.answer();
       }
     }
