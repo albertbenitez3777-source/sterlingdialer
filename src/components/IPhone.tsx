@@ -1,15 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-  // A terminal incoming-call failure closes the old SDK transport. Renew the
-  // phone once after it is idle so that one failed call cannot strand outbound
-  // dialing. Never replay an Accept or Dial command and never loop on rejection.
-  useEffect(() => {
-    if (companionOnly || connection !== 'failed' || callState !== 'idle' ||
-        !micGranted || !credentialsRef.current || automaticRecoveryUsedRef.current ||
-        !error.startsWith('Call did not connect')) return;
-    automaticRecoveryUsedRef.current = true;
-    void enable(true);
-  }, [companionOnly, connection, callState, micGranted, error, enable]);
-
 import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mic, MicOff, Volume2, VolumeX, Grid3X3, Pause, Play } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
@@ -329,6 +318,17 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     if (reconnecting) { setFrameReady(false); setFrameVersion(version => version + 1); }
     else if (frameReady) command('connect', result.data);
   }, [companionOnly, route, loadRoute, unlockAudio, requestMic, providerUrl, sessionToken, frameReady, command]);
+
+  // A terminal incoming-call failure closes the old SDK transport. Renew the
+  // phone once after it is idle so that one failed call cannot strand outbound
+  // dialing. Never replay an Accept or Dial command and never loop on rejection.
+  useEffect(() => {
+    if (companionOnly || connection !== 'failed' || callState !== 'idle' ||
+        !micGranted || !credentialsRef.current || automaticRecoveryUsedRef.current ||
+        !error.startsWith('Call did not connect')) return;
+    automaticRecoveryUsedRef.current = true;
+    void enable(true);
+  }, [companionOnly, connection, callState, micGranted, error, enable]);
 
   const dial = useCallback(async (number: string, request?: PhoneDialRequest) => {
     setOpen(true); setView('keypad'); setError(''); unlockAudio();
