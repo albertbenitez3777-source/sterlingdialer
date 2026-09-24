@@ -1,6 +1,8 @@
 import { CallController, type PhoneApi, type PhoneEvent, type PhoneSession, type PhoneState } from './call-controller';
 
 const CHANNEL = 'wolf-zadarma-v1';
+const PHONE_BUILD = '421';
+const SILENT_AUDIO = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 const BASE = 'https://my.zadarma.com/webphoneWebRTCWidget/v8/js/';
 interface Socket {
   on(event: string, callback: (...args: any[]) => void): Socket;
@@ -60,7 +62,7 @@ let providerEndReason = '';
 const boundVoiceAgents = new WeakSet<VoiceAgent>();
 function reportAnswerFailure(reason: string) {
   answerFailureShown = true;
-  fail('Call did not connect (' + answerStage + '): ' + reason + '. Please give this message to your supervisor.');
+  fail('Call did not connect [phone ' + PHONE_BUILD + '] (' + answerStage + '): ' + reason + '. Please give this message to your supervisor.');
 }
 const boundSessions = new WeakSet<PhoneSession>();
 const emit = (event: PhoneEvent) => {
@@ -103,6 +105,7 @@ function createMedia() {
     media.id = id; media.autoplay = true;
     media.setAttribute('playsinline', '');
     if (id.includes('Self')) media.muted = true;
+    else media.src = SILENT_AUDIO;
     container.appendChild(media);
   }
   const sounds: Record<string, string> = {
@@ -168,6 +171,14 @@ host.wolfPhone = {
         void audio.play().catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
         return;
       }
+      if (audio === el && !el.srcObject) {
+        // Unlock a real, silent source inside the agent's click. No caller stream exists yet.
+        void el.play().then(() => {
+          if (!el.srcObject) { el.pause(); el.currentTime = 0; }
+          emit({ type: 'audio-recovered' });
+        }).catch(() => emit({ type: 'audio-blocked', reason: 'playback' }));
+        return;
+      }
       if (controller && controller.state !== 'idle') return;
       const previous = audio.volume; audio.volume = 0;
       void audio.play().then(() => { audio.pause(); audio.currentTime = 0; audio.volume = previous; }).catch(() => { audio.volume = previous; });
@@ -180,6 +191,11 @@ host.wolfPhone = {
 
     const src = el.srcObject as MediaStream | null;
     const hasLiveTracks = src && src.getAudioTracks().some(t => t.readyState === 'live');
+    if (!hasLiveTracks && controller?.state !== 'active') {
+      host.wolfPhone?.unlockAudio();
+      if (controller?.state === 'ringing-in') startRingtone();
+      return;
+    }
     if (!hasLiveTracks && controller && controller.state === 'active') {
       if (rebindRemoteStream()) {
         emit({ type: 'audio-recovered' });
@@ -441,7 +457,16 @@ async function connect(key: string, sip: string) {
           : method === 'zadarmaCallbackAnswer' ? ['ringing-in', 'answering']
           : ['ending'];
         if (!connectionFailed && controller && allowed.includes(controller.state)) {
-          if (method === 'zadarmaCallbackAnswer') answerStage = 'opening secure voice connection';
+          if (method === 'zadarmaCallbackAnswer') {
+            answerStage = 'opening secure voice connection';
+            const response = data as { domain?: unknown; errorCode?: unknown } | null;
+            if (!response || typeof response.domain !== 'string' || !response.domain.trim()) {
+              const code = response?.errorCode;
+              reportAnswerFailure('provider did not supply voice-server details' +
+                (typeof code === 'number' && Number.isInteger(code) ? ' (code ' + code + ')' : ''));
+              return;
+            }
+          }
           try { original(data); } catch (error) {
             if (method === 'zadarmaCallbackAnswer') reportAnswerFailure('phone provider initialization failed');
             throw error;

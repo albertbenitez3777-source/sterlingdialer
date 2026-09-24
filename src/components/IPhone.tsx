@@ -376,7 +376,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const myNumber = route?.zadarma_number || route?.talkroute_number;
   const active = callState !== 'idle';
   const showAudioBanner = audioStatus !== 'ok';
-  const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
+  const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html?build=421" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
 
   // Separate status indicators
   const spkOk = audioStatus === 'ok' || audioStatus === 'mic-denied' || audioStatus === 'mic-missing' || audioStatus === 'mic-in-use';
@@ -389,7 +389,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} />{(unreadActivity + (unreadVoicemails || 0)) > 0 && <span className="ip17-vm-badge">{unreadActivity + (unreadVoicemails || 0)}</span>}</button> : <>
         <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
-          <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status}</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
+          <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status} · Phone 421</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
 
           {/* Separate status row: connection / speaker / mic */}
           {connection === 'ready' && <div className="ip17-health-row">
