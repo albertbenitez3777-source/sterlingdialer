@@ -32,7 +32,7 @@ async function engine() {
   vi.stubGlobal('window', host);
   vi.stubGlobal('document', {
     createElement: vi.fn(() => ({ setAttribute: vi.fn() })),
-    getElementById: vi.fn(() => ({ appendChild: vi.fn() })),
+    getElementById: vi.fn(() => ({ appendChild: vi.fn(), pause: vi.fn(), play: vi.fn(() => Promise.resolve()) })),
     head: { appendChild: vi.fn(script => queueMicrotask(() => script.onload())) },
     querySelectorAll: vi.fn(() => []),
   });
