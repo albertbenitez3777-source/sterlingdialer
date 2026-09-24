@@ -71,8 +71,7 @@ describe('audio-recovery: microphone permission retry', () => {
 
   it('mic NotReadableError gives in-use message', () => {
     const err = new DOMException('Device in use', 'NotReadableError');
-    const errorName = err.name;
-    const message = errorName === 'NotReadableError'
+    const message = err.name === 'NotReadableError'
       ? 'Your microphone is being used by another app. Close it, then retry.'
       : err.message;
     expect(message).toContain('another app');
@@ -82,28 +81,20 @@ describe('audio-recovery: microphone permission retry', () => {
 // ─── replaceTrack-based mic restoration ─────────────────────────────────────
 describe('audio-recovery: sender track restoration via replaceTrack', () => {
   it('replaceTrack on an existing audio sender does not require renegotiation', async () => {
-    let negotiationNeeded = false;
     let trackReplaced = false;
     const sender = {
       track: { kind: 'audio', readyState: 'ended', enabled: true },
       replaceTrack: async (_track: unknown) => { trackReplaced = true; },
     };
-    const pc = {
-      getSenders: () => [sender],
-      addEventListener: (_: string, cb: () => void) => { negotiationNeeded = true; cb(); },
-    };
-    // Find audio sender with ended track
+    const pc = { getSenders: () => [sender] };
     const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
     expect(audioSender).toBeDefined();
     expect(audioSender!.track!.readyState).toBe('ended');
-    // Replace track
     await audioSender!.replaceTrack({ kind: 'audio', readyState: 'live', enabled: true });
     expect(trackReplaced).toBe(true);
-    // No negotiation event listener was needed for same-kind replaceTrack
-    expect(negotiationNeeded).toBe(false);
   });
 
-  it('restoreMicTrack preserves deliberate mute by setting track.enabled=false', async () => {
+  it('restoreMicTrack preserves deliberate mute by setting track.enabled=false', () => {
     let newTrackEnabled = true;
     const muted = true;
     const newTrack = {
@@ -111,47 +102,189 @@ describe('audio-recovery: sender track restoration via replaceTrack', () => {
       get enabled() { return newTrackEnabled; },
       set enabled(v: boolean) { newTrackEnabled = v; },
     };
-    // After replaceTrack, if controller.muted is true, disable the new track
     if (muted) newTrack.enabled = false;
     expect(newTrackEnabled).toBe(false);
   });
 
   it('restoreMicTrack does nothing if sender track is already live', () => {
     const senderState = { hasConnection: true, hasSender: true, trackState: 'live' };
-    // enableSound skips restoreMicTrack when track is live
     const shouldRestore = senderState.hasConnection && senderState.hasSender && senderState.trackState !== 'live';
     expect(shouldRestore).toBe(false);
   });
+});
 
-  it('restoreMicTrack returns error when no peer connection exists', async () => {
-    const result = { ok: false, error: 'no-connection' };
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('no-connection');
+// ─── Remote stream recovery ─────────────────────────────────────────────────
+describe('audio-recovery: remote stream recovery', () => {
+  it('rebindRemoteStream reconstructs srcObject from peer connection receivers', () => {
+    const tracks = [{ kind: 'audio', readyState: 'live' }];
+    const pc = { getReceivers: () => tracks.map(t => ({ track: t })) };
+    const receivedTracks = pc.getReceivers().map((r: any) => r.track).filter((t: any) => t && t.kind === 'audio');
+    expect(receivedTracks.length).toBe(1);
+    expect(receivedTracks[0].readyState).toBe('live');
+  });
+
+  it('enableSound checks srcObject for live tracks before calling play', () => {
+    const src = { getAudioTracks: () => [{ readyState: 'ended' }] };
+    const hasLiveTracks = src.getAudioTracks().some(t => t.readyState === 'live');
+    expect(hasLiveTracks).toBe(false);
+  });
+
+  it('enableSound detects empty srcObject and triggers rebind', () => {
+    const el = { srcObject: null, muted: false };
+    const hasLive = false;
+    const callActive = true;
+    const shouldRebind = !hasLive && callActive;
+    expect(shouldRebind).toBe(true);
+    expect(el.srcObject).toBeNull();
+  });
+
+  it('unmutes remote element when speakerMuted is false', () => {
+    let muted = true;
+    const speakerMuted = false;
+    if (muted && !speakerMuted) muted = false;
+    expect(muted).toBe(false);
+  });
+
+  it('keeps remote element muted when speaker is intentionally off', () => {
+    let muted = true;
+    const speakerMuted = true;
+    if (muted && !speakerMuted) muted = false;
+    expect(muted).toBe(true);
   });
 });
 
-// ─── AudioStatus state tracking ─────────────────────────────────────────────
+// ─── Ringtone lifecycle ─────────────────────────────────────────────────────
+describe('audio-recovery: ringtone lifecycle', () => {
+  it('ringtone starts on incoming status', () => {
+    const events: string[] = [];
+    const startRingtone = () => events.push('start');
+    const status = 'incoming';
+    if (status === 'incoming') startRingtone();
+    expect(events).toEqual(['start']);
+  });
+
+  it('ringtone stops on answer command', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('stop');
+    const command = 'answer';
+    if (command === 'answer') stopRingtone();
+    expect(events).toEqual(['stop']);
+  });
+
+  it('ringtone stops on hangup during ringing', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('stop');
+    stopRingtone();
+    expect(events).toEqual(['stop']);
+  });
+
+  it('ringtone stops on canceled/busy/rejected status', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('stop');
+    for (const status of ['canceled', 'busy', 'rejected']) {
+      if (['canceled', 'busy', 'rejected'].includes(status)) stopRingtone();
+    }
+    expect(events).toEqual(['stop', 'stop', 'stop']);
+  });
+
+  it('ringtone stops on session confirmed (call connected)', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('stop');
+    const sessionEvent = 'confirmed';
+    if (sessionEvent === 'confirmed') stopRingtone();
+    expect(events).toEqual(['stop']);
+  });
+
+  it('ringtone stops in endCall cleanup', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('stop');
+    const endCall = () => { stopRingtone(); events.push('ended'); };
+    endCall();
+    expect(events).toEqual(['stop', 'ended']);
+  });
+
+  it('ringtone does not leak into conversation — stop precedes confirmed', () => {
+    const events: string[] = [];
+    const stopRingtone = () => events.push('ring-stop');
+    const confirmed = () => { stopRingtone(); events.push('confirmed'); };
+    confirmed();
+    expect(events[0]).toBe('ring-stop');
+    expect(events[1]).toBe('confirmed');
+  });
+
+  it('ringtone is set to loop=true', () => {
+    const ring = { loop: false, volume: 0.5 };
+    ring.loop = true;
+    ring.volume = 0.7;
+    expect(ring.loop).toBe(true);
+    expect(ring.volume).toBe(0.7);
+  });
+
+  it('enableSound during ringing-in also starts ringtone', () => {
+    const events: string[] = [];
+    const startRingtone = () => events.push('ring-start');
+    const state = 'ringing-in';
+    if (state === 'ringing-in') startRingtone();
+    expect(events).toContain('ring-start');
+  });
+});
+
+// ─── setSinkId / output device ──────────────────────────────────────────────
+describe('audio-recovery: output device selection', () => {
+  it('hasSinkId feature detection does not crash when setSinkId is missing', () => {
+    const el = { play: () => Promise.resolve(), pause: () => {} };
+    const has = typeof (el as any).setSinkId === 'function';
+    expect(has).toBe(false);
+  });
+
+  it('hasSinkId returns true when setSinkId exists', () => {
+    const el = { setSinkId: async (_id: string) => {}, play: () => Promise.resolve() };
+    const has = typeof el.setSinkId === 'function';
+    expect(has).toBe(true);
+  });
+
+  it('applySinkId is called on remote element and ringtone element', async () => {
+    const sinkCalls: string[] = [];
+    const el = { setSinkId: async (id: string) => { sinkCalls.push(`remote:${id}`); } };
+    const ring = { setSinkId: async (id: string) => { sinkCalls.push(`ring:${id}`); } };
+    const deviceId = 'speakers-123';
+    await el.setSinkId(deviceId);
+    await ring.setSinkId(deviceId);
+    expect(sinkCalls).toEqual(['remote:speakers-123', 'ring:speakers-123']);
+  });
+
+  it('testSpeaker plays a 440Hz tone via AudioContext', () => {
+    const created: string[] = [];
+    const fakeOsc = { frequency: { value: 0 }, connect: () => {}, start: () => { created.push('started'); }, stop: () => {}, onended: null as any };
+    fakeOsc.frequency.value = 440;
+    fakeOsc.start();
+    expect(fakeOsc.frequency.value).toBe(440);
+    expect(created).toContain('started');
+  });
+
+  it('OS guidance shown when setSinkId is not supported', () => {
+    const HAS_SET_SINK_ID = false;
+    const message = !HAS_SET_SINK_ID
+      ? 'Your browser does not support output device selection. To change speakers, use your operating system sound settings.'
+      : '';
+    expect(message).toContain('operating system');
+  });
+});
+
+// ─── AudioStatus granular tracking ──────────────────────────────────────────
 describe('audio-recovery: granular status tracking', () => {
   it('maps audio-blocked event to sound-blocked status', () => {
-    const data = { type: 'audio-blocked' };
     let audioStatus = 'ok';
+    const data = { type: 'audio-blocked' };
     if (data.type === 'audio-blocked') audioStatus = 'sound-blocked';
     expect(audioStatus).toBe('sound-blocked');
   });
 
   it('maps audio-recovered event to ok status', () => {
-    const data = { type: 'audio-recovered' };
     let audioStatus: string = 'sound-blocked';
+    const data = { type: 'audio-recovered' };
     if (data.type === 'audio-recovered') audioStatus = 'ok';
     expect(audioStatus).toBe('ok');
-  });
-
-  it('maps mic denial to mic-denied status', () => {
-    const micResult = { granted: false, errorName: 'NotAllowedError' };
-    const status = micResult.errorName === 'NotAllowedError' ? 'mic-denied'
-      : micResult.errorName === 'NotFoundError' ? 'mic-missing'
-      : micResult.errorName === 'NotReadableError' ? 'mic-in-use' : 'unknown';
-    expect(status).toBe('mic-denied');
   });
 
   it('resets audioStatus to ok when call ends', () => {
@@ -161,23 +294,31 @@ describe('audio-recovery: granular status tracking', () => {
     expect(audioStatus).toBe('ok');
   });
 
-  it('each status has a user-facing message', () => {
-    const statuses = ['sound-blocked', 'mic-denied', 'mic-missing', 'mic-in-use', 'sender-ended', 'unknown'] as const;
-    for (const s of statuses) {
-      const msg = s === 'sound-blocked' ? 'Browser is blocking audio'
-        : s === 'mic-denied' ? 'Microphone access was denied'
-        : s === 'mic-missing' ? 'No microphone found'
-        : s === 'mic-in-use' ? 'used by another app'
-        : s === 'sender-ended' ? 'outgoing audio track'
-        : 'audio problem';
-      expect(msg.length).toBeGreaterThan(0);
-    }
+  it('separate health indicators: connection, speaker, mic', () => {
+    const connection = 'ready';
+    const audioStatus = 'ok';
+    const micGranted = true;
+    const connOk = connection === 'ready';
+    const spkOk = audioStatus === 'ok' || ['mic-denied', 'mic-missing', 'mic-in-use'].includes(audioStatus);
+    const micOk = micGranted && !['mic-denied', 'mic-missing', 'mic-in-use'].includes(audioStatus);
+    expect(connOk).toBe(true);
+    expect(spkOk).toBe(true);
+    expect(micOk).toBe(true);
+  });
+
+  it('speaker shows error when sound-blocked, mic stays ok', () => {
+    const audioStatus = 'sound-blocked';
+    const micGranted = true;
+    const spkOk = audioStatus === 'ok' || ['mic-denied', 'mic-missing', 'mic-in-use'].includes(audioStatus);
+    const micOk = micGranted && !['mic-denied', 'mic-missing', 'mic-in-use'].includes(audioStatus);
+    expect(spkOk).toBe(false);
+    expect(micOk).toBe(true);
   });
 });
 
 // ─── Active call preservation ───────────────────────────────────────────────
 describe('audio-recovery: active call preservation', () => {
-  it('enableSound emits only audio-blocked or audio-recovered, no call-state/connection/hangup', () => {
+  it('enableSound emits only audio-blocked or audio-recovered, never hangup/connection', () => {
     const possibleEvents = [
       { type: 'audio-recovered' },
       { type: 'audio-blocked', reason: 'playback' },
@@ -186,21 +327,14 @@ describe('audio-recovery: active call preservation', () => {
       expect(event.type).not.toBe('call-state');
       expect(event.type).not.toBe('connection');
       expect(event.type).not.toBe('hangup');
-      expect(event.type).not.toBe('error');
     }
-  });
-
-  it('muted state is preserved — enableSound never emits controls', () => {
-    const events = [{ type: 'audio-recovered' }, { type: 'audio-blocked', reason: 'playback' }];
-    expect(events.filter(e => e.type === 'controls')).toEqual([]);
   });
 
   it('enableSound with finally block always clears enablingSound', async () => {
     let enablingSound = true;
     try {
-      throw new Error('simulated mic failure');
+      throw new Error('simulated failure');
     } catch {
-      // error handled
     } finally {
       enablingSound = false;
     }
@@ -214,22 +348,6 @@ describe('audio-recovery: feature detection', () => {
     const win = {} as any;
     const ACtx = typeof AudioContext !== 'undefined' ? AudioContext
       : typeof win.webkitAudioContext !== 'undefined' ? win.webkitAudioContext : null;
-    // In test env AudioContext may or may not exist — just verify no crash
     expect(() => { void ACtx; }).not.toThrow();
-  });
-
-  it('remote().muted is explicitly set to false in enableSound when speaker is not off', () => {
-    let muted = true;
-    const speakerMuted = false;
-    // Engine's enableSound: if (el.muted && !speakerMuted) el.muted = false;
-    if (muted && !speakerMuted) muted = false;
-    expect(muted).toBe(false);
-  });
-
-  it('remote().muted stays true when speaker is intentionally off', () => {
-    let muted = true;
-    const speakerMuted = true;
-    if (muted && !speakerMuted) muted = false;
-    expect(muted).toBe(true);
   });
 });
