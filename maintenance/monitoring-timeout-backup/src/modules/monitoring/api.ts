@@ -6,7 +6,7 @@ export async function monitoringRequest(token: string, body: Record<string, unkn
  const controller=new AbortController();
  const abort=()=>controller.abort();
  if(signal?.aborted)controller.abort();else signal?.addEventListener('abort',abort,{once:true});
- const timeout=window.setTimeout(abort,25000);
+ const timeout=window.setTimeout(abort,12000);
  try {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/federal-one-monitoring`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...body,session_token:token}), signal:controller.signal });
   const data = await response.json();
