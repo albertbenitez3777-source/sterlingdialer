@@ -1,16 +1,16 @@
+import { ModuleBoundary } from '@/app/ModuleBoundary';
+import { SharedWorkspace } from '@/app/SharedWorkspace';
 import { useApplicationModel } from '@/app/useApplicationModel';
+import { WorkspaceDialogs } from '@/app/WorkspaceDialogs';
+import { MatrixField } from '@/components/MatrixField';
+import { AgentWorkspace } from '@/modules/agent/AgentWorkspace';
+import { CameraModule } from '@/modules/camera/CameraModule';
+import { ChatModule } from '@/modules/chat/ChatModule';
 import { LoginScreen } from '@/modules/login/LoginScreen';
 import { MainNavigation } from '@/modules/navigation/MainNavigation';
 import { StatusBar } from '@/modules/navigation/StatusBar';
 import { OwnerDashboard } from '@/modules/owner/OwnerDashboard';
-import { AgentWorkspace } from '@/modules/agent/AgentWorkspace';
-import { SharedWorkspace } from '@/app/SharedWorkspace';
-import { WorkspaceDialogs } from '@/app/WorkspaceDialogs';
 import { PhoneModule } from '@/modules/phone/PhoneModule';
-import { ChatModule } from '@/modules/chat/ChatModule';
-import { CameraModule } from '@/modules/camera/CameraModule';
-import { ModuleBoundary } from '@/app/ModuleBoundary';
-import { MatrixField } from '@/components/MatrixField';
 
 export default function App() {
  const model = useApplicationModel();

@@ -1,28 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Activity, Bookmark, Check, ChevronDown, ChevronRight, CircleHelp, Clock, Download, FileText, FileUp, Flame, Inbox, LayoutDashboard, LogOut,
-  Menu, Pause, Phone, PhoneOff, Play, RefreshCw, Search, Send, Square, Trash2, Upload, Users, WifiOff, X, Zap,
-} from 'lucide-react';
-import { GlassCard, GlowButton, StatusPill, PinInput, Reveal, AdminCharts, queueToPillVariant, TransferFunnel, RedialConfirmModal, InboundVerificationPanel, AgentCockpit, RecordingPlayer, OpportunitiesFeed, IncomingTransferPanel, AgentWorkspaceView, REDIAL_CAP, type RedialPreview, type ActiveTransfer, IncomingCallAlert, type TransferAlert, AgentInbox, OwnerAlertOverview } from '@/components';
-import { maskPhone, formatPhone } from '@/utils/privacy';
-import { useHeartbeat, type AttendanceInfo as HeartbeatAttendance } from '@/utils/useHeartbeat';
-import { fmtAttendanceDuration, presenceLabel, presenceColor } from '@/utils/attendance';
-import { buildMonotonicFunnel, capAgentMonotonic, type FunnelData } from '@/utils/funnel';
-import { transferMetricsForWindow, type TransferMetricSummary } from '@/utils/transfer-metrics';
-import { authFetch } from '@/utils/auth-fetch';
-import { contactEmails, contactFieldText } from '@/utils/contact-search';
-import { useContactSearch } from '@/utils/useContactSearch';
-import { WhatsUp } from '@/components/WhatsUp';
-import { IPhone } from '@/components/IPhone';
-import { requestPhoneDial } from '@/phone/dial-request';
-import { DialerControls } from '@/components/DialerControls';
-import { OperationsDashboard } from '@/components/OperationsDashboard';
-import { TestCallPanel } from '@/components/TestCallPanel';
-import { ExtraInfo } from '@/components/ExtraInfo';
-import CameraWidget from '@/components/CameraWidget';
-import type { AgentTodayStats } from '@/components/AgentCockpit';
-import { ShieldCheck, Settings } from 'lucide-react';
-import { MatrixField } from '@/components/MatrixField';
+import { type TransferMetricSummary } from '@/utils/transfer-metrics';
 export type AgentRole = 'owner' | 'administrator' | 'agent' | 'supervisor';
 
 export type SessionAgent = { id: string; full_name: string; role: AgentRole; status: string; is_owner?: boolean; available_for_transfer?: boolean; logged_in?: boolean };
