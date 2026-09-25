@@ -7,7 +7,6 @@ const [session, setSession] = useState<SessionData | null>(null);
 const [pin, setPin] = useState('');
 const [loginError, setLoginError] = useState('');
 const [loggingIn, setLoggingIn] = useState(false);
-const [restoringLogin, setRestoringLogin] = useState(false);
 const loginInFlight = useRef(false);
 const [sessionToken, setSessionToken] = useState('');
 const [ownerNeedsSetup, setOwnerNeedsSetup] = useState(false);
@@ -15,11 +14,11 @@ const [setupPin, setSetupPin] = useState('');
 const [setupConfirm, setSetupConfirm] = useState('');
 const [setupError, setSetupError] = useState('');
 const [settingUp, setSettingUp] = useState(false);
-return {restoringLogin,setRestoringLogin,session,setSession,pin,setPin,loginError,setLoginError,loggingIn,setLoggingIn,loginInFlight,sessionToken,setSessionToken,ownerNeedsSetup,setOwnerNeedsSetup,setupPin,setSetupPin,setupConfirm,setSetupConfirm,setupError,setSetupError,settingUp,setSettingUp};
+return {session,setSession,pin,setPin,loginError,setLoginError,loggingIn,setLoggingIn,loginInFlight,sessionToken,setSessionToken,ownerNeedsSetup,setOwnerNeedsSetup,setupPin,setSetupPin,setupConfirm,setSetupConfirm,setupError,setSetupError,settingUp,setSettingUp};
 }
 type LoginState = ReturnType<typeof useLoginState>;
 type LoginLifecycle = LoginState & { setAgentAvailable: Dispatch<SetStateAction<boolean>>; setActiveNav: Dispatch<SetStateAction<string>>; setShowOfflineModal: Dispatch<SetStateAction<boolean>>; atomicLogout: () => void; };
-export function useLoginLifecycle({restoringLogin,setRestoringLogin,session,setSession,pin,setPin,loginError,setLoginError,loggingIn,setLoggingIn,loginInFlight,sessionToken,setSessionToken,ownerNeedsSetup,setOwnerNeedsSetup,setupPin,setSetupPin,setupConfirm,setSetupConfirm,setupError,setSetupError,settingUp,setSettingUp,setAgentAvailable,setActiveNav,setShowOfflineModal,atomicLogout}: LoginLifecycle) {
+export function useLoginLifecycle({session,setSession,pin,setPin,loginError,setLoginError,loggingIn,setLoggingIn,loginInFlight,sessionToken,setSessionToken,ownerNeedsSetup,setOwnerNeedsSetup,setupPin,setSetupPin,setupConfirm,setSetupConfirm,setupError,setSetupError,settingUp,setSettingUp,setAgentAvailable,setActiveNav,setShowOfflineModal,atomicLogout}: LoginLifecycle) {
 useEffect(() => {
     fetchWithRetry(AUTH_URL, { action: 'owner_needs_setup' })
       .then(r => r.json()).then(d => { if (d.needs_setup) setOwnerNeedsSetup(true); }).catch(() => {});
@@ -36,7 +35,6 @@ useEffect(() => {
       if (pending || !stillCurrent()) return;
       clearTimeout(retryTimer);
       pending = true;
-      setRestoringLogin(true);
       try {
         const response = await fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token });
         if (!response.ok) throw new Error('Session verification unavailable');
@@ -64,7 +62,6 @@ useEffect(() => {
         }
       } finally {
         pending = false;
-        if (!cancelled) setRestoringLogin(false);
       }
     };
     const reconnect = () => { void restore(); };

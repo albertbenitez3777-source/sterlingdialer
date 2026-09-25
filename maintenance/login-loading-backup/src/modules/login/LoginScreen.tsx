@@ -2,8 +2,8 @@ import type { ApplicationModel } from "@/app/useApplicationModel";
 import { PinInput } from '@/components';
 import { MatrixField } from '@/components/MatrixField';
 
-export function LoginScreen({ model }: { model: Pick<ApplicationModel, "restoringLogin" | "ownerNeedsSetup" | "setupPin" | "setSetupPin" | "handleOwnerSetup" | "setupConfirm" | "setSetupConfirm" | "setupError" | "settingUp" | "session" | "loginError" | "pin" | "setPin" | "setLoginError" | "handleLogin" | "loggingIn" > }) {
-const { restoringLogin, ownerNeedsSetup, setupPin, setSetupPin, handleOwnerSetup, setupConfirm, setSetupConfirm, setupError, settingUp, session, loginError, pin, setPin, setLoginError, handleLogin, loggingIn } = model;
+export function LoginScreen({ model }: { model: Pick<ApplicationModel, "ownerNeedsSetup" | "setupPin" | "setSetupPin" | "handleOwnerSetup" | "setupConfirm" | "setSetupConfirm" | "setupError" | "settingUp" | "session" | "loginError" | "pin" | "setPin" | "setLoginError" | "handleLogin" | "loggingIn" > }) {
+const { ownerNeedsSetup, setupPin, setSetupPin, handleOwnerSetup, setupConfirm, setSetupConfirm, setupError, settingUp, session, loginError, pin, setPin, setLoginError, handleLogin, loggingIn } = model;
 if (ownerNeedsSetup) {
     return (
       <div className="matrix-access-page">
@@ -36,7 +36,6 @@ if (!session?.valid) {
         <main className={`matrix-access-card ${loginError ? 'has-error' : ''}`}>
           <p className="matrix-access-brand">FEDERAL ONE</p>
           <span className="matrix-access-kicker">SECURE ACCESS</span>
-          {restoringLogin && <p role="status" style={{color:'#bdd8cc',fontSize:13}}>Restoring your login… You can also enter your PIN below.</p>}
           <div className="matrix-access-form">
             <PinInput length={4} value={pin} onChange={value => { setPin(value); setLoginError(''); }} onComplete={handleLogin} hasError={!!loginError} disabled={loggingIn} />
             {loginError && <div className="matrix-access-error">{loginError}</div>}
