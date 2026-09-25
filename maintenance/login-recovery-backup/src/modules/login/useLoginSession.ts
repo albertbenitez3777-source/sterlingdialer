@@ -110,7 +110,7 @@ const handleLogin = async (completedPin = pin) => {
     loginInFlight.current = true;
     setLoggingIn(true); setLoginError('');
     try {
-      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin: completedPin }, 0, 25000);
+      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin: completedPin });
       const data = await res.json();
       if (res.ok && data.success && data.session_token && data.agent) {
         localStorage.setItem('sterling_session_token', data.session_token);
