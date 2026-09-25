@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { CINEMATIC_HERO,ContactResult,fmtDateTime,fmtDuration,initials,queueLabel } from "@/app/shared";
 import { SectionHero } from "@/app/views/SectionHero";
 import { queueToPillVariant,RecordingPlayer,StatusPill } from '@/components';
@@ -85,8 +84,9 @@ export function ContactsView({ searchQuery, searchResults, searching, searchErro
                       onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address);
                     }}>{contact.consumer_name || 'Unknown'}</button>
                     {(contact.phone_normalized || contact.phone) ? (
-                      <PhoneNumber phone={contact.phone_normalized || contact.phone}><Phone size={11} /> {formatPhone(contact.phone || contact.phone_normalized)}
-                      </PhoneNumber>
+                      <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(contact.consumer_name || 'Contact', contact.phone_normalized || contact.phone, contactEmails(contact)[0], contact.address); }}>
+                        <Phone size={11} /> {formatPhone(contact.phone || contact.phone_normalized)}
+                      </button>
                     ) : <span className="card-address">No phone on file</span>}
                     {contactEmails(contact).length > 0 && (
                       <span className="card-address" style={{ color: '#6db8d4' }}> · {contactEmails(contact).join(', ')}</span>
@@ -117,7 +117,7 @@ export function ContactsView({ searchQuery, searchResults, searching, searchErro
                 <div className="queue-card-detail">
                   <div className="contact-detail-grid">
                     <div className="detail-row"><span>Name:</span><strong>{contact.consumer_name || 'Unknown'}</strong></div>
-                    <div className="detail-row"><span>Phone:</span><strong>{(contact.phone || contact.phone_normalized) ? <PhoneNumber phone={contact.phone || contact.phone_normalized}>{formatPhone(contact.phone || contact.phone_normalized)}</PhoneNumber> : 'Not on file'}</strong></div>
+                    <div className="detail-row"><span>Phone:</span><strong>{(contact.phone || contact.phone_normalized) ? formatPhone(contact.phone || contact.phone_normalized) : 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Address:</span><strong>{contact.address || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Income Range:</span><strong>{contact.income_range || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Home Value:</span><strong>{contact.home_value || 'Not on file'}</strong></div>

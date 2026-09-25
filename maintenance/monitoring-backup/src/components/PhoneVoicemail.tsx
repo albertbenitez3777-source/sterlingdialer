@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Phone, Play, RefreshCw, Voicemail } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
@@ -43,7 +42,7 @@ export function PhoneVoicemail({ sessionToken, providerUrl, onUnauthorized, canC
     {!delivery && !loading && !error && <p className="ip17-vm-setup">No voicemail recording has reached this inbox yet. Your administrator needs to connect voicemail email delivery to the app. Calls that reached your voicemail appear in Recents.</p>}
     {!messages.length && <div className="ip17-vm-empty"><Voicemail size={34} /><p>{loading ? 'Loading messages…' : 'No saved messages'}</p></div>}
     {messages.map(message => <article key={message.id} className={message.heard_at ? '' : 'unheard'}>
-      <div><strong>{message.caller_name || 'Voicemail'}{message.caller_number && <PhoneNumber phone={message.caller_number}>{formatPhone(message.caller_number)}</PhoneNumber>}</strong><time>{new Date(message.received_at).toLocaleString()}</time>{message.duration_seconds != null && <small>{Math.floor(message.duration_seconds / 60)}:{String(message.duration_seconds % 60).padStart(2,'0')}</small>}</div>
+      <div><strong>{message.caller_name || (message.caller_number ? formatPhone(message.caller_number) : 'Unknown caller')}</strong><time>{new Date(message.received_at).toLocaleString()}</time>{message.duration_seconds != null && <small>{Math.floor(message.duration_seconds / 60)}:{String(message.duration_seconds % 60).padStart(2,'0')}</small>}</div>
       <div className="ip17-vm-actions"><button disabled={playingId === message.id} onClick={() => void play(message)}><Play size={14} />{playingId === message.id ? 'Loading…' : 'Listen'}</button>{message.caller_number && <button aria-label={`Call back ${message.caller_number}`} disabled={!canCall} onClick={() => onCall(message.caller_number!)}><Phone size={15} /></button>}</div>
       {audio?.id === message.id && <audio controls autoPlay src={audio.url} onPlay={() => void heard(message.id)} onError={() => { setAudio(null); setError('Audio could not play. Press Listen to request a fresh link.'); }} />}
     </article>)}

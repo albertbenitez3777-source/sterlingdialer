@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Phone, PhoneOff, Clock, Copy, X, Volume2, VolumeX, ChevronDown, ChevronUp, MapPin, DollarSign, Home, FileText, Check, AlertTriangle, RefreshCw, Calendar } from 'lucide-react';
 import { RecordingPlayer } from './RecordingPlayer';
@@ -166,7 +165,7 @@ function AlertCard({
           <div className="ica-client">
             <div className="ica-client-primary">
               <span className="ica-client-name">{alert.consumer_name || 'Unknown'}</span>
-              <span className="ica-client-phone"><PhoneNumber phone={alert.consumer_phone}>{fmtPhone(alert.consumer_phone)}</PhoneNumber></span>
+              <span className="ica-client-phone">{fmtPhone(alert.consumer_phone)}</span>
               <button className="ica-copy-btn" onClick={copyPhone} title="Copy phone">
                 {copied ? <Check size={13} /> : <Copy size={13} />}
               </button>

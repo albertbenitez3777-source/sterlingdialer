@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, Clock, Flame, Phone, Send, Check, Bookmark,
@@ -117,8 +116,9 @@ function CallRow({ call, expanded, onToggle, onPhoneClick, onSave, saving, selec
         <div className="ws-call-info">
           <div className="ws-call-name">{call.consumer_name || formatPhone(call.consumer_phone)}</div>
           <div className="ws-call-meta">
-            <PhoneNumber phone={call.consumer_phone}><Phone size={10} /> {formatPhone(call.consumer_phone)}
-            </PhoneNumber>
+            <button className="ws-phone-link" onClick={e => { e.stopPropagation(); onPhoneClick(call.consumer_name, call.consumer_phone); }}>
+              <Phone size={10} /> {formatPhone(call.consumer_phone)}
+            </button>
             <span className="ws-call-time">{fmtTimeET(call.created_at)}</span>
           </div>
           {call.consumer_custom_fields && typeof call.consumer_custom_fields === 'object' && 'email' in call.consumer_custom_fields && Boolean(call.consumer_custom_fields.email) && (

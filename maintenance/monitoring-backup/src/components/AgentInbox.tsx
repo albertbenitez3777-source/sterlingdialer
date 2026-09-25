@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Inbox, Search, RefreshCw, ChevronDown, ChevronUp, Phone, PhoneOff, Clock, Check, Calendar, AlertTriangle, X, MapPin, DollarSign, Home, FileText, Copy } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
@@ -132,7 +131,7 @@ function InboxItemCard({
               {item.consumer_name || 'Unknown'}
               {item.bridge_confirmed && <span className="inbox-bridge-badge">BRIDGED</span>}
             </div>
-            <div className="inbox-item-phone"><PhoneNumber phone={item.consumer_phone}>{fmtPhone(item.consumer_phone)}</PhoneNumber></div>
+            <div className="inbox-item-phone">{fmtPhone(item.consumer_phone)}</div>
             <div className="inbox-item-meta">
               <span className="inbox-item-time">{timeAgo(item.created_at)}</span>
               {item.direction && <span className="inbox-item-direction">{item.direction}</span>}
@@ -169,7 +168,7 @@ function InboxItemCard({
             )}
             <div className="inbox-detail">
               <Phone size={13} />
-              <span><PhoneNumber phone={item.consumer_phone}>{fmtPhone(item.consumer_phone)}</PhoneNumber></span>
+              <span>{fmtPhone(item.consumer_phone)}</span>
               <button style={{ background: 'none', border: 'none', color: copied ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0 }} onClick={copyPhone}>
                 {copied ? <Check size={12} /> : <Copy size={12} />}
               </button>

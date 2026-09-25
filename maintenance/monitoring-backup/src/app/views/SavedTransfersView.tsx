@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { CINEMATIC_HERO,fmtDateTime,initials,SavedTransfer } from "@/app/shared";
 import { SectionHero } from "@/app/views/SectionHero";
 import { queueToPillVariant,StatusPill } from '@/components';
@@ -42,8 +41,9 @@ export function SavedTransfersView({ savedTransfers, loading, onDelete, onPhoneC
                   <div className="avatar green">{initials(st.consumer_name)}</div>
                   <div>
                     <strong>{st.consumer_name}</strong>
-                    <PhoneNumber phone={st.consumer_phone}><Phone size={11} /> {formatPhone(st.consumer_phone)}
-                    </PhoneNumber>
+                    <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(st.consumer_name, st.consumer_phone); }}>
+                      <Phone size={11} /> {formatPhone(st.consumer_phone)}
+                    </button>
                     <span className="card-address"> · {st.consumer_address || 'No address on file'}</span>
                     <span> · Saved {fmtDateTime(st.created_at)}</span>
                   </div>

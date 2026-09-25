@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ExternalLink, Search, Loader2, AlertCircle, User, MapPin, Phone, Mail,
@@ -219,7 +218,7 @@ export function ExtraInfo({ sessionToken, onUnauthorized, prefill }: ExtraInfoPr
       {parsed && parsed.name && (
         <div className="extra-info-parsed">
           <div className="extra-info-parsed-item"><User size={13} /> <strong>{parsed.name}</strong></div>
-          {parsed.phone && <div className="extra-info-parsed-item"><Phone size={13} /> <PhoneNumber phone={parsed.phone}/></div>}
+          {parsed.phone && <div className="extra-info-parsed-item"><Phone size={13} /> {parsed.phone}</div>}
           {parsed.address && <div className="extra-info-parsed-item"><MapPin size={13} /> {parsed.address}</div>}
           {parsed.email && <div className="extra-info-parsed-item"><Mail size={13} /> {parsed.email}</div>}
         </div>
@@ -242,7 +241,7 @@ export function ExtraInfo({ sessionToken, onUnauthorized, prefill }: ExtraInfoPr
         <div className="extra-info-known-section">
           <div className="extra-info-section-label">ALREADY ON FILE</div>
           <div className="extra-info-known-grid">
-            <div><Phone size={12} /> <span>Phones:</span> <strong>{known.phones.length ? known.phones.map(phone => <PhoneNumber key={phone} phone={phone}/>) : 'None found'}</strong></div>
+            <div><Phone size={12} /> <span>Phones:</span> <strong>{known.phones.length ? known.phones.join(', ') : 'None found'}</strong></div>
             <div><MapPin size={12} /> <span>Addresses:</span> <strong>{known.addresses.length ? known.addresses.join(' | ') : 'None found'}</strong></div>
             <div><Mail size={12} /> <span>Emails:</span> <strong>{known.emails.length ? known.emails.join(', ') : 'None found'}</strong></div>
             <div><User size={12} /> <span>Spouse / Associates:</span> <strong>{known.associates.length ? known.associates.join(', ') : 'None found'}</strong></div>

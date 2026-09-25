@@ -1,5 +1,3 @@
-import { AgentMonitoring } from '@/modules/monitoring/AgentMonitoring';
-import { canMonitor, useMonitoringAttendance } from '@/modules/monitoring/api';
 import { ModuleBoundary } from '@/app/ModuleBoundary';
 import { SharedWorkspace } from '@/app/SharedWorkspace';
 import { useApplicationModel } from '@/app/useApplicationModel';
@@ -16,7 +14,6 @@ import { PhoneModule } from '@/modules/phone/PhoneModule';
 
 export default function App() {
  const model = useApplicationModel();
- useMonitoringAttendance(model.sessionToken, !!model.session?.valid && !model.isOwner);
  if (model.ownerNeedsSetup || !model.session?.valid) return <LoginScreen model={model} />;
  return <>
   <div className="app-shell f1-v2-shell">
@@ -27,7 +24,7 @@ export default function App() {
     <div className="content-wrap">
      <ModuleBoundary name="Workspace tools"><SharedWorkspace model={model} /></ModuleBoundary>
      <ModuleBoundary name="Workspace" resetKey={model.isOwner ? 'owner' : 'agent'}>
-      {model.activeNav === 'monitoring' && canMonitor(model.isOwner, model.session.agent) ? <AgentMonitoring token={model.sessionToken} /> : model.isOwner ? <OwnerDashboard model={model} /> : <AgentWorkspace model={model} />}
+      {model.isOwner ? <OwnerDashboard model={model} /> : <AgentWorkspace model={model} />}
      </ModuleBoundary>
     </div>
    </div>

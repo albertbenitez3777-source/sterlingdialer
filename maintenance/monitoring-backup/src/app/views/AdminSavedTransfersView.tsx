@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { CINEMATIC_HERO,fmtDateTime,initials,SavedTransfer } from "@/app/shared";
 import { SectionHero } from "@/app/views/SectionHero";
 import { queueToPillVariant,StatusPill } from '@/components';
@@ -69,7 +68,7 @@ export function AdminSavedTransfersView({ savedTransfers, loading, onLoad, expan
                     <div className="avatar green">{initials(st.consumer_name)}</div>
                     <div>
                       <strong>{st.consumer_name}</strong>
-                      <span className="card-address"> · <PhoneNumber phone={st.consumer_phone}>{formatPhone(st.consumer_phone)}</PhoneNumber></span>
+                      <span className="card-address"> · {formatPhone(st.consumer_phone)}</span>
                       <span> · {agentName}</span>
                       <span> · {fmtDateTime(st.created_at)}</span>
                     </div>
@@ -92,7 +91,7 @@ export function AdminSavedTransfersView({ savedTransfers, loading, onLoad, expan
                 {isExpanded && (
                   <div className="queue-card-detail">
                     <div className="detail-row"><span>Agent:</span><strong>{agentName}</strong></div>
-                    <div className="detail-row"><span>Phone:</span><strong><PhoneNumber phone={st.consumer_phone}>{formatPhone(st.consumer_phone)}</PhoneNumber></strong></div>
+                    <div className="detail-row"><span>Phone:</span><strong>{formatPhone(st.consumer_phone)}</strong></div>
                     <div className="detail-row"><span>Address:</span><strong>{st.consumer_address || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Income:</span><strong>{st.consumer_income_range || 'Not on file'}</strong></div>
                     <div className="detail-row"><span>Home Value:</span><strong>{st.consumer_home_value || 'Not on file'}</strong></div>

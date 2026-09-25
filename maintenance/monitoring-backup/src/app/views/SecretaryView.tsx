@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { CINEMATIC_HERO,fmtDateTime,initials,PROVIDER_URL,providerFetch,SecretaryCall } from "@/app/shared";
 import { SectionHero } from "@/app/views/SectionHero";
 import { RecordingPlayer } from '@/components';
@@ -184,8 +183,9 @@ export function SecretaryView({ secretaryCalls, setSecretaryCalls, loadingSecret
                     <div className="avatar green">{initials(call.client_name)}</div>
                     <div>
                       <strong>{call.client_name}</strong>
-                      <PhoneNumber phone={call.client_phone}><Phone size={11} /> {formatPhone(call.client_phone)}
-                      </PhoneNumber>
+                      <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(call.client_name, call.client_phone); }}>
+                        <Phone size={11} /> {formatPhone(call.client_phone)}
+                      </button>
                       <span> · {fmtDateTime(call.created_at)}</span>
                     </div>
                   </div>

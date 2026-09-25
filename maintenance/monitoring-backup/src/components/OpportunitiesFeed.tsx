@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   RefreshCw, PhoneCall,
@@ -321,7 +320,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
                     {/* Phone + callback */}
                     <div className="opp-phone-row">
                       <Phone size={12} />
-                      <span className="opp-phone"><PhoneNumber phone={r.consumer_phone}>{formatPhone(r.consumer_phone)}</PhoneNumber></span>
+                      <span className="opp-phone">{formatPhone(r.consumer_phone)}</span>
                       <button
                         className="opp-callback-btn"
                         onClick={() => onCallback(r.consumer_name, r.consumer_phone)}

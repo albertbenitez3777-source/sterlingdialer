@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { fmtDateTime,fmtDuration,initials,queueLabel,QueueRecord } from "@/app/shared";
 import { queueToPillVariant,RecordingPlayer,StatusPill } from '@/components';
 import { formatPhone } from '@/utils/privacy';
@@ -49,8 +48,9 @@ export function CallList({ records, loading, expandedCall, setExpandedCall, onPh
               <div className="avatar green">{initials(call.consumer_name)}</div>
               <div>
                 <strong>{call.consumer_name}</strong>
-                <PhoneNumber phone={call.consumer_phone}><Phone size={11} /> {formatPhone(call.consumer_phone)}
-                </PhoneNumber>
+                <button className="phone-link" onClick={(event) => { event.stopPropagation(); onPhoneClick(call.consumer_name, call.consumer_phone); }}>
+                  <Phone size={11} /> {formatPhone(call.consumer_phone)}
+                </button>
                 <span className="card-address"> · {call.consumer_address || 'No address on file'}</span>
                 <span> · {fmtDateTime(call.created_at)}</span>
               </div>

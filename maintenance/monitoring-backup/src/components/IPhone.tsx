@@ -1,4 +1,3 @@
-import { PHONE_PREFILL_EVENT, type PrefillRequest } from '@/modules/phone/phone-prefill';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, PhoneOutgoing, PhoneIncoming, RotateCcw, X, Delete, Mic, MicOff, Volume2, VolumeX, Grid3X3, Pause, Play } from 'lucide-react';
 import { formatPhone } from '@/utils/privacy';
@@ -443,19 +442,6 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const myNumber = route?.zadarma_number || route?.talkroute_number;
   const active = callState !== 'idle';
   const showAudioBanner = audioStatus !== 'ok';
-  // Number entry only: never starts, accepts, reconnects, or ends a call.
-  useEffect(() => {
-    const handle = (event: Event) => {
-      const request = (event as CustomEvent<PrefillRequest>).detail;
-      if (!request || typeof request.respond !== 'function') return;
-      if (companionOnly) { request.respond('unavailable'); return; }
-      if (stateRef.current !== 'idle' || pendingCallRef.current) { request.respond('busy'); return; }
-      setDigits(request.phone); setOpen(true); setView('keypad'); request.respond('ready');
-    };
-    window.addEventListener(PHONE_PREFILL_EVENT, handle);
-    return () => window.removeEventListener(PHONE_PREFILL_EVENT, handle);
-  }, [companionOnly]);
-
   const frame = !companionOnly && <iframe key={`${sessionToken.slice(-8)}-${frameVersion}`} ref={frameRef} src="/phone.html?build=424" title="Zadarma call connection" allow="microphone; autoplay" className="ip17-engine" />;
 
   // Separate status indicators

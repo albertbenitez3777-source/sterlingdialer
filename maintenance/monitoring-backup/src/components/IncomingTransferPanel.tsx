@@ -1,4 +1,3 @@
-import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useEffect, useState } from 'react';
 import { Copy, Clock, ArrowDownRight, X, AlertTriangle, ChevronDown, ChevronUp, MapPin, DollarSign, Home, FileText } from 'lucide-react';
 import { RecordingPlayer } from './RecordingPlayer';
@@ -93,7 +92,7 @@ function TransferCard({ transfer, onDismiss, onExtraInfo, sessionToken, onUnauth
           <div className={`itp-pulse ${statusClass}`} />
           <div className="itp-card-title">
             <strong>{hasName ? transfer.consumer_name : 'Unknown Contact'}</strong>
-            <span className="itp-card-phone"><PhoneNumber phone={transfer.phone_normalized}>{fmtPhone(transfer.phone_normalized)}</PhoneNumber></span>
+            <span className="itp-card-phone">{fmtPhone(transfer.phone_normalized)}</span>
           </div>
         </div>
         <div className="itp-card-header-right">
