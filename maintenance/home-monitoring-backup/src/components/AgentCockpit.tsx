@@ -1,4 +1,3 @@
-import { TeamSnapshot } from '@/modules/monitoring/TeamSnapshot';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, FileText, Flame,
@@ -54,7 +53,6 @@ type V2Workspace = {
 };
 
 export interface AgentCockpitProps {
-  showTeamMonitor?: boolean;
   agentName: string;
   agentId?: string;
   available: boolean;
@@ -263,7 +261,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
 
   return (
     <div className="f1-command-center" role="region" aria-label="Federal One agent command center">
-      {props.showTeamMonitor && sessionToken ? <TeamSnapshot token={sessionToken} onOpen={()=>onNavTo('monitoring')}/> : <section className="f1-command-hero">
+      <section className="f1-command-hero">
         <div className="f1-command-copy">
           <span className="f1-overline"><Sparkles size={12} /> MY WORKSPACE</span>
           <h2>{greeting}, <em>{firstName}</em></h2>
@@ -273,7 +271,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
           <span />
           <div><small>WORK STATUS</small><strong>{togglingAvail ? 'Updating' : available ? 'Available' : 'Away'}</strong></div>
         </button>
-      </section>}
+      </section>
 
       <section className="f1-readiness-rail">
         <div className="f1-readiness-item"><span className="f1-readiness-icon"><Activity size={15} /></span><div><small>WORKSTATION</small><strong>Connected</strong></div></div>

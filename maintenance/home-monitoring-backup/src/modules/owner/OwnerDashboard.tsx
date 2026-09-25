@@ -1,4 +1,3 @@
-import { TeamSnapshot } from '@/modules/monitoring/TeamSnapshot';
 import { CINEMATIC_HERO,FEDERAL_ONE_V2_URL,fmtDuration,fmtTime,initials,PROVIDER_URL,SUPABASE_URL } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import { AdminSavedTransfersView } from "@/app/views/AdminSavedTransfersView";
@@ -45,7 +44,11 @@ return (<>
 {isOwner && activeNav === 'test' && <TestCallPanel sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />}
 {isOwner && activeNav === 'dashboard' && (
             <section className="f1-simple-home">
-              <TeamSnapshot token={sessionToken} onOpen={()=>setActiveNav('monitoring')}/>
+              <div className="f1-simple-welcome">
+                <span><Activity size={13} /> LIVE WORKSPACE</span>
+                <h1>Operations overview</h1>
+                <p>Start or stop calls, choose your speed, and check your team below.</p>
+              </div>
               <div className="f1-simple-actions">
                 <button onClick={() => setActiveNav('test')}><Phone size={25} /><span><strong>Test a Call</strong><small>Choose an agent and check a transfer</small></span><ChevronRight size={18} /></button>
                 <button className="extra-info-home-tile" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={25} /><span><strong>Extra Info</strong><small>Find more on a live call</small></span><ChevronRight size={18} /></button>

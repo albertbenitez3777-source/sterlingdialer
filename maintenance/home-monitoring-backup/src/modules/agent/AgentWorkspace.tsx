@@ -1,4 +1,3 @@
-import { canMonitor } from '@/modules/monitoring/api';
 import { CINEMATIC_HERO,FEDERAL_ONE_V2_URL,PROVIDER_URL,QueueRecord } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import { ContactsView } from "@/app/views/ContactsView";
@@ -107,7 +106,6 @@ return (<>
           )}
 {!isOwner && activeNav === 'dashboard' && (
             <AgentCockpit
-              showTeamMonitor={canMonitor(false, session?.agent)}
               agentName={session?.agent?.full_name ?? 'Agent'}
               agentId={session?.agent?.id}
               available={agentAvailable}

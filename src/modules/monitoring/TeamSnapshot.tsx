@@ -1,0 +1,16 @@
+import { useEffect, useState } from 'react';
+import { monitoringRequest, costaRicaDay } from './api';
+import './monitoring.css';
+type SnapshotAgent={id:string;full_name:string;presence:string;outbound_calls:number;callbacks_pending:number;logged_seconds:number};
+const colors=['#67b7ff','#c49aff','#ffbe67','#60dbc1','#fa91bc','#d6de76','#91a8ff'];
+export function TeamSnapshot({token,onOpen}:{token:string;onOpen:()=>void}) {
+ const [agents,setAgents]=useState<SnapshotAgent[]>([]);const [updated,setUpdated]=useState('');const [error,setError]=useState('');
+ useEffect(()=>{const controller=new AbortController();let pending=false;
+ const load=async()=>{if(pending)return;pending=true;try{const data=await monitoringRequest(token,{action:'report',day:costaRicaDay()},controller.signal);if(!controller.signal.aborted){setAgents(data.agents);setUpdated(data.server_now);setError('');}}catch{if(!controller.signal.aborted)setError('Team status is unavailable. Open Monitoring to try again.');}finally{pending=false;}};
+ void load();const timer=window.setInterval(()=>{if(!document.hidden)void load();},30000);return()=>{controller.abort();window.clearInterval(timer);};},[token]);
+ return <section className="f1-team-snapshot" aria-label="Quick team monitor"><header><div><small>TEAM AT A GLANCE</small><h2>Who’s here today?</h2><p>{updated?`${agents.filter(a=>a.presence!=='Not reporting').length} logged in · ${agents.length} agents`:'Checking your team…'}</p></div><button type="button" onClick={onOpen}>Open Monitoring →</button></header>
+ {error&&<p role="alert">{error} Previous numbers may be out of date.</p>}
+ <div className="f1-snapshot-grid">{agents.map((a,i)=>{const online=a.presence!=='Not reporting';return <button type="button" key={a.id} onClick={onOpen} style={{borderTopColor:colors[i%colors.length]}} aria-label={`Open monitoring for ${a.full_name}`}><strong className="f1-snapshot-name">{a.full_name}</strong><span className={`f1-login-status ${online?'online':'offline'}`}>{error?'Status unavailable':online?'● Logged in':'○ Not logged in'}</span>{online&&a.presence==='Away'&&<small>Away from desk</small>}<dl><div><dt>Calls made</dt><dd>{a.outbound_calls}</dd></div><div><dt>Still to call</dt><dd>{a.callbacks_pending}</dd></div></dl><small>{Math.floor(a.logged_seconds/3600)}h {Math.floor(a.logged_seconds%3600/60)}m logged in today</small></button>;})}</div>
+ <footer>“Still to call” means pending callbacks, not a daily quota. Status may take up to 90 seconds to update.{updated&&` Updated ${new Date(updated).toLocaleTimeString('en-US',{timeZone:'America/Costa_Rica',hour:'numeric',minute:'2-digit'})}.`}</footer>
+ </section>;
+}
