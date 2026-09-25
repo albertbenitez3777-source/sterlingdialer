@@ -256,7 +256,9 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           callRef.current = { number: dialedNumber, direction: 'outgoing', answered: false };
           setCallNumber(dialedNumber); setOpen(true); setView('keypad');
           unlockAudio();
-          command('answer');
+          // Delay auto-answer slightly so the SIP session fully establishes
+          // before the SDK processes the answer request.
+          setTimeout(() => command('answer'), 800);
           return;
         }
         setCallNumber(number); setCaller(name ? { name } : null); setOpen(true); setView('keypad');

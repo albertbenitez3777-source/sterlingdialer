@@ -334,10 +334,19 @@ function bindVoiceAgent(ua: VoiceAgent) {
   ua.on('registrationFailed', (event: { response?: { status_code?: number } }) => {
     if (!answering()) return;
     const code = event.response?.status_code;
-    // Preserve the provider's native answer flow. A REGISTER failure is not a
-    // session-ended event: another answer() rotates details and closes the UA
-    // while an incoming INVITE may still arrive on that same connection.
     const suffix = Number.isInteger(code) && code! >= 100 && code! <= 699 ? ' (SIP ' + code + ')' : '';
+    // Voice-agent registration failed. Try directly answering the existing
+    // JsSIP session (bypasses the new-UA registration entirely). If a session
+    // exists with an .answer() method, this sends the SIP 200 OK on the
+    // already-established transport instead of through the failed new UA.
+    const session = providerApi?.webCallSession;
+    if (session && typeof (session as any).answer === 'function') {
+      try {
+        (session as any).answer({ mediaConstraints: { audio: true, video: false } });
+        answerStage = 'direct session answer (registration bypass)';
+        return;
+      } catch {}
+    }
     pendingRegistrationFailure = 'Call did not connect [phone ' + PHONE_BUILD + ']: voice-line registration failed' + suffix + '. The phone will renew its connection after this attempt ends.';
     answerStage = 'waiting for provider call confirmation after registration response';
   });

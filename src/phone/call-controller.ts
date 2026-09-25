@@ -9,6 +9,7 @@ export interface PhoneSession {
   isEstablished(): boolean;
   sendDTMF(tone: string): void;
   terminate(): void;
+  answer?(options?: object): void;
   on(event: string, callback: (...args: any[]) => void): void;
   connection?: RTCPeerConnection;
 }
