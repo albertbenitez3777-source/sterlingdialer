@@ -24,14 +24,14 @@ export function AgentMonitoring({ token }: { token:string }) {
   {error && <p role="alert" className="f1-monitor-error">{error}. Displayed results may be stale. Calling is unaffected.</p>}
   {!report && !error && <p role="status">Loading monitoring records…</p>}
   {report && <>
-   <div className="f1-team-summary"><strong>{error?'Live status unknown':`${report.agents.filter(a=>a.presence!=='Not reporting').length} logged in`}</strong>{!error&&<span>{report.agents.filter(a=>a.presence==='Not reporting').length} not logged in</span>}<small>Updated {time(report.server_now)} · Costa Rica time</small></div>
+   <div className="f1-team-summary"><strong>{report.agents.filter(a=>a.presence!=='Not reporting').length} logged in</strong><span>{report.agents.filter(a=>a.presence==='Not reporting').length} not logged in</span><small>Updated {time(report.server_now)} · Costa Rica time</small></div>
    <p>Choose an agent to see their calls and time logged in.</p>
    <div className="f1-agent-cards">{report.agents.map((a,index)=>{
-    const online=!error && a.presence!=='Not reporting';
+    const online=a.presence!=='Not reporting';
     const color=agentColors[index%agentColors.length];
     return <button type="button" key={a.id} className={`f1-agent-card ${agent===a.id?'chosen':''}`} style={{borderTopColor:color}} onClick={()=>{setAgent(a.id);setOffset(0);}} aria-pressed={agent===a.id}>
      <div className="f1-agent-heading"><span className="f1-agent-avatar" style={{background:color,color:'#102132'}}>{a.full_name.split(' ').map(n=>n[0]).slice(0,2).join('')}</span><strong>{a.full_name}</strong></div>
-     <span className={`f1-login-status ${online?'online':'offline'}`}>{error?'Status unknown':online?'● Logged in':'○ Not logged in'}{a.presence==='Away'?' · Away from desk':''}</span>
+     <span className={`f1-login-status ${online?'online':'offline'}`}>{online?'● Logged in':'○ Not logged in'}{a.presence==='Away'?' · Away from desk':''}</span>
      <small>{online?`Logged in since ${time(a.current_since)}`:a.last_seen_at?`Last seen ${time(a.last_seen_at)}`:'No login recorded yet'}</small>
      <div className="f1-agent-hours"><strong>{duration(a.logged_seconds)}</strong><span>Time logged in on selected day · recorded</span><small>Current login: {online?duration(a.current_login_seconds):'Not logged in'}<br/>Week through selected day: {a.week_logged_seconds?duration(a.week_logged_seconds):'Not tracked yet'}</small></div>
      <dl><div><dt>Calls made from phone</dt><dd>{a.outbound_calls}</dd></div><div><dt>Incoming calls answered</dt><dd>{a.inbound_answered+a.transfers_answered}</dd></div><div><dt>Transfers sent</dt><dd>{a.transfers_sent}</dd></div><div><dt>Transfers reached phone</dt><dd>{a.transfers_received}</dd></div><div><dt>Transfers answered</dt><dd>{a.transfers_answered}</dd></div><div><dt>Transfers needing a callback</dt><dd>{a.transfers_pending_callback}</dd></div></dl>
