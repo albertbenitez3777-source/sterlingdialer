@@ -1,14 +1,13 @@
-import { adminSection } from '@/modules/owner/admin-sections';
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import {
 FileText
 } from 'lucide-react';
 
-export function StatusBar({ model }: { model: Pick<ApplicationModel, "isOwner" | "navItems" | "activeNav" | "setExtraInfoPrefill" | "setActiveNav" | "adminStats" | "etClock" > }) {
-const { isOwner, navItems, activeNav, setExtraInfoPrefill, setActiveNav, adminStats, etClock } = model;
+export function StatusBar({ model }: { model: Pick<ApplicationModel, "navItems" | "activeNav" | "setExtraInfoPrefill" | "setActiveNav" | "adminStats" | "etClock" > }) {
+const { navItems, activeNav, setExtraInfoPrefill, setActiveNav, adminStats, etClock } = model;
 return (<>
 <div className="topbar f1-status-strip">
-          <div className="breadcrumbs"><strong>{isOwner ? adminSection(activeNav)?.label : navItems.find(n => n.id === activeNav)?.label}</strong></div>
+          <div className="breadcrumbs"><strong>{navItems.find(n => n.id === activeNav)?.label}</strong></div>
           <div className="top-actions">
             <button className="f1-extra-info-quick" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={14} /> Extra Info</button>
             {adminStats && (
@@ -22,6 +21,5 @@ return (<>
             </div>
           </div>
         </div>
-{isOwner && <p className="admin-section-help">{adminSection(activeNav)?.hint}</p>}
 </>);
 }

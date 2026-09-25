@@ -1,4 +1,3 @@
-import { AdminQuickLinks } from './AdminQuickLinks';
 import { TeamSnapshot } from '@/modules/monitoring/TeamSnapshot';
 import { CINEMATIC_HERO,FEDERAL_ONE_V2_URL,fmtDuration,fmtTime,initials,PROVIDER_URL,SUPABASE_URL } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
@@ -33,9 +32,9 @@ X,Zap
 export function OwnerDashboard({ model }: { model: Pick<ApplicationModel, "loadAdminStats" | "isOwner" | "adminStats" | "dialerLines" | "savingSpeed" | "togglingAgent" | "startingCampaign" | "stoppingCampaign" | "notice" | "speedNotice" | "handleDialerLines" | "toggleAgent" | "startCampaign" | "stopCampaign" | "activeNav" | "sessionToken" | "atomicLogout" | "setActiveNav" | "setExtraInfoPrefill" | "canControl" | "teamHealth" | "dashTab" | "setDashTab" | "transferProof" | "setTransferProofLoading" | "handleLogout" | "setTransferProof" | "perfView" | "setPerfView" | "displayPhone" | "togglePhoneReveal" | "rosterAttendance" | "rosterTimezone" | "revealedPhones" | "setConcurrency" | "settingConcurrency" | "liveActivity" | "redialProgresses" | "setRedialProgresses" | "removeRedialFromStorage" | "redialStats" | "redialStatsFilter" | "setRedialStatsFilter" | "redialTimeframe" | "setRedialTimeframe" | "redialingAgent" | "redialingHumans" | "redialSourceAgent" | "setRedialSourceAgent" | "dataHealth" | "openRedialModal" | "transferProofLoading" | "callLimit" | "setCallLimit" | "minuteCap" | "setMinuteCap" | "saveMinuteCap" | "savingCap" | "contactSearch" | "expandedContact" | "setExpandedContact" | "setPhoneAction" | "leadPool" | "handleUploadLeads" | "fileInputRef" | "importing" | "expandedCall" | "setExpandedCall" | "savedTransfers" | "allSavedTransfers" | "loadingAllSaved" | "loadAllSavedTransfers" | "allSavedTransfersError" > }) {
 const { loadAdminStats,isOwner, adminStats, dialerLines, savingSpeed, togglingAgent, startingCampaign, stoppingCampaign, notice, speedNotice, handleDialerLines, toggleAgent, startCampaign, stopCampaign, activeNav, sessionToken, atomicLogout, setActiveNav, setExtraInfoPrefill, canControl, teamHealth, dashTab, setDashTab, transferProof, setTransferProofLoading, handleLogout, setTransferProof, perfView, setPerfView, displayPhone, togglePhoneReveal, rosterAttendance, rosterTimezone, revealedPhones, setConcurrency, settingConcurrency, liveActivity, redialProgresses, setRedialProgresses, removeRedialFromStorage, redialStats, redialStatsFilter, setRedialStatsFilter, redialTimeframe, setRedialTimeframe, redialingAgent, redialingHumans, redialSourceAgent, setRedialSourceAgent, dataHealth, openRedialModal, transferProofLoading, callLimit, setCallLimit, minuteCap, setMinuteCap, saveMinuteCap, savingCap, contactSearch, expandedContact, setExpandedContact, setPhoneAction, leadPool, handleUploadLeads, fileInputRef, importing, expandedCall, setExpandedCall, savedTransfers, allSavedTransfers, loadingAllSaved, loadAllSavedTransfers, allSavedTransfersError } = model;
 return (<>
-{isOwner && ['dashboard','system'].includes(activeNav) && !adminStats && <section className="f1-dialer-controls" aria-label="Dialer controls loading"><header><div><h2>Call controls</h2><p role="status">{dataHealth.status==='degraded'?'Call controls could not load. Your login is still open.':'Loading dialer status and agent switches…'}</p></div><button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Retry loading controls</button></header><p>James Spencer · Erick Jackson · Mark Carlson</p><p>Start / Stop Dialer, agent On / Off switches, and line speed appear here after the current settings are verified.</p></section>}
+{isOwner && !adminStats && <section className="f1-dialer-controls" aria-label="Dialer controls loading"><header><div><h2>Call controls</h2><p role="status">{dataHealth.status==='degraded'?'Call controls could not load. Your login is still open.':'Loading dialer status and agent switches…'}</p></div><button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Retry loading controls</button></header><p>James Spencer · Erick Jackson · Mark Carlson</p><p>Start / Stop Dialer, agent On / Off switches, and line speed appear here after the current settings are verified.</p></section>}
 
-{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
+{isOwner && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
             running={adminStats.summary.campaign_state === 'running'} saving={savingSpeed} changingAgent={togglingAgent}
             starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
             onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
@@ -49,7 +48,14 @@ return (<>
 {isOwner && activeNav === 'dashboard' && (
             <section className="f1-simple-home">
               <TeamSnapshot token={sessionToken} onOpen={()=>setActiveNav('monitoring')}/>
-              <AdminQuickLinks onOpen={setActiveNav}/>
+              <div className="f1-simple-actions">
+                <button onClick={() => setActiveNav('test')}><Phone size={25} /><span><strong>Test a Call</strong><small>Choose an agent and check a transfer</small></span><ChevronRight size={18} /></button>
+                <button className="extra-info-home-tile" onClick={() => { setExtraInfoPrefill(null); setActiveNav('extra'); }}><FileText size={25} /><span><strong>Extra Info</strong><small>Find more on a live call</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('contacts')}><Search size={25} /><span><strong>Find a Client</strong><small>Name, phone, email, address, and more</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('calls')}><Phone size={25} /><span><strong>See Calls</strong><small>Live calls, results, recordings, and notes</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('opportunities')}><Users size={25} /><span><strong>Call Backs</strong><small>People who need attention</small></span><ChevronRight size={18} /></button>
+                <button onClick={() => setActiveNav('system')}><Settings size={25} /><span><strong>Settings & Team</strong><small>Dialer, team, routes, and settings</small></span><ChevronRight size={18} /></button>
+              </div>
               <div className="f1-simple-live">
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
                 <div><small>DIALER</small><strong>{!adminStats ? 'Loading status…' : adminStats.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
@@ -59,7 +65,7 @@ return (<>
               </div>
             </section>
           )}
-{isOwner && activeNav === 'system' && teamHealth && (
+{isOwner && ['dashboard', 'system'].includes(activeNav) && teamHealth && (
             <section className="f1-team-health" aria-label="System and team health">
               <div className="f1-health-service"><span className="ok" /><div><small>DATABASE</small><strong>Online</strong></div></div>
               <div className="f1-health-service"><span className={teamHealth.services.bland_api_key ? 'ok' : 'bad'} /><div><small>BLAND.AI</small><strong>{teamHealth.services.bland_api_key ? 'Connected' : 'Needs key'}</strong></div></div>
@@ -70,15 +76,15 @@ return (<>
               </div>)}
             </section>
           )}
-{isOwner && activeNav === 'system' && !adminStats && (
+{isOwner && ['dashboard', 'system'].includes(activeNav) && !adminStats && (
             <div className="stats-grid">
               <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
             </div>
           )}
-{isOwner && activeNav === 'system' && dashTab === 'overview' && (
+{isOwner && ['dashboard', 'system'].includes(activeNav) && dashTab === 'overview' && (
             <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
           )}
-{isOwner && activeNav === 'system' && adminStats && (
+{isOwner && ['dashboard', 'system'].includes(activeNav) && adminStats && (
             <>
               <details className="f1-all-metrics"><summary>All reported dialer statistics</summary><p>Reported values from the current statistics service. Missing billing amounts are not treated as zero.</p><ReportedMetrics value={adminStats} /></details>
               {/* Compact campaign status card */}
@@ -984,12 +990,12 @@ return (<>
           )}
 {isOwner && activeNav === 'leads' && (
             <>
-              <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="LEAD MANAGEMENT" title="Upload Leads" subtitle="Upload a CSV file with NAME and PHONE columns. Accepted leads follow the current dialing and retry rules." />
+              <SectionHero image={CINEMATIC_HERO.commandCenter} eyebrow="LEAD MANAGEMENT" title="Upload Leads" subtitle="Upload a CSV file with NAME and PHONE columns. Each number will be dialed exactly once." />
               <div className="hero-row">
                 <div>
                   <div className="eyebrow"><Upload size={12} /> LEAD MANAGEMENT</div>
                   <h2>Upload Leads</h2>
-                  <p>Upload a CSV file with NAME and PHONE columns. Accepted leads follow the current dialing and retry rules.</p>
+                  <p>Upload a CSV file with NAME and PHONE columns. Each number will be dialed exactly once.</p>
                 </div>
               </div>
 

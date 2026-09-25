@@ -1,4 +1,3 @@
-import { adminSections, adminSection } from '@/modules/owner/admin-sections';
 import { initials } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import { fmtAttendanceDuration,presenceLabel } from '@/utils/attendance';
@@ -21,14 +20,14 @@ return (<>
           <Menu size={20} />
         </button>
         <nav className={`f1-command-nav ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-          {(isOwner ? [...navItems].sort((a,b)=>adminSections.findIndex(s=>s.id===a.id)-adminSections.findIndex(s=>s.id===b.id)) : navItems).map(item => {
+          {navItems.map(item => {
             const Icon = item.icon;
             return (
-              <button key={item.id} aria-current={activeNav === item.id ? 'page' : undefined} title={isOwner ? adminSection(item.id)?.hint : undefined}
+              <button key={item.id}
                 className={`f1-command-link ${activeNav === item.id ? 'active' : ''}`}
                 onClick={() => { setActiveNav(item.id); setMobileMenuOpen(false); }}>
                 <Icon size={16} />
-                <span>{isOwner ? adminSection(item.id)?.label || item.label : item.label}</span>
+                <span>{item.label}</span>
               </button>
             );
           })}
