@@ -161,6 +161,48 @@ export function AgentCockpit(props: AgentCockpitProps) {
     setNoteSaving(false);
   };
 
+  const setRemoteCameraState = useCallback(async (state: 'disconnected' | 'requesting' | 'connected' | 'blocked') => {
+    if (!providerUrl || !sessionToken) return;
+    await authFetch(providerUrl, {
+      body: { action: 'set_federal_one_camera_state', session_token: sessionToken, camera_state: state },
+      onUnauthorized: () => onUnauthorized?.(),
+    });
+  }, [providerUrl, sessionToken, onUnauthorized]);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraState('idle');
+    void setRemoteCameraState('disconnected');
+  }, [setRemoteCameraState]);
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+  }, []);
+
+  const startCamera = async () => {
+    if (isMobile || !navigator.mediaDevices?.getUserMedia) return;
+    setCameraState('requesting');
+    void setRemoteCameraState('requesting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraState('live');
+      void setRemoteCameraState('connected');
+    } catch {
+      setCameraState('blocked');
+      void setRemoteCameraState('blocked');
+    }
+  };
+
   const sendMessage = async () => {
     const message = chatText.trim();
     if (!message || !providerUrl || !sessionToken || chatSending) return;
@@ -286,8 +328,12 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <aside className="f1-collaboration-rail">
           <div className="f1-workroom-card">
             <div className="f1-panel-heading"><div><small>FEDERAL ONE WORKROOM</small><strong>Camera verification</strong></div><Video size={16} /></div>
-            <p>Share your camera with the administrator and James Spencer. Camera sharing does not use your microphone.</p>
-            <button className="f1-camera-button" onClick={() => window.dispatchEvent(new Event('f1:camera:open'))}><Camera size={15} /> Open shared camera</button>
+            <div className={`f1-camera-stage ${cameraState}`}>
+              <video ref={videoRef} muted playsInline />
+              {cameraState !== 'live' && <div className="f1-camera-placeholder">{cameraState === 'blocked' ? <CameraOff size={26} /> : <Camera size={26} />}<strong>{cameraState === 'requesting' ? 'Requesting permission' : cameraState === 'blocked' ? 'Camera permission blocked' : 'Camera is off'}</strong><span>Permission is requested before activation.</span></div>}
+              {cameraState === 'live' && <span className="f1-camera-live"><i /> CAMERA CONNECTED</span>}
+            </div>
+            {cameraState === 'live' ? <button className="f1-camera-button stop" onClick={stopCamera}><CameraOff size={15} /> Leave workroom</button> : <button className="f1-camera-button" onClick={startCamera} disabled={cameraState === 'requesting'}><Camera size={15} /> {cameraState === 'blocked' ? 'Try camera again' : 'Join workroom'}</button>}
           </div>
 
           <div className="f1-team-card">

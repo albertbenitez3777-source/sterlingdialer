@@ -20,9 +20,9 @@ interface AgentCam {
   connected_at?: string | null;
 }
 
-const FRAME_INTERVAL = 5000;
-const POLL_INTERVAL = 5000;
-const STALE_THRESHOLD = 30_000;
+const FRAME_INTERVAL = 3000;
+const POLL_INTERVAL = 3000;
+const STALE_THRESHOLD = 12_000;
 
 function captureFrame(video: HTMLVideoElement): string | null {
   if (!video.videoWidth) return null;
@@ -75,8 +75,6 @@ function ConnectionTimer({ since }: { since: string }) {
 export default function CameraWidget({ isOwner, agentId, agentName, sessionToken, providerUrl }: Props) {
   const [cam, setCam] = useState<CamState>('prompt');
   const [minimized, setMinimized] = useState(isOwner);
-  const [cameraError, setCameraError] = useState('');
-  const reporting = useRef(false);
   const [agents, setAgents] = useState<AgentCam[]>([]);
   const [connectedSince, setConnectedSince] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,21 +86,14 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
     if (el && streamRef.current) el.srcObject = streamRef.current;
   }, []);
 
-  useEffect(() => { attachStream(videoRef.current); }, [cam, minimized, attachStream]);
-  useEffect(() => { const open = () => setMinimized(false); window.addEventListener('f1:camera:open', open); return () => window.removeEventListener('f1:camera:open', open); }, []);
+  useEffect(() => { attachStream(videoRef.current); }, [cam, attachStream]);
 
   const report = useCallback(async (on: boolean, frame?: string | null) => {
-    if (reporting.current) return;
-    reporting.current = true;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
     try {
       const payload: Record<string, unknown> = { action: 'camera_status', session_token: sessionToken, camera_on: on };
       if (frame) payload.frame = frame;
-      const res = await fetch(providerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
-      if (!res.ok) throw new Error('Camera service unavailable');
-      setCameraError('');
-    } catch { setCameraError('Camera sharing is reconnecting. Your local preview does not confirm delivery.'); } finally { reporting.current = false; clearTimeout(timer); }
+      await fetch(providerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    } catch { /* best-effort */ }
   }, [providerUrl, sessionToken]);
 
   useEffect(() => {
@@ -156,21 +147,15 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
   useEffect(() => {
     if (!isOwner) return;
     let alive = true;
-    let pending = false;
     const load = async () => {
-      if (pending) return;
-      pending = true;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
       try {
         const res = await fetch(providerUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get_camera_statuses', session_token: sessionToken, include_frames: true }), signal: controller.signal,
+          body: JSON.stringify({ action: 'get_camera_statuses', session_token: sessionToken, include_frames: true }),
         });
-        if (!res.ok) throw new Error('Camera service unavailable');
         const data = await res.json();
-        if (alive && data.cameras) { setAgents(data.cameras); setCameraError(''); }
-      } catch { if (alive) setCameraError('Team cameras unavailable. Reconnecting…'); } finally { pending = false; clearTimeout(timer); }
+        if (alive && data.cameras) setAgents(data.cameras);
+      } catch { /* silent */ }
     };
     load();
     const iv = setInterval(load, POLL_INTERVAL);
@@ -182,10 +167,10 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
   // ── Minimized ──
   if (minimized) {
     return (
-      <><video ref={videoRef} autoPlay muted playsInline style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} /><button className="cam-minimized" onClick={() => setMinimized(false)} title="Show camera">
+      <button className="cam-minimized" onClick={() => setMinimized(false)} title="Show camera">
         <Camera size={16} /><span>Cameras</span>
         {isOwner && <span className="cam-minimized-count">{agents.filter(isAgentLive).length}</span>}
-      </button></>
+      </button>
     );
   }
 
@@ -209,7 +194,7 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
         ) : (
           <button className="cam-tile-connect" onClick={connect}>
             <Camera size={28} />
-            <span>Share camera with admin and James</span>
+            <span>Connect Camera</span>
           </button>
         )}
       </div>
@@ -232,7 +217,7 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
       <div className="cam-admin-panel">
         <div className="cam-admin-hdr">
           <Users size={16} />
-          <h3>Team Cameras</h3>{cameraError && <span role="alert">{cameraError}</span>}
+          <h3>Team Cameras</h3>
           <span className="cam-admin-online">{liveCount} online</span>
           <button onClick={() => setMinimized(true)} title="Minimize"><Minimize2 size={14} /></button>
         </div>
@@ -286,7 +271,7 @@ export default function CameraWidget({ isOwner, agentId, agentName, sessionToken
           ) : (
             <button className="cam-tile-connect" onClick={connect}>
               <Camera size={28} />
-              <span>Share camera with admin and James</span>
+              <span>Connect Camera</span>
             </button>
           )}
         </div>
