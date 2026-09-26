@@ -59,3 +59,40 @@ it('rejects incomplete PINs locally and logs out even if the server is unavailab
   await act(async () => { await current.handleLogout(); });
   expect(onLogout).toHaveBeenCalledTimes(1);
 });
+
+it.each(['owner', 'supervisor', 'agent'])('does not restore again on reconnect after %s login succeeds', async (role) => {
+  saved.set('sterling_session_token', 'synthetic-saved-session');
+  let reconnect: (() => void) | undefined;
+  vi.mocked(window.addEventListener).mockImplementation((event, listener) => { if (event === 'online') reconnect = listener as () => void; });
+  const request = vi.spyOn(shared, 'fetchWithRetry').mockResolvedValue(response({ valid: true, agent: { id: 'test-agent', role, available_for_transfer: true } }));
+  await act(async () => { root = create(<Harness />); });
+  await act(async () => { reconnect?.(); });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(current.session?.agent.role).toBe(role);
+});
+
+it('clears the local workspace before a stalled remote logout completes', async () => {
+  vi.spyOn(shared, 'fetchWithRetry').mockImplementation(async (_url, body) => {
+    if (body.action === 'logout') return new Promise(() => {});
+    return response({ needs_setup: false });
+  });
+  await act(async () => { root = create(<Harness />); });
+  act(() => { void current.handleLogout(); });
+  expect(onLogout).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the login deadline active while receiving the response body', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('fetch', vi.fn(async (_url, options: RequestInit) => ({
+    status: 200,
+    arrayBuffer: () => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')));
+    }),
+  })));
+  try {
+    const request = shared.fetchWithRetry('https://example.invalid/auth', { action: 'verify' }, 1, 100);
+    const failed = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(101);
+    await failed;
+  } finally { vi.useRealTimers(); }
+});

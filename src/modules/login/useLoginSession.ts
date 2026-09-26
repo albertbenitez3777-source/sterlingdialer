@@ -32,9 +32,10 @@ useEffect(() => {
     if (!token) return;
     let cancelled = false;
     let pending = false;
+    let settled = false;
     let failures = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const stillCurrent = () => !cancelled && !loginInFlight.current
+    const stillCurrent = () => !cancelled && !settled && !loginInFlight.current
       && localStorage.getItem('sterling_session_token') === token;
     const restore = async () => {
       if (pending || !stillCurrent()) return;
@@ -47,6 +48,8 @@ useEffect(() => {
         const data = await response.json();
         if (!stillCurrent()) return;
         if (data.valid === true && data.agent) {
+          settled = true;
+          window.removeEventListener('online', reconnect);
           setSession(data);
           setSessionToken(token);
           setAgentAvailable(!!data.agent.available_for_transfer);
@@ -56,6 +59,8 @@ useEffect(() => {
             setShowOfflineModal(true);
           }
         } else if (data.valid === false) {
+          settled = true;
+          window.removeEventListener('online', reconnect);
           localStorage.removeItem('sterling_session_token');
           setLoginError('Session expired. Enter your PIN to sign in.');
         } else {
@@ -136,23 +141,20 @@ const handleLogin = async (completedPin = pin) => {
     finally { loginInFlight.current = false; setLoggingIn(false); }
   };
 const handleLogout = async () => {
-    try {
-      await fetch(AUTH_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'logout', session_token: sessionToken }),
-      });
-    } catch { /* ignore */ }
+    // Clear this device immediately; a stalled revocation must not trap it in
+    // the workspace. Revoke only the captured session, never a later login.
+    const logoutToken = sessionToken;
     atomicLogout();
+    try {
+      await fetchWithRetry(AUTH_URL, { action: 'logout', session_token: logoutToken }, 1, 5000);
+    } catch { /* Local logout succeeded; remote revocation may be unavailable. */ }
   };
 const handleOwnerSetup = async () => {
     if (setupPin !== setupConfirm) { setSetupError('PINs do not match'); return; }
     if (!/^\d{4}$/.test(setupPin)) { setSetupError('PIN must be 4 digits'); return; }
     setSettingUp(true); setSetupError('');
     try {
-      const res = await fetch(AUTH_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'owner_setup', pin: setupPin }),
-      });
+      const res = await fetchWithRetry(AUTH_URL, { action: 'owner_setup', pin: setupPin }, 1, AUTH_TIMEOUT_MS);
       const data = await res.json();
       if (data.success) { setOwnerNeedsSetup(false); setSetupPin(''); setSetupConfirm(''); }
       else { setSetupError(data.error || 'Setup failed'); }

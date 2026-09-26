@@ -245,12 +245,18 @@ export async function fetchWithRetry(url: string, body: Record<string, unknown>,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      // Keep the deadline active until the body is fully received. Headers alone
+      // do not mean a login response is complete.
+      const payload = await res.arrayBuffer();
+      if (controller.signal.aborted) throw new DOMException('Request timed out', 'AbortError');
       clearTimeout(timeout);
       if ([502, 503, 504].includes(res.status) && attempt < attempts - 1) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         continue;
       }
-      return res;
+      return new Response([204, 205, 304].includes(res.status) ? null : payload, {
+        status: res.status, statusText: res.statusText, headers: res.headers,
+      });
     } catch (err) {
       clearTimeout(timeout);
       const isLast = attempt === attempts - 1;
