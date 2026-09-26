@@ -1,3 +1,5 @@
+import { startSerialPoll } from '@/utils/serial-poll';
+import { refreshWorkspace, workspaceReads } from '@/utils/workspace-refresh';
 import { canMonitor } from '@/modules/monitoring/api';
 import { AdminStats,ContactResult,DataHealth,DIALER_CONTROLS_URL,FEDERAL_ONE_V2_URL,getETTime,LeadPool,PROVIDER_URL,providerFetch,QueueRecord,RosterAttendanceRow,SavedTransfer,SecretaryCall,TeamHealth } from "@/app/shared";
 import { type ActiveTransfer,type RedialPreview,type TransferAlert } from '@/components';
@@ -267,9 +269,7 @@ const [liveActivity, setLiveActivity] = useState<{
 
 const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-const ownerPollingRef = useRef(false);
 
-const agentPollingRef = useRef(false);
 
 useHeartbeat({
     providerUrl: PROVIDER_URL,
@@ -287,14 +287,16 @@ useHeartbeat({
 
 const rosterPollingRef = useRef(false);
 
-const loadRosterAttendance = useCallback(async (token: string) => {
+const loadRosterAttendance = useCallback(async (token: string, signal?: AbortSignal) => {
     if (rosterPollingRef.current) return;
     rosterPollingRef.current = true;
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_roster_attendance', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const raw = (result.data as Record<string, unknown>).roster_attendance as Record<string, unknown> | undefined;
         if (raw?.roster) {
@@ -302,7 +304,8 @@ const loadRosterAttendance = useCallback(async (token: string) => {
           if (raw.timezone) setRosterTimezone(raw.timezone as string);
         }
       }
-    } catch { /* authFetch handles 401 */ }
+      return result.ok;
+    } catch { return false; }
     finally { rosterPollingRef.current = false; }
   }, []);
 
@@ -344,8 +347,6 @@ const atomicLogout = useCallback(() => {
     setPhoneAction(null);
     setExpandedCall(null);
     setExpandedContact(null);
-    ownerPollingRef.current = false;
-    agentPollingRef.current = false;
     // activeNav preserved as safe return destination
   }, []);
 
@@ -393,13 +394,20 @@ useEffect(() => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, sessionToken]);
 
-const loadAdminStats = useCallback(async (token: string) => {
+const adminRequestRef = useRef<{token: string; signal?: AbortSignal} | null>(null);
+const loadAdminStats = useCallback(async (token: string, signal?: AbortSignal) => {
+    const pending = adminRequestRef.current;
+    if (pending?.token === token && !pending.signal?.aborted) return false;
+    const request = { token, signal };
+    adminRequestRef.current = request;
     setLoadingAdmin(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_admin_stats', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const raw = ((result.data as Record<string, unknown>).admin_stats || result.data) as Record<string, unknown>;
         const summary = { ...(raw.summary as Record<string, unknown>) };
@@ -422,30 +430,41 @@ const loadAdminStats = useCallback(async (token: string) => {
         const conc = loadedSummary?.concurrency as number | undefined;
         if (conc && conc > 0) setDialerLines(conc);
         setDataHealth({ status: 'healthy', lastSuccess: Date.now(), failedAction: null, failedMessage: null });
-        const healthResult = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
-          body: { action: 'get_team_status', session_token: token },
-          onUnauthorized: () => atomicLogoutRef.current?.(),
-        });
-        if (healthResult.ok && healthResult.data) setTeamHealth(healthResult.data);
+
       } else {
         const msg = result.error || `HTTP ${result.status}`;
         if (!result.loggedOut) {
           setDataHealth(h => ({ status: 'degraded', lastSuccess: h.lastSuccess, failedAction: 'get_admin_stats', failedMessage: msg }));
         }
       }
+      return result.ok;
     } catch {
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       setDataHealth(h => ({ status: 'degraded', lastSuccess: h.lastSuccess, failedAction: 'get_admin_stats', failedMessage: 'Unexpected error' }));
+      return false;
     }
-    finally { setLoadingAdmin(false); }
+    finally { if (adminRequestRef.current === request) { adminRequestRef.current = null; setLoadingAdmin(false); } }
   }, []);
 
-const loadQueues = useCallback(async (token: string) => {
+const loadTeamHealth = useCallback(async (token: string, signal?: AbortSignal) => {
+    const result = await authFetch<TeamHealth>(FEDERAL_ONE_V2_URL, {
+      body: { action: 'get_team_status', session_token: token }, signal,
+      onUnauthorized: () => atomicLogoutRef.current?.(),
+    });
+    if (signal?.aborted || sessionTokenRef.current !== token) return false;
+    if (result.ok && result.data) setTeamHealth(result.data);
+    return result.ok;
+  }, []);
+
+const loadQueues = useCallback(async (token: string, signal?: AbortSignal) => {
     setLoadingQueues(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_agent_queues', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const raw = result.data as Record<string, unknown>;
         const q = (raw.queues || raw) as Record<string, unknown>;
@@ -463,21 +482,25 @@ const loadQueues = useCallback(async (token: string) => {
       } else if (!result.loggedOut) {
         setDataHealth(h => ({ status: 'degraded', lastSuccess: h.lastSuccess, failedAction: 'get_agent_queues', failedMessage: result.error || 'Agent statistics could not refresh.' }));
       }
-    } catch { /* authFetch handles 401 internally */ }
+      return result.ok;
+    } catch { return false; }
     finally { setLoadingQueues(false); }
   }, []);
 
-const loadSecretaryCalls = useCallback(async (token: string) => {
+const loadSecretaryCalls = useCallback(async (token: string, signal?: AbortSignal) => {
     setLoadingSecretary(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_secretary_calls', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         setSecretaryCalls(((result.data as Record<string, unknown>).secretary_calls || []) as SecretaryCall[]);
       }
-    } catch { /* authFetch handles 401 internally */ }
+      return result.ok;
+    } catch { return false; }
     finally { setLoadingSecretary(false); }
   }, []);
 
@@ -505,57 +528,51 @@ const placeQuickSecretaryCall = async (name: string, phone: string) => {
     }
   };
 
-const loadLeadPool = useCallback(async (token: string) => {
+const loadLeadPool = useCallback(async (token: string, signal?: AbortSignal) => {
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_lead_pool_stats', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const pool = (result.data as Record<string, unknown>).lead_pool || result.data;
         setLeadPool(pool as LeadPool);
       }
-    } catch { /* authFetch handles 401 internally */ }
+      return result.ok;
+    } catch { return false; }
   }, []);
 
-const loadRedialStats = useCallback(async (token: string) => {
+const loadRedialStats = useCallback(async (token: string, signal?: AbortSignal) => {
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'redial_stats', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const d = result.data as Record<string, unknown>;
         if (d.success) setRedialStats({ batches: (d.batches || []) as RedialBatchStat[], overall: d.overall as RedialOverall, agents_daily: (d.agents_daily || []) as RedialAgentDaily[], today: d.today as RedialTodaySummary });
       }
-    } catch { /* authFetch handles 401 internally */ }
+      return result.ok;
+    } catch { return false; }
   }, []);
 
-const loadLiveActivity = useCallback(async (token: string) => {
+const loadLiveActivity = useCallback(async (token: string, signal?: AbortSignal) => {
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_dialer_activity', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         setLiveActivity(((result.data as Record<string, unknown>).activity || null) as typeof liveActivity);
       }
-    } catch { /* authFetch handles 401 internally — health tracked by loadAdminStats */ }
-  }, []);
-
-const dialerHealthCheck = useCallback(() => {
-    if (!sessionTokenRef.current) return;
-    const stats = adminStatsRef.current;
-    if (!stats) return;
-    const campaignState = stats.summary?.campaign_state;
-    if (campaignState !== 'running') return;
-    const activity = liveActivityRef.current;
-    const recentCalls = activity?.recent_50 || [];
-    const hasRecent = recentCalls.some(c => c.seconds_ago < 90);
-    const hasPending = (activity?.outcome_breakdown?.pending ?? 0) > 0;
-    if (!hasRecent && !hasPending) {
-      console.warn('[dialer-health] Campaign is running but no recent calls detected. The dialer loop may need manual restart.');
-    }
+      return result.ok;
+    } catch { return false; }
   }, []);
 
 const adminStatsRef = useRef<AdminStats | null>(null);
@@ -566,62 +583,6 @@ const liveActivityRef = useRef(liveActivity);
 
 liveActivityRef.current = liveActivity;
 
-useEffect(() => {
-    if (!session?.valid || !sessionToken) return;
-    const role = session.agent?.role;
-    const token = sessionToken;
-
-    if (role === 'owner' || role === 'administrator') {
-      let mounted = true;
-      const tick = async () => {
-        if (!mounted || ownerPollingRef.current) return;
-        ownerPollingRef.current = true;
-        try {
-          // Load the screen's essential data first so the dashboard becomes usable
-          // before slower secondary reports finish.
-          await loadAdminStats(token);
-          if (!mounted) return;
-          await Promise.allSettled([
-            loadLeadPool(token),
-            loadLiveActivity(token),
-            loadRedialStats(token),
-            loadRosterAttendance(token),
-          ]);
-        } finally {
-          if (mounted) {
-            ownerPollingRef.current = false;
-            dialerHealthCheck();
-          }
-        }
-      };
-      tick();
-      const interval = setInterval(tick, 30000);
-      return () => { mounted = false; clearInterval(interval); };
-    } else {
-      let mounted = true;
-      const tick = async () => {
-        if (!mounted || agentPollingRef.current) return;
-        agentPollingRef.current = true;
-        try {
-          // Show the agent's call workspace first; refresh secondary panels after it.
-          await loadQueues(token);
-          if (!mounted) return;
-          await Promise.allSettled([
-            loadSecretaryCalls(token),
-            loadSavedTransfers(token),
-            loadActiveTransfers(token),
-            loadTransferAlerts(token),
-          ]);
-        } finally {
-          if (mounted) agentPollingRef.current = false;
-        }
-      };
-      tick();
-      const interval = setInterval(tick, 30000);
-      return () => { mounted = false; clearInterval(interval); };
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, sessionToken, loadAdminStats, loadQueues, loadLeadPool, loadLiveActivity, loadRedialStats, loadRosterAttendance, dialerHealthCheck]);
 
 const handleAgentRedial = async () => {
     if (selectedRedialIds.size === 0) return;
@@ -712,17 +673,20 @@ const handleSaveTransfer = async (callId: string) => {
     }
   };
 
-const loadTransferAlerts = useCallback(async (token: string) => {
+const loadTransferAlerts = useCallback(async (token: string, signal?: AbortSignal) => {
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_agent_alerts', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         const d = result.data as Record<string, unknown>;
         setTransferAlerts(((d.alerts || []) as TransferAlert[]));
       }
-    } catch { /* handled */ }
+      return result.ok;
+    } catch { return false; }
   }, []);
 
 const handleAlertAcknowledge = useCallback(async (alertId: string, outcome: string, notes: string): Promise<boolean> => {
@@ -747,37 +711,76 @@ const handleAlertDismiss = useCallback((alertId: string) => {
     setTransferAlerts(prev => prev.filter(a => a.id !== alertId));
   }, []);
 
-const loadActiveTransfers = useCallback(async (token: string) => {
+const loadActiveTransfers = useCallback(async (token: string, signal?: AbortSignal) => {
     setActiveTransfersLoading(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_active_transfers', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         setActiveTransfers(((result.data as Record<string, unknown>).transfers || []) as ActiveTransfer[]);
         setActiveTransfersError(null);
       } else if (!result.loggedOut) {
         setActiveTransfersError(result.error || 'Could not load transfers');
       }
+      return result.ok;
     } catch {
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       setActiveTransfersError('Could not load transfers');
+      return false;
     } finally { setActiveTransfersLoading(false); }
   }, []);
 
-const loadSavedTransfers = useCallback(async (token: string) => {
+const loadSavedTransfers = useCallback(async (token: string, signal?: AbortSignal) => {
     setLoadingSaved(true);
     try {
       const result = await authFetch(PROVIDER_URL, {
+        signal,
         body: { action: 'get_saved_transfers', session_token: token },
         onUnauthorized: () => atomicLogoutRef.current?.(),
       });
+      if (signal?.aborted || sessionTokenRef.current !== token) return false;
       if (result.ok && result.data) {
         setSavedTransfers(((result.data as Record<string, unknown>).saved_transfers || []) as SavedTransfer[]);
       }
-    } catch { /* authFetch handles 401 internally */ }
+      return result.ok;
+    } catch { return false; }
     finally { setLoadingSaved(false); }
   }, []);
+
+useEffect(() => {
+    if (!session?.valid || !sessionToken) return;
+    const token = sessionToken;
+    const owner = ['owner', 'administrator'].includes(session.agent?.role ?? '');
+    const reads = workspaceReads(owner, activeNav, dashTab);
+    if (!reads.length) return;
+    const poll = startSerialPoll(signal => refreshWorkspace(reads, {
+      admin: signal => loadAdminStats(token, signal),
+      team: signal => loadTeamHealth(token, signal),
+      roster: signal => loadRosterAttendance(token, signal),
+      activity: signal => loadLiveActivity(token, signal),
+      redial: signal => loadRedialStats(token, signal),
+      leads: signal => loadLeadPool(token, signal),
+      queues: signal => loadQueues(token, signal),
+      alerts: signal => loadTransferAlerts(token, signal),
+      transfers: signal => loadActiveTransfers(token, signal),
+      secretary: signal => loadSecretaryCalls(token, signal),
+      saved: signal => loadSavedTransfers(token, signal),
+    }, signal, owner), 30000, { paused: () => owner && document.hidden, maxBackoffMs: owner ? 120000 : 30000 });
+    const resume = () => { if (!document.hidden) poll.refresh(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
+    return () => {
+      poll.stop();
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+    };
+  }, [session?.valid, session?.agent?.role, sessionToken, activeNav, dashTab,
+    loadAdminStats, loadTeamHealth, loadRosterAttendance, loadLiveActivity, loadRedialStats,
+    loadLeadPool, loadQueues, loadTransferAlerts, loadActiveTransfers, loadSecretaryCalls, loadSavedTransfers]);
 
 const [deletingSavedId, setDeletingSavedId] = useState<string | null>(null);
 

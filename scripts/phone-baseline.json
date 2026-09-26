@@ -1,0 +1,13 @@
+{
+  "src/App.tsx": "93bbd77e4a54f5265994c817e9a04ddee4bdfdf085fbdf2fcaf9b7874dc42adf",
+  "src/components/IPhone.css": "b6bfea781b28db22c766624cf76f2a3dd4c176f1f9950568abc1c2230d4674cd",
+  "src/components/IPhone.tsx": "c10306b000834dec45d2ef04685807fca943d7306c067e02c5f9095eb695a0f7",
+  "src/modules/phone/PhoneModule.tsx": "dc584331d3ba16bd86f2d8ff1d2ee6db145a26826dbf6ad9213a7af634fdaa14",
+  "src/modules/phone/PhoneNumber.tsx": "805767535f4b3d4abeb81357690a206c276cd1c1e84f1cb7cd3a9dc8b651c193",
+  "src/modules/phone/phone-prefill.ts": "1608420221f2b8d9308aee722fcb92335bf158ade4cbd4205e9bf20047dd80d7",
+  "src/phone/call-controller.ts": "14c897022882a132415e1d1d1481169909ce06d28a9ba9d65fde476833ff8082",
+  "src/phone/dial-request.ts": "69193ef1f8d3adbb910caa2ce4140a6d2c7e4526da0f340f0f23a52e75c8b49e",
+  "src/phone/engine.ts": "602d38ab59b1ff15cbd9ffa3c4ed3227fbd3af5d2f06940250a550b61804e4e2",
+  "src/phone/use-phone-presence.ts": "a4de14cfd801edcb4a99fdb1ffc37a9f52e98ecaa54e8a8e4ee44e27e28ace60",
+  "src/phone/useVoicemailCount.ts": "ab2cae772b3a3b3ad98b3e2fb6f86805e45ddf356676e888e6130a23ecca4f69"
+}

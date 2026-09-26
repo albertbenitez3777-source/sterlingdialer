@@ -32,11 +32,13 @@ X,Zap
 
 export function OwnerDashboard({ model }: { model: Pick<ApplicationModel, "loadAdminStats" | "isOwner" | "adminStats" | "dialerLines" | "savingSpeed" | "togglingAgent" | "startingCampaign" | "stoppingCampaign" | "notice" | "speedNotice" | "handleDialerLines" | "toggleAgent" | "startCampaign" | "stopCampaign" | "activeNav" | "sessionToken" | "atomicLogout" | "setActiveNav" | "setExtraInfoPrefill" | "canControl" | "teamHealth" | "dashTab" | "setDashTab" | "transferProof" | "setTransferProofLoading" | "handleLogout" | "setTransferProof" | "perfView" | "setPerfView" | "displayPhone" | "togglePhoneReveal" | "rosterAttendance" | "rosterTimezone" | "revealedPhones" | "setConcurrency" | "settingConcurrency" | "liveActivity" | "redialProgresses" | "setRedialProgresses" | "removeRedialFromStorage" | "redialStats" | "redialStatsFilter" | "setRedialStatsFilter" | "redialTimeframe" | "setRedialTimeframe" | "redialingAgent" | "redialingHumans" | "redialSourceAgent" | "setRedialSourceAgent" | "dataHealth" | "openRedialModal" | "transferProofLoading" | "callLimit" | "setCallLimit" | "minuteCap" | "setMinuteCap" | "saveMinuteCap" | "savingCap" | "contactSearch" | "expandedContact" | "setExpandedContact" | "setPhoneAction" | "leadPool" | "handleUploadLeads" | "fileInputRef" | "importing" | "expandedCall" | "setExpandedCall" | "savedTransfers" | "allSavedTransfers" | "loadingAllSaved" | "loadAllSavedTransfers" | "allSavedTransfersError" > }) {
 const { loadAdminStats,isOwner, adminStats, dialerLines, savingSpeed, togglingAgent, startingCampaign, stoppingCampaign, notice, speedNotice, handleDialerLines, toggleAgent, startCampaign, stopCampaign, activeNav, sessionToken, atomicLogout, setActiveNav, setExtraInfoPrefill, canControl, teamHealth, dashTab, setDashTab, transferProof, setTransferProofLoading, handleLogout, setTransferProof, perfView, setPerfView, displayPhone, togglePhoneReveal, rosterAttendance, rosterTimezone, revealedPhones, setConcurrency, settingConcurrency, liveActivity, redialProgresses, setRedialProgresses, removeRedialFromStorage, redialStats, redialStatsFilter, setRedialStatsFilter, redialTimeframe, setRedialTimeframe, redialingAgent, redialingHumans, redialSourceAgent, setRedialSourceAgent, dataHealth, openRedialModal, transferProofLoading, callLimit, setCallLimit, minuteCap, setMinuteCap, saveMinuteCap, savingCap, contactSearch, expandedContact, setExpandedContact, setPhoneAction, leadPool, handleUploadLeads, fileInputRef, importing, expandedCall, setExpandedCall, savedTransfers, allSavedTransfers, loadingAllSaved, loadAllSavedTransfers, allSavedTransfersError } = model;
+const controlsStale = dataHealth.status !== 'healthy' || !dataHealth.lastSuccess || Date.now() - dataHealth.lastSuccess > 90000;
 return (<>
 {isOwner && activeNav === 'dashboard' && <AdminLiveStatus token={sessionToken} onUnauthorized={atomicLogout}/>} 
 {isOwner && ['dashboard','system'].includes(activeNav) && !adminStats && <section className="f1-dialer-controls" aria-label="Dialer controls loading"><header><div><h2>Call controls</h2><p role="status">{dataHealth.status==='degraded'?'Call controls could not load. Your login is still open.':'Loading dialer status and agent switches…'}</p></div><button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Retry loading controls</button></header><p>James Spencer · Erick Jackson · Mark Carlson</p><p>Start / Stop Dialer, agent On / Off switches, and line speed appear here after the current settings are verified.</p></section>}
 
-{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && <DialerControls agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
+{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && controlsStale && <button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Refresh call controls</button>}
+{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && <DialerControls stale={controlsStale} agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
             running={adminStats.summary.campaign_state === 'running'} saving={savingSpeed} changingAgent={togglingAgent}
             starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
             onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
@@ -52,10 +54,10 @@ return (<>
               <AdminQuickLinks onOpen={setActiveNav}/>
               <div className="f1-simple-live">
                 <span className={adminStats?.summary.campaign_state === 'running' ? 'online' : ''} />
-                <div><small>DIALER</small><strong>{!adminStats ? 'Loading status…' : adminStats.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
+                <div><small>DIALER</small><strong>{!adminStats ? 'Loading status…' : controlsStale ? 'Status needs a refresh' : adminStats.summary.campaign_state === 'running' ? 'Running now' : 'Stopped'}</strong></div>
                 <div><small>CALLS TODAY</small><strong>{adminStats?.summary.calls_attempted_today ?? '—'}</strong></div>
                 <div><small>NEW LEADS</small><strong>{adminStats?.summary.leads_remaining ?? '—'}</strong></div>
-                {canControl && adminStats && (adminStats.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
+                {canControl && adminStats && (adminStats.summary.campaign_state === 'running' ? <button onClick={stopCampaign} disabled={stoppingCampaign}><Pause size={16} />{stoppingCampaign ? 'Stopping…' : 'Stop Dialer'}</button> : <button onClick={startCampaign} disabled={startingCampaign || controlsStale}><Play size={16} />{startingCampaign ? 'Starting…' : 'Start Dialer'}</button>)}
               </div>
             </section>
           )}
@@ -98,7 +100,7 @@ return (<>
                       {stoppingCampaign ? <RefreshCw size={14} className="search-spinner" /> : <Pause size={14} />} {stoppingCampaign ? 'Stopping...' : 'Stop Dialer'}
                     </GlowButton>
                   ) : (
-                    <GlowButton variant="sage" onClick={startCampaign} disabled={startingCampaign}>
+                    <GlowButton variant="sage" onClick={startCampaign} disabled={startingCampaign || controlsStale}>
                       {startingCampaign ? <RefreshCw size={14} className="search-spinner" /> : <Play size={14} />} {startingCampaign ? 'Starting…' : 'Start Dialer'}
                     </GlowButton>
                   ))}

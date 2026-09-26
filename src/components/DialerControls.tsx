@@ -2,23 +2,25 @@ import { Headphones, Pause, Play, Users, Voicemail, Zap } from 'lucide-react';
 
 type Agent = { id: string; full_name: string; role: string; status: string; active_for_dialer: boolean; dialer_concurrency: number; phone_ready?: boolean; dialer_eligible?: boolean; transfer_certified: boolean; inbound_configured?: boolean };
 interface Props {
+  stale?: boolean;
   activeCalls?: number; reservedCalls?: number; asOf?: string; agents: Agent[]; lines: number; running: boolean; saving: boolean; changingAgent: string | null;
   starting: boolean; stopping: boolean; notice: string | null;
   onLines: (lines: number) => void; onAgent: (id: string, selected: boolean) => void;
   onStart: () => void; onStop: () => void;
 }
 
-export function DialerControls({ activeCalls, reservedCalls, asOf, agents, lines, running, saving, changingAgent, starting, stopping, notice, onLines, onAgent, onStart, onStop }: Props) {
+export function DialerControls({ stale = false, activeCalls, reservedCalls, asOf, agents, lines, running, saving, changingAgent, starting, stopping, notice, onLines, onAgent, onStart, onStop }: Props) {
   const roster = agents.filter(a => a.status === 'active' && !['owner', 'administrator'].includes(a.role));
   const selected = roster.filter(a => a.active_for_dialer);
   const capacity = Math.min(lines, selected.filter(a=>a.dialer_eligible).reduce((n, a) => n + Math.min(a.dialer_concurrency || 3, 7), 0));
-  const changing = saving || changingAgent !== null || starting || stopping;
+  const changing = stale || saving || changingAgent !== null || starting || stopping;
   return <section className="f1-dialer-controls" aria-label="Dialer controls">
-    <header><div><span className="f1-control-eyebrow"><Zap size={13} /> {running ? 'DIALER RUNNING' : 'DIALER STOPPED'}</span><h2>Call controls</h2></div>
+    <header><div><span className="f1-control-eyebrow"><Zap size={13} /> {stale ? 'STATUS NEEDS A REFRESH' : running ? 'DIALER RUNNING' : 'DIALER STOPPED'}</span><h2>Call controls</h2></div>
       <button className={running ? 'f1-control-stop' : 'f1-control-start'} disabled={running ? stopping : changing || !selected.length} onClick={running ? onStop : onStart}>
         {running ? <Pause size={17} /> : <Play size={17} />}{stopping ? 'Stopping…' : starting ? 'Starting…' : running ? 'Stop Dialer' : 'Start Dialer'}
       </button>
     </header>
+    {stale && <p role="status">These are the last recorded settings. Refresh the controls before starting calls or changing settings. Stop remains available if the last status was running.</p>}
     <div className="f1-control-settings">
       <div><label>Line presets</label><div className="f1-control-presets">{[1, 2, 3, 4].map(m => <button key={m} disabled={changing} aria-pressed={lines === m * 3} onClick={() => onLines(m * 3)}>{m * 3}<small>{m * 3} lines</small></button>)}</div></div>
       <div className="f1-control-line-choice"><label htmlFor="dialer-simultaneous-lines">Maximum simultaneous lines</label><select id="dialer-simultaneous-lines" value={lines} disabled={changing} onChange={e => onLines(Number(e.target.value))}>{Array.from({length:12}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {n === 1 ? 'line' : 'lines'}</option>)}</select><small>Total across your selected agents</small></div>

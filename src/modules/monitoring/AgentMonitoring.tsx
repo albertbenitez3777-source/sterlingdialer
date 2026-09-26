@@ -1,3 +1,4 @@
+import { startSerialPoll } from '@/utils/serial-poll';
 import { useEffect, useState } from 'react';
 import { monitoringRequest, costaRicaDay } from './api';
 import { PhoneNumber } from '@/modules/phone/PhoneNumber';
@@ -13,10 +14,14 @@ export function AgentMonitoring({ token }: { token:string }) {
  const [day,setDay]=useState(costaRicaDay); const [agent,setAgent]=useState(''); const [tab,setTab]=useState('calls'); const [offset,setOffset]=useState(0);
  const [report,setReport]=useState<Report|null>(null); const [error,setError]=useState(''); const [refresh,setRefresh]=useState(0);
  useEffect(()=>{
-  const controller=new AbortController(); let pending=false;
-  const load=async()=>{ if(pending) return; pending=true; try { const data=await monitoringRequest(token,{action:'report',day,agent_id:agent||null,offset},controller.signal); if(!controller.signal.aborted){setReport(data);setError('');} } catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Monitoring unavailable');} finally{pending=false;} };
-  setReport(null); void load(); const timer=window.setInterval(()=>{if(!document.hidden)void load();},30000);
-  return()=>{controller.abort();window.clearInterval(timer);};
+  setReport(null);
+  const poll=startSerialPoll(async signal=>{
+   try { const data=await monitoringRequest(token,{action:'report',day,agent_id:agent||null,offset},signal); if(signal.aborted)return false; setReport(data);setError('');return true; }
+   catch(e){if(!signal.aborted)setError(e instanceof Error?e.message:'Monitoring unavailable');return false;}
+  },30000,{paused:()=>document.hidden,maxBackoffMs:120000});
+  const resume=()=>{if(!document.hidden)poll.refresh();};
+  window.addEventListener('online',resume);document.addEventListener('visibilitychange',resume);
+  return()=>{poll.stop();window.removeEventListener('online',resume);document.removeEventListener('visibilitychange',resume);};
  },[token,day,agent,offset,refresh]);
  const selected=report?.agents.find(a=>a.id===agent);
  return <section className="f1-monitor">

@@ -1,3 +1,4 @@
+import { startSerialPoll } from '@/utils/serial-poll';
 import { useEffect, useState } from 'react';
 import { monitoringRequest, costaRicaDay } from './api';
 import './monitoring.css';
@@ -8,10 +9,10 @@ export function TeamSnapshot({token,onOpen}:{token:string;onOpen:()=>void}) {
  const [clock,setClock]=useState(Date.now);
  useEffect(()=>{const timer=window.setInterval(()=>setClock(Date.now()),15000);return()=>window.clearInterval(timer);},[]);
  const [agents,setAgents]=useState<SnapshotAgent[]>([]);const [updated,setUpdated]=useState('');const [error,setError]=useState('');
- useEffect(()=>{const controller=new AbortController();let pending=false;
- const load=async()=>{if(pending)return;pending=true;try{const data=await monitoringRequest(token,{action:'report',day:costaRicaDay()},controller.signal);if(!controller.signal.aborted){setAgents(data.agents);setUpdated(data.server_now);setError('');}}catch{if(!controller.signal.aborted)setError('Team status is unavailable. Open Monitoring to try again.');}finally{pending=false;}};
- const visible=()=>{if(!document.hidden)void load();}; window.addEventListener('online',visible);document.addEventListener('visibilitychange',visible);
- void load();const timer=window.setInterval(()=>{if(!document.hidden)void load();},30000);return()=>{controller.abort();window.clearInterval(timer);window.removeEventListener('online',visible);document.removeEventListener('visibilitychange',visible);};},[token]);
+ useEffect(()=>{
+ const poll=startSerialPoll(async signal=>{try{const data=await monitoringRequest(token,{action:'report',day:costaRicaDay()},signal);if(signal.aborted)return false;setAgents(data.agents);setUpdated(data.server_now);setError('');return true;}catch{if(!signal.aborted)setError('Team status is unavailable. Open Monitoring to try again.');return false;}},30000,{paused:()=>document.hidden,maxBackoffMs:120000});
+ const visible=()=>{if(!document.hidden)poll.refresh();};window.addEventListener('online',visible);document.addEventListener('visibilitychange',visible);
+ return()=>{poll.stop();window.removeEventListener('online',visible);document.removeEventListener('visibilitychange',visible);};},[token]);
  const stale=!!error || (!!updated && clock-new Date(updated).getTime()>90000);
  return <section className="f1-team-snapshot" aria-label="Quick team monitor"><header><div><small>TEAM AT A GLANCE</small><h2>Who’s here today?</h2><p>{stale?'Live status unknown — reconnecting':updated?`${agents.filter(a=>a.presence!=='Not reporting').length} logged in · ${agents.length} agents`:'Checking your team…'}</p></div><button type="button" onClick={onOpen}>Open Monitoring →</button></header>
  {error&&<p role="alert">{error} Previous numbers may be out of date.</p>}

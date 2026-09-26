@@ -5,6 +5,8 @@
  * - No action retries; a 401 makes one bounded, read-only session verification.
  * - Loading is caller-managed; this function never throws.
  */
+import { verifySessionOnce } from './session-verification';
+
 export interface AuthFetchResult<T = unknown> {
   ok: boolean;
   status: number;
@@ -48,19 +50,14 @@ export async function authFetch<T = unknown>(
       if (typeof token !== 'string' || !token || authUrl === url) {
         return { ok: false, status: 401, data: null, error: 'Unable to verify session', loggedOut: false };
       }
-      const verification = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'verify', session_token: token }),
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) throw new Error('Request cancelled');
-      if (!verification.ok) {
+      // End the feature deadline. Verification has its own full auth budget.
+      clearTimeout(timeout);
+      const verification = await verifySessionOnce(authUrl, token);
+      if (signal?.aborted) throw new Error('Request cancelled');
+      if (verification === 'unavailable') {
         return { ok: false, status: 503, data: null, error: 'Session verification temporarily unavailable', loggedOut: false };
       }
-      const session = await verification.json();
-      if (controller.signal.aborted) throw new Error('Request cancelled');
-      if (session?.valid !== false) {
+      if (verification !== 'invalid') {
         return { ok: false, status: 401, data: null, error: 'Request authorization failed; your login has been kept. Please retry.', loggedOut: false };
       }
       // An old request must not sign out an account that logged in while it ran.

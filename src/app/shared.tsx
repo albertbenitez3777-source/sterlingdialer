@@ -231,8 +231,11 @@ export function loginErrorMessage(kind: LoginErrorKind): string {
   }
 }
 
-export async function fetchWithRetry(url: string, body: Record<string, unknown>, maxRetries = 2, timeoutMs = 15000): Promise<Response> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+export async function fetchWithRetry(url: string, body: Record<string, unknown>, maxAttempts = 1, timeoutMs = 25000): Promise<Response> {
+  // This argument is total attempts, not additional retries. Zero must not
+  // silently prevent the PIN request from ever reaching the server.
+  const attempts = Number.isFinite(maxAttempts) ? Math.max(1, Math.floor(maxAttempts)) : 1;
+  for (let attempt = 0; attempt < attempts; attempt++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -243,14 +246,14 @@ export async function fetchWithRetry(url: string, body: Record<string, unknown>,
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      if ([502, 503, 504].includes(res.status) && attempt < maxRetries - 1) {
+      if ([502, 503, 504].includes(res.status) && attempt < attempts - 1) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         continue;
       }
       return res;
     } catch (err) {
       clearTimeout(timeout);
-      const isLast = attempt === maxRetries - 1;
+      const isLast = attempt === attempts - 1;
       if (isLast) throw err;
       await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
     }
