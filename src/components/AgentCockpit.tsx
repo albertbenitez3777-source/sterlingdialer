@@ -1,4 +1,5 @@
-import { TeamSnapshot } from '@/modules/monitoring/TeamSnapshot';
+import { TeamSnapshotModule } from '@/modules/monitoring/SummaryModule';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, FileText, Flame,
@@ -221,7 +222,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
 
   return (
     <div className="f1-command-center" role="region" aria-label="Federal One agent command center">
-      {props.showTeamMonitor && sessionToken ? <TeamSnapshot token={sessionToken} onOpen={()=>onNavTo('monitoring')}/> : <section className="f1-command-hero">
+      {props.showTeamMonitor && sessionToken ? <TeamSnapshotModule token={sessionToken} onOpen={()=>onNavTo('monitoring')}/> : <section className="f1-command-hero">
         <div className="f1-command-copy">
           <span className="f1-overline"><Sparkles size={12} /> MY WORKSPACE</span>
           <h2>{greeting}, <em>{firstName}</em></h2>

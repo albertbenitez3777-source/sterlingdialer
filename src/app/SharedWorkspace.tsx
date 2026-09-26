@@ -1,7 +1,9 @@
+import { OpportunitiesFeedModule } from '@/modules/callbacks/CallbacksModule';
+import { ExtraInfoModule } from '@/modules/research/ResearchModule';
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import { DataHealthBanner } from "@/app/views/DataHealthBanner";
-import { OpportunitiesFeed } from '@/components';
-import { ExtraInfo } from '@/components/ExtraInfo';
+
+
 import {
 Check,
 PhoneOff,
@@ -30,7 +32,7 @@ return (<>
             <DataHealthBanner health={dataHealth} />
           )}
 {activeNav === 'opportunities' && (
-            <OpportunitiesFeed
+            <OpportunitiesFeedModule
               sessionToken={sessionToken}
               onUnauthorized={atomicLogout}
               isOwner={isOwner}
@@ -42,7 +44,7 @@ return (<>
             />
           )}
 {activeNav === 'extra' && (
-            <ExtraInfo sessionToken={sessionToken} onUnauthorized={atomicLogout} prefill={extraInfoPrefill} />
+            <ExtraInfoModule sessionToken={sessionToken} onUnauthorized={atomicLogout} prefill={extraInfoPrefill} />
           )}
 </>);
 }

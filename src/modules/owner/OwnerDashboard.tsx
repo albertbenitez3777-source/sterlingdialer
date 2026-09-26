@@ -1,17 +1,28 @@
-import { AdminLiveStatus } from './AdminLiveStatus';
+import { ContactsViewModule } from '@/modules/contacts/ContactsModule';
+import { CallLogViewModule } from '@/modules/records/RecordsModule';
+import { AdminSavedTransfersViewModule } from '@/modules/records/RecordsModule';
+import { AdminChartsModule } from '@/modules/reports/ReportsModule';
+import { OperationsDashboardModule } from '@/modules/reports/ReportsModule';
+import { ReportedMetricsModule } from '@/modules/reports/ReportsModule';
+import { OwnerAlertOverviewModule } from '@/modules/reports/ReportsModule';
+import { TestCallPanelModule } from '@/modules/call-checks/CallChecksModule';
+import { InboundVerificationPanelModule } from '@/modules/call-checks/CallChecksModule';
+import { AdminLiveStatusModule } from '@/modules/monitoring/SummaryModule';
+import { DialerControlsModule } from '@/modules/dialer/DialerControlsModule';
+
 import { AdminQuickLinks } from './AdminQuickLinks';
 import { CINEMATIC_HERO,FEDERAL_ONE_V2_URL,fmtDuration,fmtTime,initials,PROVIDER_URL,SUPABASE_URL } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
-import { AdminSavedTransfersView } from "@/app/views/AdminSavedTransfersView";
-import { CallLogView } from "@/app/views/CallLogView";
-import { ContactsView } from "@/app/views/ContactsView";
-import { ReportedMetrics } from "@/app/views/ReportedMetrics";
+
+
+
+
 import { SectionHero } from "@/app/views/SectionHero";
 import { SkeletonCard } from "@/app/views/SkeletonCard";
-import { AdminCharts,GlassCard,GlowButton,InboundVerificationPanel,OwnerAlertOverview,queueToPillVariant,REDIAL_CAP,Reveal,StatusPill,TransferFunnel } from '@/components';
-import { DialerControls } from '@/components/DialerControls';
-import { OperationsDashboard } from '@/components/OperationsDashboard';
-import { TestCallPanel } from '@/components/TestCallPanel';
+import { GlassCard,GlowButton,queueToPillVariant,REDIAL_CAP,Reveal,StatusPill,TransferFunnel } from '@/components';
+
+
+
 import { fmtAttendanceDuration,presenceColor,presenceLabel } from '@/utils/attendance';
 import { authFetch } from '@/utils/auth-fetch';
 import { buildMonotonicFunnel,capAgentMonotonic,type FunnelData } from '@/utils/funnel';
@@ -34,11 +45,11 @@ export function OwnerDashboard({ model }: { model: Pick<ApplicationModel, "loadA
 const { loadAdminStats,isOwner, adminStats, dialerLines, savingSpeed, togglingAgent, startingCampaign, stoppingCampaign, notice, speedNotice, handleDialerLines, toggleAgent, startCampaign, stopCampaign, activeNav, sessionToken, atomicLogout, setActiveNav, setExtraInfoPrefill, canControl, teamHealth, dashTab, setDashTab, transferProof, setTransferProofLoading, handleLogout, setTransferProof, perfView, setPerfView, displayPhone, togglePhoneReveal, rosterAttendance, rosterTimezone, revealedPhones, setConcurrency, settingConcurrency, liveActivity, redialProgresses, setRedialProgresses, removeRedialFromStorage, redialStats, redialStatsFilter, setRedialStatsFilter, redialTimeframe, setRedialTimeframe, redialingAgent, redialingHumans, redialSourceAgent, setRedialSourceAgent, dataHealth, openRedialModal, transferProofLoading, callLimit, setCallLimit, minuteCap, setMinuteCap, saveMinuteCap, savingCap, contactSearch, expandedContact, setExpandedContact, setPhoneAction, leadPool, handleUploadLeads, fileInputRef, importing, expandedCall, setExpandedCall, savedTransfers, allSavedTransfers, loadingAllSaved, loadAllSavedTransfers, allSavedTransfersError } = model;
 const controlsStale = dataHealth.status !== 'healthy' || !dataHealth.lastSuccess || Date.now() - dataHealth.lastSuccess > 90000;
 return (<>
-{isOwner && activeNav === 'dashboard' && <AdminLiveStatus token={sessionToken} onUnauthorized={atomicLogout}/>} 
+{isOwner && activeNav === 'dashboard' && <AdminLiveStatusModule token={sessionToken} onUnauthorized={atomicLogout}/>} 
 {isOwner && ['dashboard','system'].includes(activeNav) && !adminStats && <section className="f1-dialer-controls" aria-label="Dialer controls loading"><header><div><h2>Call controls</h2><p role="status">{dataHealth.status==='degraded'?'Call controls could not load. Your login is still open.':'Loading dialer status and agent switches…'}</p></div><button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Retry loading controls</button></header><p>James Spencer · Erick Jackson · Mark Carlson</p><p>Start / Stop Dialer, agent On / Off switches, and line speed appear here after the current settings are verified.</p></section>}
 
 {isOwner && ['dashboard','system'].includes(activeNav) && adminStats && controlsStale && <button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Refresh call controls</button>}
-{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && <DialerControls stale={controlsStale} agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
+{isOwner && ['dashboard','system'].includes(activeNav) && adminStats && <DialerControlsModule stale={controlsStale} agents={adminStats.agents} lines={dialerLines} activeCalls={adminStats.summary.active_call_count} reservedCalls={adminStats.summary.reserved_call_count} asOf={adminStats.summary.as_of}
             running={adminStats.summary.campaign_state === 'running'} saving={savingSpeed} changingAgent={togglingAgent}
             starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
             onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
@@ -48,7 +59,7 @@ return (<>
               <Pause size={16} /> <strong>Dialing paused</strong> — no verified agent routes are selected. Check the team routes below.
             </div>
           )}
-{isOwner && activeNav === 'test' && <TestCallPanel sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />}
+{isOwner && activeNav === 'test' && <TestCallPanelModule sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />}
 {isOwner && activeNav === 'dashboard' && (
             <section className="f1-simple-home">
               <AdminQuickLinks onOpen={setActiveNav}/>
@@ -78,11 +89,11 @@ return (<>
             </div>
           )}
 {isOwner && activeNav === 'system' && dashTab === 'overview' && (
-            <OperationsDashboard sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
+            <OperationsDashboardModule sessionToken={sessionToken} providerUrl={FEDERAL_ONE_V2_URL} onUnauthorized={atomicLogout} />
           )}
 {isOwner && activeNav === 'system' && adminStats && (
             <>
-              <details className="f1-all-metrics"><summary>All reported dialer statistics</summary><p>Reported values from the current statistics service. Missing billing amounts are not treated as zero.</p><ReportedMetrics value={adminStats} /></details>
+              <details className="f1-all-metrics"><summary>All reported dialer statistics</summary><p>Reported values from the current statistics service. Missing billing amounts are not treated as zero.</p><ReportedMetricsModule value={adminStats} /></details>
               {/* Compact campaign status card */}
               <div className="campaign-status-card">
                 <div className="campaign-status-left">
@@ -142,7 +153,7 @@ return (<>
                   <details className="ops-details"><summary>Detailed transfer evidence &amp; routing checks</summary>
                   {/* Owner Alert Overview */}
                   <Reveal delay={200}>
-                    <OwnerAlertOverview
+                    <OwnerAlertOverviewModule
                       sessionToken={sessionToken}
                       onUnauthorized={atomicLogout}
                       providerUrl={PROVIDER_URL}
@@ -151,7 +162,7 @@ return (<>
 
                   {/* Inbound Verification Panel */}
                   <Reveal delay={225}>
-                    <InboundVerificationPanel
+                    <InboundVerificationPanelModule
                       agents={adminStats.agents.filter(a => a.status === 'active' && a.bland_number).map(a => ({
                         id: a.id,
                         full_name: a.full_name,
@@ -603,7 +614,7 @@ return (<>
                     </Reveal>
                   )}
 
-                  <AdminCharts sessionToken={sessionToken} onUnauthorized={atomicLogout} />
+                  <AdminChartsModule sessionToken={sessionToken} onUnauthorized={atomicLogout} />
                 </>
               )}
 
@@ -975,7 +986,7 @@ return (<>
             </>
           )}
 {isOwner && activeNav === 'contacts' && (
-            <ContactsView {...contactSearch}
+            <ContactsViewModule {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
@@ -1092,11 +1103,11 @@ return (<>
             </>
           )}
 {isOwner && activeNav === 'calls' && (
-            <CallLogView expandedCall={expandedCall} setExpandedCall={setExpandedCall}
+            <CallLogViewModule expandedCall={expandedCall} setExpandedCall={setExpandedCall}
               sessionToken={sessionToken} onUnauthorized={atomicLogout} />
           )}
 {isOwner && activeNav === 'saved' && (
-            <AdminSavedTransfersView
+            <AdminSavedTransfersViewModule
               savedTransfers={allSavedTransfers}
               loading={loadingAllSaved}
               onLoad={() => loadAllSavedTransfers(sessionToken)}

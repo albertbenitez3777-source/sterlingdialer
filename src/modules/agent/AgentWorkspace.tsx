@@ -1,10 +1,17 @@
+import { ContactsViewModule } from '@/modules/contacts/ContactsModule';
+import { AgentInboxModule } from '@/modules/inbox/InboxModule';
+import { IncomingCallAlertModule } from '@/modules/transfers/TransfersModule';
+import { IncomingTransferPanelModule } from '@/modules/transfers/TransfersModule';
+import { SavedTransfersViewModule } from '@/modules/records/RecordsModule';
+import { AgentCockpitModule } from '@/modules/agent/AgentDashboardModule';
+import { SecretaryViewModule } from '@/modules/secretary/SecretaryModule';
 import { canMonitor } from '@/modules/monitoring/api';
 import { CINEMATIC_HERO,FEDERAL_ONE_V2_URL,PROVIDER_URL,QueueRecord } from "@/app/shared";
 import type { ApplicationModel } from "@/app/useApplicationModel";
-import { ContactsView } from "@/app/views/ContactsView";
-import { SavedTransfersView } from "@/app/views/SavedTransfersView";
-import { SecretaryView } from "@/app/views/SecretaryView";
-import { AgentCockpit,AgentInbox,AgentWorkspaceView,IncomingCallAlert,IncomingTransferPanel } from '@/components';
+
+
+
+import { AgentWorkspaceView } from '@/components';
 import {
 Activity,
 PhoneOff,
@@ -59,7 +66,7 @@ return (<>
             </div>
           )}
 {!isOwner && activeNav === 'contacts' && (
-            <ContactsView {...contactSearch}
+            <ContactsViewModule {...contactSearch}
               expandedContact={expandedContact} setExpandedContact={setExpandedContact}
               sessionToken={sessionToken}
               onPhoneClick={(name, phone, email, address) => setPhoneAction({ name, phone, email, address })}
@@ -69,7 +76,7 @@ return (<>
             />
           )}
 {!isOwner && activeNav === 'secretary' && (
-            <SecretaryView
+            <SecretaryViewModule
               secretaryCalls={secretaryCalls} setSecretaryCalls={setSecretaryCalls}
               onPhoneClick={(name, phone) => setPhoneAction({ name, phone })}
               loadingSecretary={loadingSecretary} setLoadingSecretary={setLoadingSecretary}
@@ -83,7 +90,7 @@ return (<>
             />
           )}
 {!isOwner && transferAlerts.length > 0 && (
-            <IncomingCallAlert
+            <IncomingCallAlertModule
               alerts={transferAlerts}
               onAcknowledge={handleAlertAcknowledge}
               onScheduleCallback={handleAlertSchedule}
@@ -95,7 +102,7 @@ return (<>
             />
           )}
 {!isOwner && (
-            <IncomingTransferPanel
+            <IncomingTransferPanelModule
               transfers={activeTransfers}
               loading={activeTransfersLoading}
               error={activeTransfersError}
@@ -106,7 +113,7 @@ return (<>
             />
           )}
 {!isOwner && activeNav === 'dashboard' && (
-            <AgentCockpit
+            <AgentCockpitModule
               showTeamMonitor={canMonitor(false, session?.agent)}
               agentName={session?.agent?.full_name ?? 'Agent'}
               agentId={session?.agent?.id}
@@ -143,7 +150,7 @@ return (<>
             />
           )}
 {!isOwner && activeNav === 'inbox' && (
-            <AgentInbox
+            <AgentInboxModule
               sessionToken={sessionToken}
               onUnauthorized={atomicLogout}
               providerUrl={PROVIDER_URL}
@@ -151,7 +158,7 @@ return (<>
             />
           )}
 {!isOwner && activeNav === 'saved' && (
-            <SavedTransfersView
+            <SavedTransfersViewModule
               savedTransfers={savedTransfers}
               loading={loadingSaved}
               onDelete={handleDeleteSavedTransfer}
