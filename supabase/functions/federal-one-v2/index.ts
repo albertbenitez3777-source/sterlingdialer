@@ -323,7 +323,8 @@ Deno.serve(async (req: Request) => {
       if (cameraOn && !frame) payload.connected_at = now;
       if (frame) payload.last_frame = frame;
       if (!cameraOn) { payload.last_frame = null; payload.connected_at = null; }
-      await supabase.from("federal_one_camera_status").upsert(payload, { onConflict: "agent_id" });
+      const { error: cameraError } = await supabase.from("federal_one_camera_status").upsert(payload, { onConflict: "agent_id" });
+      if (cameraError) return json({ error: "Camera sharing is temporarily unavailable" }, 503);
       return json({ ok: true });
     }
 
@@ -334,7 +335,8 @@ Deno.serve(async (req: Request) => {
       const cols = withFrames
         ? "agent_id,full_name,camera_on,last_frame,updated_at,connected_at"
         : "agent_id,full_name,camera_on,updated_at,connected_at";
-      const { data } = await supabase.from("federal_one_camera_status").select(cols).gte("updated_at", fiveMinAgo);
+      const { data, error: cameraError } = await supabase.from("federal_one_camera_status").select(cols).gte("updated_at", fiveMinAgo);
+      if (cameraError) return json({ error: "Team cameras are temporarily unavailable" }, 503);
       return json({ cameras: data || [] });
     }
 
