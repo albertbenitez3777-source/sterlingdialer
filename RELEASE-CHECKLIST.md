@@ -5,10 +5,11 @@ Production: https://wolf-of-wall-street-ssy3.bolt.host/
 
 ## Current status
 
-The database repair is LIVE. The website changes are PREPARED AND TESTED LOCALLY,
-not published. Bolt requires acceptance of new terms before workspace operations.
-No terms have been accepted, and no account privacy setting has been changed.
-Last observed Bolt publication: version 447, September 25 at 12:43 p.m.
+Database optimizations and website stabilization changes are LIVE as of September 26, 2026, 14:48 UTC (08:48 Costa Rica).
+Bolt terms were accepted with explicit owner authorization. No privacy setting was changed.
+The guarded patch matched 33 source checks and applied 22 files. Bolt then passed TypeScript, 24 focused regression tests, all 11 protected-source checks, and production build.
+Production DOM references `/assets/app-CN6Yg7mg.js`, matching the verified Bolt build. Public login rendered; no application console error was captured (browser-extension metadata errors were separate).
+Owner/agent authenticated use, peak load and physical two-way audio remain unverified.
 
 No campaigns were started or restarted. Caps, staffing, routing, passwords,
 phone credentials, session records, and customer data were not changed.
@@ -18,11 +19,11 @@ The login-observer database function remains intentionally disabled.
 
 | Priority | Work completed | Remaining verification |
 | --- | --- | --- |
-| Database bottleneck | Removed duplicate delivery-report computations; replaced repeated per-lead call checks with one aggregation. Verified identical complete JSON output and unchanged owner/permissions/security mode. | Observe representative operating load after publication. |
-| Login protection | Prepared one 25-second login/restore attempt; temporary failures preserve saved authorization; restore retries back off; simultaneous feature 401s share one verification; stale requests cannot sign out a newer login. | Publish and verify owner and agent sign-in on real devices. |
-| Faster essential loading | Prepared page-specific report refreshes; home skips hidden roster/lead/redial/service-health reports; each refresh finishes before the next; old page requests cancel; monitoring backs off when unavailable. | Verify published Home controls and agent activity timing under operating load. |
+| Database bottleneck | Removed duplicate delivery-report computations; replaced repeated per-lead call checks with one aggregation. Verified identical complete JSON output and unchanged owner/permissions/security mode. | Observe representative operating load. |
+| Login protection | Published one 25-second login/restore attempt; temporary failures preserve saved authorization; restore retries back off; simultaneous feature 401s share one verification; stale requests cannot sign out a newer login. | Verify owner and agent sign-in on real devices. |
+| Faster essential loading | Published page-specific report refreshes; home skips hidden roster/lead/redial/service-health reports; each refresh finishes before the next; old page requests cancel; monitoring backs off when unavailable. | Verify published Home controls and agent activity timing under operating load. |
 | Phone isolation | Kept phone, call-controller, presence and App mounting source unchanged. Automated tests preserve one phone mount across navigation, monitoring, token renewal, workspace/chat failures. | Actual inbound/outbound two-way audio and platform/device permissions require a supervised real-device check. |
-| Release/rollback gate | Added repeatable type/test/build checks, phone source checksums, guarded application and rollback, and database rollback SQL. | Apply against current Bolt source, rerun there, publish, verify the served asset and UI. |
+| Release/rollback gate | Added repeatable type/test/build checks, phone source checksums, guarded application and rollback, and database rollback SQL. | Completed; retain the release gate for future changes. |
 
 ## Evidence and limits
 
@@ -47,7 +48,7 @@ The login-observer database function remains intentionally disabled.
   path was not changed during this login-stability repair. Review that separately
   against intended login-link behavior before changing its grants.
 
-## Publication gate
+## Publication gate (steps 1–5 completed; 6–7 outstanding)
 
 1. Obtain explicit consent for Bolt's new terms, or let the account owner accept
    them. The notice includes model-development data use enabled by default for
@@ -90,5 +91,13 @@ login, stale report and provider/audio failure. Keep the working phone running
 when a report fails. Avoid repeated refreshes, PIN resets or database restarts as
 a substitute for identifying the failed layer.
 
-No guarantee of 100% reliability is made. Publication and live-device checks
-remain required before calling this release complete.
+No guarantee of 100% reliability is made. Publication is verified; authenticated live-device checks remain outstanding.
+
+## Release-test scope
+
+The initial broad glob also ran historical tests. Some failed because they inspect the old monolithic src/App.tsx; for example v235 loads that file and expects auth logic now located in separate modules. App.tsx is protected and unchanged by this release. The entire historical suite has NOT been certified passing.
+The new stability configuration explicitly names its five regression files (24 tests). The runner uses asynchronous child processes because Bolt's spawnSync transport errored after the broad suite. The corrected gate passed in Bolt. Build warnings remain for large bundles and outdated Browserslist data.
+
+## Bolt rollback record
+
+The exact pre-change file contents are stored in the Bolt project at maintenance/stability-sep26/rollback-files.json. Runtime files match the guarded patch; the two release-tool files (Vitest config and runner) were subsequently corrected as described above. The packaged patch includes these final corrections; source guards still apply.
