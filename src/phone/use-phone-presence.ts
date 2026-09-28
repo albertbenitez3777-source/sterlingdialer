@@ -49,7 +49,6 @@ export function usePhonePresence(url: string, token: string, state: Presence, on
       window.removeEventListener('online', resume);
       window.removeEventListener('pageshow', resume);
       window.removeEventListener('pagehide', offline);
-      offline();
     };
   }, [url, token, instanceId, send]);
 
