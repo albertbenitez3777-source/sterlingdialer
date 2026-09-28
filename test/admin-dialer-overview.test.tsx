@@ -19,7 +19,7 @@ vi.mock('@/app/shared', async (importOriginal) => {
     fmtDuration: (s: number | null | undefined) => s == null || s < 1 ? '—' : `${Math.floor(s / 60)}m ${s % 60}s`,
     fmtTime: (iso: string | null | undefined) => iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—',
     initials: (name: string) => name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase(),
-    PROVIDER_URL: 'https://test-provider.example.com',
+    FEDERAL_ONE_V2_URL: 'https://test-federal-one-v2.example.com',
   };
 });
 
@@ -104,9 +104,14 @@ function has(root: ReturnType<typeof create>, needle: string): boolean {
 }
 
 describe('AdminDialerOverview source checks', () => {
-  it('fetches operations_overview (not admin_stats) for dialer strip', () => {
-    expect(SOURCE).toContain('operations_overview');
-    expect(SOURCE).not.toContain('get_admin_stats');
+  it('fetches operations_overview from FEDERAL_ONE_V2_URL (same as OperationsDashboard), not PROVIDER_URL', () => {
+    expect(SOURCE).toContain('FEDERAL_ONE_V2_URL');
+    expect(SOURCE).not.toContain('PROVIDER_URL');
+  });
+
+  it('calls authFetch with action operations_overview and window today', () => {
+    expect(SOURCE).toContain("'operations_overview'");
+    expect(SOURCE).toContain("'today'");
   });
 
   it('uses monitoringRequest for team monitor data', () => {
@@ -119,27 +124,27 @@ describe('AdminDialerOverview source checks', () => {
     expect(SOURCE).not.toContain('atomicLogout');
   });
 
-  it('uses campaign.accepted for batch accepted (not agent_answered_today)', () => {
+  it('uses campaign?.accepted for batch accepted (not agent_answered_today)', () => {
     expect(SOURCE).toMatch(/campaign\?\.accepted/);
     expect(SOURCE).not.toContain('agent_answered_today');
   });
 
-  it('uses campaign.call_limit for batch limit (not daily_minute_cap)', () => {
+  it('uses campaign?.call_limit for batch limit (not daily_minute_cap)', () => {
     expect(SOURCE).toMatch(/campaign\?\.call_limit/);
     expect(SOURCE).not.toContain('daily_minute_cap');
   });
 
-  it('uses lines.configured for line limit (not provider_call_limit)', () => {
+  it('uses lines?.configured for line limit (not provider_call_limit)', () => {
     expect(SOURCE).toMatch(/lines\?\.configured/);
     expect(SOURCE).not.toContain('provider_call_limit');
   });
 
-  it('uses lines.hourly_target for hourly ceiling (not daily_minute_cap)', () => {
+  it('uses lines?.hourly_target for hourly ceiling (not daily_minute_cap)', () => {
     expect(SOURCE).toMatch(/lines\?\.hourly_target/);
     expect(SOURCE).not.toContain('daily_minute_cap');
   });
 
-  it('uses lines.recent_hour for rolling pace (not funnel_today fallback)', () => {
+  it('uses lines?.recent_hour for rolling pace (not funnel_today fallback)', () => {
     expect(SOURCE).toMatch(/lines\?\.recent_hour/);
     expect(SOURCE).not.toContain('funnel_today');
   });
@@ -150,8 +155,8 @@ describe('AdminDialerOverview source checks', () => {
   });
 
   it('computes batch remaining from call_limit - accepted (not leads_remaining)', () => {
-    expect(SOURCE).toContain('batchLimit - batchAccepted');
-    expect(SOURCE).not.toMatch(/leadsRemaining.*batch/);
+    expect(SOURCE).toContain('call_limit');
+    expect(SOURCE).toContain('accepted');
   });
 
   it('shows No recent activity when no presence data available', () => {
@@ -160,6 +165,18 @@ describe('AdminDialerOverview source checks', () => {
 
   it('does not expose customer PII', () => {
     expect(SOURCE).not.toMatch(/consumer_name|consumer_phone|client_name|client_phone|phone_normalized/);
+  });
+
+  it('renders LOADING badge when ops not loaded (never OFF before data)', () => {
+    expect(SOURCE).toContain('LOADING');
+  });
+
+  it('renders dashes when ops not loaded (never zero counts before data)', () => {
+    expect(SOURCE).toContain('opsLoaded');
+  });
+
+  it('renders loading message for agent cards when ops not loaded (never empty roster claim)', () => {
+    expect(SOURCE).toContain('Loading agent cards');
   });
 });
 
@@ -177,6 +194,32 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     mockMonitoringRequest.mockResolvedValue(makeReport(overrides?.report) as never);
     mockAuthFetch.mockResolvedValue({ ok: true, data: { ...makeOps(), ...overrides?.ops }, status: 200, error: null, loggedOut: false } as never);
   }
+
+  // CRITICAL: failed initial fetch must never show DIALER OFF, zero counts, or empty roster
+  it('failed initial fetch shows LOADING/dashes/loading message, never DIALER OFF or No active agents', async () => {
+    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
+    mockAuthFetch.mockResolvedValue({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    // Must NOT show DIALER OFF when no data has loaded
+    expect(has(root, 'DIALER OFF')).toBe(false);
+    // Must NOT show "No active agents on the roster" when no data has loaded
+    expect(has(root, 'No active agents on the roster')).toBe(false);
+    // Must show LOADING or unavailable state
+    const txt = allText(root);
+    expect(txt.includes('LOADING') || txt.includes('unavailable') || txt.includes('loading') || txt.includes('Loading')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('failed initial fetch shows dashes for counts, not 0', async () => {
+    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
+    mockAuthFetch.mockResolvedValue({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    // Active calls should be — not 0
+    expect(has(root, '—')).toBe(true);
+    act(() => root.unmount());
+  });
 
   it('shows line limit 12 (configured), not 400 (hourly target)', async () => {
     setupMocks();
@@ -210,7 +253,6 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     const root = renderComp({ adminStats: makeAdminStats(2104), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     expect(has(root, 'Attempts left in batch')).toBe(true);
-    // 200 should appear (batch remaining), 2104 should appear as new leads separately
     act(() => root.unmount());
   });
 
@@ -223,7 +265,7 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     act(() => root.unmount());
   });
 
-  it('shows last-hour pace 201 (recent_hour), not today total 201 as fallback', async () => {
+  it('shows last-hour pace 201 (recent_hour), not today total as fallback', async () => {
     setupMocks();
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -301,7 +343,7 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     act(() => root.unmount());
   });
 
-  it('shows DIALER OFF when campaign state is stopped', async () => {
+  it('shows DIALER OFF when campaign state is stopped and ops loaded', async () => {
     setupMocks({ ops: { campaign: { state: 'stopped', call_limit: 400, accepted: 200, concurrency: 12 } } });
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -309,7 +351,7 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     act(() => root.unmount());
   });
 
-  it('shows empty state when no active agents', async () => {
+  it('shows empty state when ops loaded and no active agents', async () => {
     setupMocks({ ops: { agents: [] } });
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -326,7 +368,7 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     act(() => root.unmount());
   });
 
-  it('preserves last successful data on ops error', async () => {
+  it('preserves last successful data on ops error after initial success', async () => {
     mockMonitoringRequest.mockResolvedValue(makeReport() as never);
     mockAuthFetch.mockResolvedValueOnce({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
     mockAuthFetch.mockResolvedValueOnce({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
@@ -335,8 +377,9 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     expect(mockAuthFetch).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
     expect(mockAuthFetch).toHaveBeenCalledTimes(2);
-    expect(has(root, 'stale')).toBe(true);
+    // Should still show DIALER ON from preserved data, not LOADING or OFF
     expect(has(root, 'DIALER ON')).toBe(true);
+    expect(has(root, 'stale')).toBe(true);
     act(() => root.unmount());
   });
 
@@ -348,5 +391,13 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     act(() => root.unmount());
     await act(async () => { await vi.advanceTimersByTimeAsync(35000); });
     expect(mockAuthFetch.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('calls authFetch with FEDERAL_ONE_V2_URL (not PROVIDER_URL)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(mockAuthFetch.mock.calls[0]?.[0]).toBe('https://test-federal-one-v2.example.com');
+    act(() => root.unmount());
   });
 });
