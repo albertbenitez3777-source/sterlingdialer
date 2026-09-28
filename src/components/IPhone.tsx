@@ -210,6 +210,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       abort.abort(); phoneIdentityRef.current++; dialGenerationRef.current++; credentialsRef.current = null;
       pendingRequestRef.current?.respond({ status: 'cancelled', error: 'The phone session changed. Please sign in again.' });
       pendingRequestRef.current = null; pendingCallRef.current = false;
+      clearTimeout(pendingWatchdogRef.current); clearTimeout(autoAnswerTimerRef.current);
     };
   }, [loadRoute]);
 
@@ -229,12 +230,20 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (data.type === 'frame-ready') setFrameReady(true);
       if (data.type === 'connection') {
         setConnection(data.state); startingRef.current = data.state === 'connecting';
-        if (data.state === 'ready') setError(previous => previous.startsWith('Call did not connect') ? previous : '');
+        if (data.state === 'ready') {
+          setError(previous => previous.startsWith('Call did not connect') ? previous : '');
+          if (stateRef.current === 'idle' && pendingCallRef.current && !callbackDialRef.current) {
+            pendingCallRef.current = false;
+            clearTimeout(autoAnswerTimerRef.current);
+            clearTimeout(pendingWatchdogRef.current);
+          }
+        }
       }
       if (data.type === 'audio-blocked') { setAudioStatus('sound-blocked'); }
       if (data.type === 'audio-recovered') { setAudioStatus('ok'); }
       if (data.type === 'error') {
         setError(String(data.message)); pendingCallRef.current = false;
+        clearTimeout(pendingWatchdogRef.current);
         pendingRequestRef.current?.respond({ status: 'failed', error: String(data.message) });
         pendingRequestRef.current = null;
       }
@@ -242,7 +251,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (data.type === 'dial-result' && request && request.requestId === data.requestId) {
         pendingRequestRef.current = null;
         request.respond(data.accepted ? { status: 'requested' } : { status: 'failed', error: String(data.message || 'The phone rejected the call request.') });
-        if (!data.accepted) pendingCallRef.current = false;
+        if (!data.accepted) { pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current); }
       }
       if (data.type === 'incoming' || data.type === 'outgoing') {
         const number = String(data.number || 'Unknown caller');
@@ -257,9 +266,8 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           callRef.current = { number: dialedNumber, direction: 'outgoing', answered: false };
           setCallNumber(dialedNumber); setOpen(true); setView('keypad');
           unlockAudio();
-          // Delay auto-answer slightly so the SIP session fully establishes
-          // before the SDK processes the answer request.
-          setTimeout(() => command('answer'), 800);
+          clearTimeout(autoAnswerTimerRef.current);
+          autoAnswerTimerRef.current = setTimeout(() => command('answer'), 800);
           return;
         }
         setCallNumber(number); setCaller(name ? { name } : null); setOpen(true); setView('keypad');
@@ -272,6 +280,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
         if (next === 'idle') {
           pendingCallRef.current = false; lookupSequence.current++;
           callbackDialRef.current = false; clearTimeout(callbackTimerRef.current);
+          clearTimeout(autoAnswerTimerRef.current); clearTimeout(pendingWatchdogRef.current);
           const call = callRef.current;
           if (call) setRecents(previous => [{ number: call.number, name: call.name, time: new Date(), direction: call.direction === 'incoming' && !call.answered ? 'missed' as const : call.direction }, ...previous].slice(0, 20));
           callRef.current = null; setCaller(null); setCallNumber(''); setShowDtmf(false); setSpeakerOff(false); setSeconds(0);
@@ -349,6 +358,8 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   const callbackDialRef = useRef(false);
   const callbackNumberRef = useRef('');
   const callbackTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const autoAnswerTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const pendingWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
 
   const dial = useCallback(async (number: string, request?: PhoneDialRequest) => {
     setOpen(true); setView('keypad'); setError(''); unlockAudio();
@@ -362,29 +373,37 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     try {
       const normalized = normalizeDialNumber(number);
       pendingCallRef.current = true;
+      clearTimeout(pendingWatchdogRef.current);
+      pendingWatchdogRef.current = setTimeout(() => {
+        if (pendingCallRef.current && stateRef.current === 'idle' && !callbackDialRef.current) {
+          pendingCallRef.current = false;
+          clearTimeout(autoAnswerTimerRef.current);
+        }
+      }, 30000);
       if (request) {
         pendingRequestRef.current = request;
         request.signal.addEventListener('abort', () => {
           if (pendingRequestRef.current !== request) return;
           pendingRequestRef.current = null; pendingCallRef.current = false;
+          clearTimeout(pendingWatchdogRef.current);
           dialGenerationRef.current++;
         }, { once: true });
       }
       const mic = await requestMic();
       if (identity !== phoneIdentityRef.current || generation !== dialGenerationRef.current) return;
       if (!mic.granted) {
-        pendingCallRef.current = false; pendingRequestRef.current = null;
+        pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current); pendingRequestRef.current = null;
         reject(mic.error || 'Microphone access is required. Check the on-screen phone.');
         request?.respond({ status: 'failed', error: mic.error || 'Microphone access is required.' });
         return;
       }
       if (identity !== phoneIdentityRef.current || request?.signal.aborted || (request && Date.now() >= request.expiresAt)) {
-        pendingCallRef.current = false;
+        pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current);
         if (pendingRequestRef.current === request) pendingRequestRef.current = null;
         request?.respond({ status: 'cancelled', error: 'Call request expired or cancelled. Please try again.' });
         return;
       }
-      if (stateRef.current !== 'idle') { pendingCallRef.current = false; pendingRequestRef.current = null; reject('Finish the current call first.'); return; }
+      if (stateRef.current !== 'idle') { pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current); pendingRequestRef.current = null; reject('Finish the current call first.'); return; }
       // Use server-side callback API for outbound calls. The Zadarma callback
       // rings this extension first, then connects to the destination. We auto-
       // answer the callback leg so the agent experience is seamless.
@@ -397,7 +416,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       callbackTimerRef.current = setTimeout(() => {
         if (callbackDialRef.current) {
           callbackDialRef.current = false;
-          pendingCallRef.current = false;
+          pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current);
           setError('The call did not connect. Zadarma did not ring back in time. Try again.');
         }
       }, 20000);
@@ -409,7 +428,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
       if (!result.ok || !result.data?.ok) {
         callbackDialRef.current = false;
         clearTimeout(callbackTimerRef.current);
-        pendingCallRef.current = false;
+        pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current);
         if (pendingRequestRef.current === request) pendingRequestRef.current = null;
         reject(result.data?.error || result.error || 'The call could not be started. Try again.');
         return;
@@ -419,7 +438,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
     } catch (e) {
       callbackDialRef.current = false;
       clearTimeout(callbackTimerRef.current);
-      pendingCallRef.current = false;
+      pendingCallRef.current = false; clearTimeout(pendingWatchdogRef.current);
       if (pendingRequestRef.current === request) pendingRequestRef.current = null;
       reject(e instanceof Error ? e.message : 'Invalid number.');
     }
