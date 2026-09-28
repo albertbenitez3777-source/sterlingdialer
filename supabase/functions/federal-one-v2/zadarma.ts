@@ -18,11 +18,11 @@ export async function zadarmaClient(supabase: any) {
   const key = Deno.env.get('ZADARMA_API_KEY') || config.zadarma_api_key || '';
   const secret = Deno.env.get('ZADARMA_API_SECRET') || config.zadarma_api_secret || '';
   if (!key || !secret) throw new Error('Zadarma API credentials are not configured.');
-  return async (path: string, params: Params = {}, method = 'GET') => {
+  return async (path: string, params: Params = {}, method = 'GET', timeoutMs = 12000) => {
     const signed = signZadarma(path, params, secret);
     const response = await fetch(`https://api.zadarma.com${path}${method === 'GET' && signed.query ? `?${signed.query}` : ''}`, {
       method, headers: { Authorization: `${key}:${signed.signature}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      ...(method === 'GET' ? {} : { body: signed.query }), signal: AbortSignal.timeout(12000),
+      ...(method === 'GET' ? {} : { body: signed.query }), signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await response.json();
     if (!response.ok || data.status !== 'success') throw new Error(String(data.message || `Zadarma returned HTTP ${response.status}`).slice(0, 240));

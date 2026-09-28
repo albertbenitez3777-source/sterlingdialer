@@ -38,11 +38,18 @@ export async function operations(db: any, actor: Actor, body: Record<string, unk
     if (!call?.recording_id) return respond({ error: 'Zadarma has not supplied a recording for this call.' }, 404);
     try {
       const request = await zadarmaClient(db);
-      const result = await request('/v1/pbx/record/request/', { call_id: call.recording_id, lifetime: '300' });
-      const link = result.link;
-      if (typeof link !== 'string' || !link.startsWith('https://')) return respond({ error: 'The recording is not ready yet. Try again shortly.' }, 409);
+      const result = await request('/v1/pbx/record/request/', { call_id: call.recording_id, lifetime: '300' }, 'GET', 20000);
+      const link = typeof result.link === 'string' ? result.link
+        : Array.isArray(result.links) && typeof result.links[0] === 'string' ? result.links[0]
+        : null;
+      if (!link?.startsWith('https://')) return respond({ error: 'The recording is not ready yet. Try again shortly.' }, 409);
       return respond({ url: link });
-    } catch { return respond({ error: 'The recording is temporarily unavailable. Try again shortly.' }, 503); }
+    } catch (e) {
+      const msg = e instanceof Error && e.name === 'TimeoutError'
+        ? 'Zadarma took too long to prepare the recording. Try again shortly.'
+        : 'The recording is temporarily unavailable. Try again shortly.';
+      return respond({ error: msg }, 503);
+    }
   }
   return null;
 }
