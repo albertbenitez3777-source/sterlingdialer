@@ -1,9 +1,11 @@
 import type { ApplicationModel } from "@/app/useApplicationModel";
 import { PinInput } from '@/components';
 import { MatrixField } from '@/components/MatrixField';
+import { OfflineAccessScreen, OFFLINE_ACCESS_MESSAGE } from './OfflineAccessScreen';
 
 export function LoginScreen({ model }: { model: Pick<ApplicationModel, "restoringLogin" | "ownerNeedsSetup" | "setupPin" | "setSetupPin" | "handleOwnerSetup" | "setupConfirm" | "setSetupConfirm" | "setupError" | "settingUp" | "session" | "loginError" | "pin" | "setPin" | "setLoginError" | "handleLogin" | "loggingIn" > }) {
 const { restoringLogin, ownerNeedsSetup, setupPin, setSetupPin, handleOwnerSetup, setupConfirm, setSetupConfirm, setupError, settingUp, session, loginError, pin, setPin, setLoginError, handleLogin, loggingIn } = model;
+if (!session?.valid && loginError === OFFLINE_ACCESS_MESSAGE) return <OfflineAccessScreen />;
 if (ownerNeedsSetup) {
     return (
       <div className="matrix-access-page">

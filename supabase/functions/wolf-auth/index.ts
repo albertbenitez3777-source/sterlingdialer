@@ -1,5 +1,4 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import postgres from "npm:postgres@3.4.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,15 +8,14 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? "";
 
-const UPSTREAM_TIMEOUT_MS = 8000;
+const UPSTREAM_TIMEOUT_MS = 20000;
 
 // Fixed allowlist: action -> { rpc, args }
 // Only these RPCs can be called, only with these exact argument names.
 type RpcSpec = { rpc: string; args: string[] };
 const RPC_ALLOWLIST: Record<string, RpcSpec> = {
-  login: { rpc: "agent_login", args: ["p_pin", "p_ip"] },
+  login: { rpc: "agent_login_with_retired_pin_notice", args: ["p_pin", "p_ip"] },
   login_by_token: { rpc: "agent_login_by_token", args: ["p_token", "p_ip"] },
   logout: { rpc: "agent_logout", args: ["p_session_token"] },
   verify: { rpc: "verify_session", args: ["p_session_token"] },
@@ -37,48 +35,67 @@ function safeLog(correlationId: string, action: string, message: string, extra?:
   console.log(JSON.stringify(entry));
 }
 
+function isAuthResult(data: unknown): data is Record<string, unknown> & { success: boolean } {
+  return typeof data === "object" && data !== null && !Array.isArray(data) && typeof (data as Record<string, unknown>).success === "boolean";
+}
+
 async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationId: string, action: string): Promise<{ ok: boolean; status: number; data: unknown }> {
-  if (!dbUrl) {
-    safeLog(correlationId, action, "database URL missing");
+  if (!supabaseUrl || !serviceRoleKey) {
+    safeLog(correlationId, action, "Supabase configuration missing");
     return { ok: false, status: 0, data: null };
   }
 
-  const sql = postgres(dbUrl, {
-    max: 1,
-    idle_timeout: 1,
-    connect_timeout: 10,
-    ssl: { rejectUnauthorized: false },
-    connection: { application_name: "wolf-auth-isolated", statement_timeout: "10000" },
-  });
+  const endpoint = `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/rpc/${spec.rpc}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   const start = Date.now();
 
   try {
-    let rows;
-    if (spec.rpc === "agent_login") {
-      rows = await sql`SELECT agent_login(${args.p_pin}, ${args.p_ip}) AS data`;
-    } else if (spec.rpc === "agent_login_by_token") {
-      rows = await sql`SELECT agent_login_by_token(${args.p_token}, ${args.p_ip}) AS data`;
-    } else if (spec.rpc === "agent_logout") {
-      await sql`SELECT agent_logout(${args.p_session_token})`;
-      safeLog(correlationId, action, "database responded", { elapsedMs: Date.now() - start });
-      return { ok: true, status: 200, data: null };
-    } else if (spec.rpc === "verify_session") {
-      rows = await sql`SELECT verify_session(${args.p_session_token}) AS data`;
-    } else if (spec.rpc === "owner_setup_pin") {
-      rows = await sql`SELECT owner_setup_pin(${args.p_pin}) AS data`;
-    } else if (spec.rpc === "owner_needs_setup") {
-      rows = await sql`SELECT owner_needs_setup() AS data`;
-    } else {
-      return { ok: false, status: 400, data: null };
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(args),
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    let data: unknown = null;
+    if (responseText.trim()) {
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        safeLog(correlationId, action, "Supabase RPC returned invalid JSON", {
+          status: response.status,
+          elapsedMs: Date.now() - start,
+        });
+        return { ok: false, status: response.status, data: null };
+      }
     }
-
-    safeLog(correlationId, action, "database responded", { elapsedMs: Date.now() - start });
-    return { ok: true, status: 200, data: rows[0]?.data ?? null };
+    if (!response.ok) {
+      safeLog(correlationId, action, "Supabase RPC failed", {
+        status: response.status,
+        elapsedMs: Date.now() - start,
+      });
+      return { ok: false, status: response.status, data: null };
+    }
+    safeLog(correlationId, action, "Supabase RPC responded", {
+      status: response.status,
+      elapsedMs: Date.now() - start,
+    });
+    return { ok: true, status: response.status, data };
   } catch (err) {
-    safeLog(correlationId, action, "database failed", { code: "DB_ERROR", elapsedMs: Date.now() - start, error: String(err).slice(0, 160) });
+    const errorName = err instanceof Error ? err.name : "";
+    safeLog(correlationId, action, "Supabase RPC unavailable", {
+      code: errorName === "AbortError" ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR",
+      elapsedMs: Date.now() - start,
+    });
     return { ok: false, status: 0, data: null };
   } finally {
-    await sql.end({ timeout: 1 }).catch(() => {});
+    clearTimeout(timeout);
   }
 }
 
@@ -110,9 +127,12 @@ Deno.serve(async (req: Request) => {
       if (!result.ok) {
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
-      const data = result.data as Record<string, unknown> | null;
-      if (!data || !data.success) {
-        return jsonResponse(data || { success: false, error: "Authentication failed" }, 401);
+      if (!isAuthResult(result.data)) {
+        return jsonResponse({ success: false, error: "Authentication service returned an invalid response" }, 503);
+      }
+      const data = result.data;
+      if (!data.success) {
+        return jsonResponse(data, 401);
       }
       return jsonResponse(data, 200);
     }
@@ -128,9 +148,12 @@ Deno.serve(async (req: Request) => {
       if (!result.ok) {
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
-      const data = result.data as Record<string, unknown> | null;
-      if (!data || !data.success) {
-        return jsonResponse(data || { success: false, error: "Invalid or expired link" }, 401);
+      if (!isAuthResult(result.data)) {
+        return jsonResponse({ success: false, error: "Authentication service returned an invalid response" }, 503);
+      }
+      const data = result.data;
+      if (!data.success) {
+        return jsonResponse(data, 401);
       }
       return jsonResponse(data, 200);
     }
@@ -175,7 +198,7 @@ Deno.serve(async (req: Request) => {
       }
       const spec = RPC_ALLOWLIST.owner_setup;
       const result = await callRpc(spec, { p_pin: pin }, correlationId, action);
-      if (result.status === 0) {
+      if (!result.ok) {
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
       const data = result.data as Record<string, unknown> | null;
