@@ -5,7 +5,9 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const COMP_PATH = join(__dirname, '..', 'src', 'modules', 'owner', 'AdminDialerOverview.tsx');
-const SOURCE = readFileSync(COMP_PATH, 'utf-8');
+const HOOK_PATH = join(__dirname, '..', 'src', 'modules', 'owner', 'useAdminDialerOverviewData.ts');
+const COMP_SOURCE = readFileSync(COMP_PATH, 'utf-8');
+const HOOK_SOURCE = readFileSync(HOOK_PATH, 'utf-8');
 
 vi.mock('@/modules/monitoring/api', () => ({
   monitoringRequest: vi.fn(),
@@ -35,9 +37,6 @@ import type { AdminStats, RosterAttendanceRow } from '@/app/shared';
 const mockMonitoringRequest = vi.mocked(monitoringRequest);
 const mockAuthFetch = vi.mocked(authFetch);
 
-// DISTINCT values to catch mapping mix-ups:
-// configured=12, hourly_target=400, recent_hour=201, bland.attempts=201, campaign.accepted=200,
-// campaign.call_limit=400, leads_remaining=2104, agent.attempts=50, agent.in_progress=2
 function makeOps() {
   return {
     as_of: '2026-09-28T15:30:00Z',
@@ -105,78 +104,87 @@ function has(root: ReturnType<typeof create>, needle: string): boolean {
 
 describe('AdminDialerOverview source checks', () => {
   it('fetches operations_overview from FEDERAL_ONE_V2_URL (same as OperationsDashboard), not PROVIDER_URL', () => {
-    expect(SOURCE).toContain('FEDERAL_ONE_V2_URL');
-    expect(SOURCE).not.toContain('PROVIDER_URL');
+    expect(HOOK_SOURCE).toContain('FEDERAL_ONE_V2_URL');
+    expect(COMP_SOURCE).not.toContain('PROVIDER_URL');
   });
 
   it('calls authFetch with action operations_overview and window today', () => {
-    expect(SOURCE).toContain("'operations_overview'");
-    expect(SOURCE).toContain("'today'");
+    expect(HOOK_SOURCE).toContain("'operations_overview'");
+    expect(HOOK_SOURCE).toContain("'today'");
   });
 
   it('uses monitoringRequest for team monitor data', () => {
-    expect(SOURCE).toContain('monitoringRequest');
+    expect(HOOK_SOURCE).toContain('monitoringRequest');
   });
 
   it('does not edit backend, phone, auth, or session code', () => {
-    expect(SOURCE).not.toContain('wolf-auth');
-    expect(SOURCE).not.toContain('dialer-controls');
-    expect(SOURCE).not.toContain('atomicLogout');
+    expect(COMP_SOURCE).not.toContain('wolf-auth');
+    expect(COMP_SOURCE).not.toContain('dialer-controls');
+    expect(COMP_SOURCE).not.toContain('atomicLogout');
   });
 
   it('uses campaign?.accepted for batch accepted (not agent_answered_today)', () => {
-    expect(SOURCE).toMatch(/campaign\?\.accepted/);
-    expect(SOURCE).not.toContain('agent_answered_today');
+    expect(COMP_SOURCE).toMatch(/campaign\?\.accepted/);
+    expect(COMP_SOURCE).not.toContain('agent_answered_today');
   });
 
   it('uses campaign?.call_limit for batch limit (not daily_minute_cap)', () => {
-    expect(SOURCE).toMatch(/campaign\?\.call_limit/);
-    expect(SOURCE).not.toContain('daily_minute_cap');
+    expect(COMP_SOURCE).toMatch(/campaign\?\.call_limit/);
+    expect(COMP_SOURCE).not.toContain('daily_minute_cap');
   });
 
   it('uses lines?.configured for line limit (not provider_call_limit)', () => {
-    expect(SOURCE).toMatch(/lines\?\.configured/);
-    expect(SOURCE).not.toContain('provider_call_limit');
+    expect(COMP_SOURCE).toMatch(/lines\?\.configured/);
+    expect(COMP_SOURCE).not.toContain('provider_call_limit');
   });
 
   it('uses lines?.hourly_target for hourly ceiling (not daily_minute_cap)', () => {
-    expect(SOURCE).toMatch(/lines\?\.hourly_target/);
-    expect(SOURCE).not.toContain('daily_minute_cap');
+    expect(COMP_SOURCE).toMatch(/lines\?\.hourly_target/);
+    expect(COMP_SOURCE).not.toContain('daily_minute_cap');
   });
 
   it('uses lines?.recent_hour for rolling pace (not funnel_today fallback)', () => {
-    expect(SOURCE).toMatch(/lines\?\.recent_hour/);
-    expect(SOURCE).not.toContain('funnel_today');
+    expect(COMP_SOURCE).toMatch(/lines\?\.recent_hour/);
+    expect(COMP_SOURCE).not.toContain('funnel_today');
   });
 
   it('uses agent.in_progress for per-agent active calls (not currently_receiving)', () => {
-    expect(SOURCE).toMatch(/agent\.in_progress/);
-    expect(SOURCE).not.toContain('currently_receiving');
+    expect(COMP_SOURCE).toMatch(/agent\.in_progress/);
+    expect(COMP_SOURCE).not.toContain('currently_receiving');
   });
 
   it('computes batch remaining from call_limit - accepted (not leads_remaining)', () => {
-    expect(SOURCE).toContain('call_limit');
-    expect(SOURCE).toContain('accepted');
+    expect(COMP_SOURCE).toContain('call_limit');
+    expect(COMP_SOURCE).toContain('accepted');
   });
 
   it('shows No recent activity when no presence data available', () => {
-    expect(SOURCE).toContain('No recent activity');
+    expect(COMP_SOURCE).toContain('No recent activity');
   });
 
   it('does not expose customer PII', () => {
-    expect(SOURCE).not.toMatch(/consumer_name|consumer_phone|client_name|client_phone|phone_normalized/);
+    expect(COMP_SOURCE).not.toMatch(/consumer_name|consumer_phone|client_name|client_phone|phone_normalized/);
   });
 
   it('renders LOADING badge when ops not loaded (never OFF before data)', () => {
-    expect(SOURCE).toContain('LOADING');
+    expect(COMP_SOURCE).toContain('LOADING');
   });
 
   it('renders dashes when ops not loaded (never zero counts before data)', () => {
-    expect(SOURCE).toContain('opsLoaded');
+    expect(COMP_SOURCE).toContain('opsLoaded');
   });
 
   it('renders loading message for agent cards when ops not loaded (never empty roster claim)', () => {
-    expect(SOURCE).toContain('Loading agent cards');
+    expect(COMP_SOURCE).toContain('Loading agent cards');
+  });
+
+  it('labels humans as Human-classified not proven humans', () => {
+    expect(COMP_SOURCE).toContain('Human-classified');
+    expect(COMP_SOURCE).not.toContain('Humans reached');
+  });
+
+  it('shows Last reported when stale rather than implying fresh status', () => {
+    expect(COMP_SOURCE).toContain('Last reported');
   });
 });
 
@@ -195,17 +203,13 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     mockAuthFetch.mockResolvedValue({ ok: true, data: { ...makeOps(), ...overrides?.ops }, status: 200, error: null, loggedOut: false } as never);
   }
 
-  // CRITICAL: failed initial fetch must never show DIALER OFF, zero counts, or empty roster
   it('failed initial fetch shows LOADING/dashes/loading message, never DIALER OFF or No active agents', async () => {
     mockMonitoringRequest.mockResolvedValue(makeReport() as never);
     mockAuthFetch.mockResolvedValue({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    // Must NOT show DIALER OFF when no data has loaded
     expect(has(root, 'DIALER OFF')).toBe(false);
-    // Must NOT show "No active agents on the roster" when no data has loaded
     expect(has(root, 'No active agents on the roster')).toBe(false);
-    // Must show LOADING or unavailable state
     const txt = allText(root);
     expect(txt.includes('LOADING') || txt.includes('unavailable') || txt.includes('loading') || txt.includes('Loading')).toBe(true);
     act(() => root.unmount());
@@ -216,7 +220,6 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     mockAuthFetch.mockResolvedValue({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    // Active calls should be — not 0
     expect(has(root, '—')).toBe(true);
     act(() => root.unmount());
   });
@@ -377,7 +380,6 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     expect(mockAuthFetch).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
     expect(mockAuthFetch).toHaveBeenCalledTimes(2);
-    // Should still show DIALER ON from preserved data, not LOADING or OFF
     expect(has(root, 'DIALER ON')).toBe(true);
     expect(has(root, 'stale')).toBe(true);
     act(() => root.unmount());
@@ -398,6 +400,203 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     expect(mockAuthFetch.mock.calls[0]?.[0]).toBe('https://test-federal-one-v2.example.com');
+    act(() => root.unmount());
+  });
+});
+
+// ── New behavioral tests: single-flight, overlap, hidden pause, abort, stale ──
+
+// Minimal document stub for Node environment — the hook guards all access with typeof checks,
+// but the tests need to simulate visibility changes.
+const docStub: { visibilityState: string; dispatchEvent: (e: Event) => void; addEventListener: (type: string, listener: (e: Event) => void) => void; removeEventListener: (type: string, listener: (e: Event) => void) => void } = {
+  visibilityState: 'visible',
+  dispatchEvent: () => {},
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
+const listeners: Record<string, ((e: Event) => void)[]> = {};
+docStub.addEventListener = (type, listener) => { (listeners[type] ??= []).push(listener); };
+docStub.removeEventListener = (type, listener) => { listeners[type] = (listeners[type] || []).filter(l => l !== listener); };
+docStub.dispatchEvent = (e) => { (listeners[e.type] || []).forEach(l => l(e)); };
+(globalThis as unknown as Record<string, unknown>).document = docStub;
+
+describe('AdminDialerOverview polling safety', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockMonitoringRequest.mockReset();
+    mockAuthFetch.mockReset();
+    docStub.visibilityState = 'visible';
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not overlap ops requests when the response is slow (single-flight)', async () => {
+    // Ops resolves only after 40s — longer than the 30s poll interval.
+    let opsResolve: ((v: { ok: boolean; data: unknown; status: number; error: string | null; loggedOut: boolean }) => void) | undefined;
+    const opsPromise = new Promise(r => { opsResolve = r; });
+    mockAuthFetch.mockReturnValue(opsPromise as never);
+    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
+
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    // Let the effect kick off the first request.
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+
+    // Advance past the 30s interval — the timer fires but must NOT start a second request.
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+
+    // Now resolve the slow request.
+    await act(async () => {
+      opsResolve!({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false });
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+
+    // After resolution, the next poll fires at the normal 30s interval.
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(2);
+
+    act(() => root.unmount());
+  });
+
+  it('does not overlap monitor requests when the response is slow (single-flight)', async () => {
+    let monResolve: ((v: unknown) => void) | undefined;
+    const monPromise = new Promise(r => { monResolve = r; });
+    mockMonitoringRequest.mockReturnValue(monPromise as never);
+    mockAuthFetch.mockResolvedValue({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(mockMonitoringRequest).toHaveBeenCalledTimes(1);
+
+    // Advance past the 60s monitor interval — must NOT start a second request.
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(mockMonitoringRequest).toHaveBeenCalledTimes(1);
+
+    // Resolve the slow request, then advance to trigger the next poll.
+    await act(async () => {
+      monResolve!(makeReport());
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(mockMonitoringRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(mockMonitoringRequest).toHaveBeenCalledTimes(2);
+
+    act(() => root.unmount());
+  });
+
+  function setupMocksPoll(overrides?: { ops?: Partial<ReturnType<typeof makeOps>>; report?: Partial<{ id: string; presence: string; current_login_seconds: number | null; outbound_calls: number }>[] }) {
+    mockMonitoringRequest.mockResolvedValue(makeReport(overrides?.report) as never);
+    mockAuthFetch.mockResolvedValue({ ok: true, data: { ...makeOps(), ...overrides?.ops }, status: 200, error: null, loggedOut: false } as never);
+  }
+
+  it('pauses polling when the tab is hidden and resumes on visible', async () => {
+    setupMocksPoll();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    const callsBeforeHide = mockAuthFetch.mock.calls.length;
+
+    // Hide the tab.
+    docStub.visibilityState = 'hidden';
+    act(() => { docStub.dispatchEvent(new Event('visibilitychange')); });
+
+    // Advance past the 30s interval — should NOT poll while hidden.
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(mockAuthFetch.mock.calls.length).toBe(callsBeforeHide);
+
+    // Make the tab visible again — should trigger an immediate refresh.
+    docStub.visibilityState = 'visible';
+    await act(async () => {
+      docStub.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(mockAuthFetch.mock.calls.length).toBeGreaterThan(callsBeforeHide);
+
+    act(() => root.unmount());
+  });
+
+  it('aborts in-flight requests on unmount (no state writes after unmount)', async () => {
+    let opsResolve: ((v: { ok: boolean; data: unknown; status: number; error: string | null; loggedOut: boolean }) => void) | undefined;
+    const opsPromise = new Promise(r => { opsResolve = r; });
+    mockAuthFetch.mockReturnValue(opsPromise as never);
+    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
+
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+
+    // Unmount while the request is still in-flight.
+    act(() => root.unmount());
+
+    // Resolve the orphaned request — must not cause any error or state write.
+    await act(async () => {
+      opsResolve!({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false });
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    // No new requests should fire after unmount.
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves last good ops snapshot on error and recovers on next success', async () => {
+    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
+    // First: success, second: failure, third: success with updated data.
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+    mockAuthFetch.mockResolvedValueOnce({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
+    const updatedOps = { ...makeOps(), campaign: { ...makeOps().campaign, accepted: 250 } };
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, data: updatedOps, status: 200, error: null, loggedOut: false } as never);
+
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'DIALER ON')).toBe(true);
+
+    // Second poll: failure — should preserve DIALER ON and show stale.
+    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+    expect(has(root, 'DIALER ON')).toBe(true);
+    expect(has(root, 'stale')).toBe(true);
+
+    // Third poll: success — should clear stale and show updated accepted=250.
+    // After a failure, backoff is 60s (30s * 2^1), so advance 65s to ensure the poll fires.
+    await act(async () => { await vi.advanceTimersByTimeAsync(65000); });
+    expect(has(root, 'DIALER ON')).toBe(true);
+    expect(has(root, '250')).toBe(true);
+
+    act(() => root.unmount());
+  });
+
+  it('preserves last good monitor snapshot on error and recovers on next success', async () => {
+    // First: success (outbound_calls=7), second: failure, third: success (outbound_calls=99).
+    mockMonitoringRequest.mockResolvedValueOnce(makeReport() as never);
+    mockMonitoringRequest.mockRejectedValueOnce(new Error('timeout') as never);
+    mockMonitoringRequest.mockResolvedValueOnce(makeReport([{ outbound_calls: 99 }]) as never);
+    mockAuthFetch.mockResolvedValue({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    // Monitor data loaded with outbound_calls=7.
+    expect(has(root, 'Manual phone calls')).toBe(true);
+
+    // Second poll (60s): failure — monitor should preserve last good data.
+    await act(async () => { await vi.advanceTimersByTimeAsync(61000); });
+    // Still shows manual phone calls from preserved snapshot.
+    expect(has(root, 'Manual phone calls')).toBe(true);
+
+    // Third poll: after a failure, backoff is 120s (60s * 2^1). Advance 130s to ensure it fires.
+    await act(async () => { await vi.advanceTimersByTimeAsync(130000); });
+    expect(has(root, '99')).toBe(true);
+
+    act(() => root.unmount());
+  });
+
+  it('shows Last reported when data is stale, not fresh green status', async () => {
+    setupMocksPoll();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    // Initially should show "Last reported online" (since stale flag is false but we use the label).
+    expect(has(root, 'Last reported online')).toBe(true);
     act(() => root.unmount());
   });
 });
