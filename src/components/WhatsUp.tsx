@@ -14,12 +14,12 @@ class VideoErrorBoundary extends Component<{children:ReactNode;onError:()=>void}
 type Person={id:string;full_name:string;role:string};
 type Room={id:string;member_a:string;member_b:string};
 type Message={id:string;sender_agent_id:string;sender_name:string;body:string;image_data?:string;created_at:string};
-export function WhatsUp({sessionToken,agentId,onUnauthorized}:{sessionToken:string;agentId:string;onUnauthorized:()=>void}) {
+export function WhatsUp({sessionToken,agentId,onUnauthorized,defaultOpen=true}:{sessionToken:string;agentId:string;onUnauthorized:()=>void;defaultOpen?:boolean}) {
  const [video,setVideo]=useState<{room:string;title:string}|null>(null);
  const [videoConfigured,setVideoConfigured]=useState<boolean|null>(null);
  const [videoNotice,setVideoNotice]=useState('');
  const [checkingVideo,setCheckingVideo]=useState(false);
- const [open,setOpen]=useState(true),[room,setRoom]=useState('team'),[people,setPeople]=useState<Person[]>([]),[rooms,setRooms]=useState<Room[]>([]),[review,setReview]=useState(false);
+ const [open,setOpen]=useState(defaultOpen),[room,setRoom]=useState('team'),[people,setPeople]=useState<Person[]>([]),[rooms,setRooms]=useState<Room[]>([]),[review,setReview]=useState(false);
  const [messages,setMessages]=useState<Message[]>([]),[draft,setDraft]=useState(''),[photo,setPhoto]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[more,setMore]=useState(false),[unread,setUnread]=useState(false);
  const log=useRef<HTMLDivElement>(null); const pinned=useRef(true);
  useEffect(()=>{if(pinned.current&&log.current)log.current.scrollTop=log.current.scrollHeight;},[messages]);
