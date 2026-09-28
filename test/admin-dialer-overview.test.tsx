@@ -183,10 +183,12 @@ describe('AdminDialerOverview rendering', () => {
     act(() => root.unmount());
   });
 
-  it('shows accepted calls awaiting = active + reserved', () => {
+  it('shows active calls and reserved slots separately (not summed as accepted)', () => {
     mockMonitoringRequest.mockResolvedValue(makeReport() as never);
     const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Accepted calls awaiting')).toBe(true);
+    expect(hasText(root, 'Active calls')).toBe(true);
+    expect(hasText(root, 'Reserved slots')).toBe(true);
+    expect(hasText(root, 'Accepted calls awaiting')).toBe(false);
     act(() => root.unmount());
   });
 
@@ -206,10 +208,11 @@ describe('AdminDialerOverview rendering', () => {
     act(() => root.unmount());
   });
 
-  it('shows remaining attempts (leads remaining)', () => {
+  it('shows attempts left in batch (not remaining leads)', () => {
     mockMonitoringRequest.mockResolvedValue(makeReport() as never);
     const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Remaining attempts')).toBe(true);
+    expect(hasText(root, 'Attempts left in batch')).toBe(true);
+    expect(hasText(root, 'Remaining attempts')).toBe(false);
     act(() => root.unmount());
   });
 

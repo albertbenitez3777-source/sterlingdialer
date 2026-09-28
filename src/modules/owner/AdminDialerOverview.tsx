@@ -89,7 +89,6 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
   const lineLimit = summary?.provider_call_limit;
   const activeCalls = summary?.active_call_count;
   const reservedCalls = summary?.reserved_call_count;
-  const acceptedAwaiting = (activeCalls ?? 0) + (reservedCalls ?? 0);
   const leadsRemaining = summary?.leads_remaining;
   const batchAccepted = summary?.agent_answered_today;
   const batchLimit = summary?.daily_minute_cap;
@@ -113,14 +112,15 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
           </div>
         </div>
         <div className="ado-strip-section">
-          <Stat label="Accepted calls awaiting" value={acceptedAwaiting > 0 ? acceptedAwaiting : '0'} />
+          <Stat label="Active calls" value={activeCalls ?? '0'} sub="provider-accepted" />
+          <Stat label="Reserved slots" value={reservedCalls ?? '0'} sub="dispatch queue" />
           <Stat label="Line limit" value={lineLimit ?? '—'} sub="configured" />
           <Stat label="Calls placed today" value={callsToday ?? '—'} sub="Costa Rica day" />
         </div>
         <div className="ado-strip-section">
           <Stat label="Batch accepted" value={batchAccepted ?? '—'} />
           <Stat label="Batch limit" value={batchLimit ? `${batchLimit} min` : '—'} sub="daily cap" />
-          <Stat label="Remaining attempts" value={leadsRemaining ?? '—'} />
+          <Stat label="Attempts left in batch" value={leadsRemaining ?? '—'} />
         </div>
         <div className="ado-strip-section">
           <Stat label="Last-hour pace" value={hourlyPace ?? '—'} sub="calls in funnel today" />
