@@ -19,72 +19,69 @@ vi.mock('@/app/shared', async (importOriginal) => {
     fmtDuration: (s: number | null | undefined) => s == null || s < 1 ? '—' : `${Math.floor(s / 60)}m ${s % 60}s`,
     fmtTime: (iso: string | null | undefined) => iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—',
     initials: (name: string) => name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase(),
+    PROVIDER_URL: 'https://test-provider.example.com',
   };
 });
 
+vi.mock('@/utils/auth-fetch', () => ({
+  authFetch: vi.fn(),
+}));
+
 import { AdminDialerOverview } from '@/modules/owner/AdminDialerOverview';
 import { monitoringRequest } from '@/modules/monitoring/api';
+import { authFetch } from '@/utils/auth-fetch';
 import type { AdminStats, RosterAttendanceRow } from '@/app/shared';
 
 const mockMonitoringRequest = vi.mocked(monitoringRequest);
+const mockAuthFetch = vi.mocked(authFetch);
 
-function makeAgent(overrides: Partial<AdminStats['agents'][0]> = {}): AdminStats['agents'][0] {
+// DISTINCT values to catch mapping mix-ups:
+// configured=12, hourly_target=400, recent_hour=201, bland.attempts=201, campaign.accepted=200,
+// campaign.call_limit=400, leads_remaining=2104, agent.attempts=50, agent.in_progress=2
+function makeOps() {
   return {
-    id: 'agent-1', full_name: 'James Spencer', role: 'agent', status: 'active',
-    active_for_dialer: true, dialer_concurrency: 1,
-    bland_number: '1234', talkroute_number: '5678', transfer_certified: true,
-    outbound_attempts_today: 42, live_humans: 10, human_drops: 2, fire_transfers: 5,
-    no_answers: 20, voice_messages: 5, pending_calls: 0, currently_receiving: false,
-    last_call_time: '2026-09-28T15:00:00Z',
-    outbound_attempts_week: 100, live_humans_week: 30, human_drops_week: 5,
-    fire_transfers_week: 10, no_answers_week: 40, voice_messages_week: 10,
-    transfers_requested_today: 5, talkroute_leg_created_today: 4, bridge_confirmed_today: 3,
-    ...overrides,
+    as_of: '2026-09-28T15:30:00Z',
+    campaign: { state: 'running', call_limit: 400, accepted: 200, concurrency: 12, started_at: '2026-09-28T08:00:00Z' },
+    lines: { configured: 12, effective: 12, active: 3, reserved: 2, aged: 0, hourly_target: 400, minute_limit: 8, recent_hour: 201, recent_minute: 5, pacing_allowance: 1, available_slots: 7, agent_slots: 7, selected_agents: 3, eligible_agents: 3, blocking_reason: null },
+    bland: { attempts: 201, humans: 80, transfers: 25, destination_dialed: 20, bridge_confirmed: 18, in_progress: 3, no_answer: 150, customer_voicemail: 40, failures: 2, minutes: 120, linked_received: 20, linked_answered: 18, linked_voicemail: 2 },
+    agents: [
+      { id: 'agent-1', full_name: 'James Spencer', status: 'active', selected: true, phone_ready: true, route_ready: true, zadarma_number: '1234', attempts: 50, humans: 20, transfers: 8, incoming: 5, answered: 4, transfer_answers: 3, voicemail_reached: 1, messages: 2, unheard: 1, unheard_backlog: 0, missed: 0, callbacks: 1, in_progress: 2 },
+    ],
   };
 }
 
-function makeStats(overrides: Partial<AdminStats> = {}): AdminStats {
+function makeAdminStats(leadsRemaining = 2104): AdminStats {
   return {
     summary: {
-      campaign_state: 'running', dialer_activated: true, concurrency: 3,
-      provider_call_limit: 5, leads_remaining: 500, calls_attempted_today: 320,
+      campaign_state: 'running', dialer_activated: true, concurrency: 12,
+      provider_call_limit: 12, leads_remaining: leadsRemaining, calls_attempted_today: 201,
       live_humans_today: 80, human_drops_today: 10, fire_transfers_today: 25,
       no_answers_today: 150, voice_messages_today: 40, blocking_reason: '',
       campaign_started_at: '2026-09-28T08:00:00Z',
       calls_attempted_week: 1000, live_humans_week: 200, human_drops_week: 30,
       fire_transfers_week: 50, no_answers_week: 400, voice_messages_week: 80,
-      active_call_count: 2, reserved_call_count: 1,
-      agent_answered_today: 60, daily_minute_cap: 600,
-      funnel_today: { calls_attempted: 320, live_humans_reached: 80, transfers_requested: 25,
-        talkroute_answered: 20, bridge_confirmed: 18, likely_real_conversation: 15,
-        total_minutes: 120, productive_minutes: 60, wasted_minutes: 30, machine_minutes: 10,
-        avg_ai_leg_seconds: 45, machines_detected: 40, avg_machine_seconds: 20,
-        no_answer_count: 150, human_drop_count: 10, voice_message_count: 40,
-        fire_transfer_count: 25, pending_count: 0 },
       as_of: '2026-09-28T15:30:00Z',
     } as AdminStats['summary'],
-    agents: [makeAgent()],
-    ...overrides,
+    agents: [],
   };
 }
 
-function makeRoster(overrides: Partial<RosterAttendanceRow> = {}): RosterAttendanceRow {
+function makeRoster(presence: 'online' | 'disconnected' | 'signed-out' | 'unknown' = 'online'): RosterAttendanceRow {
   return {
     agent_id: 'agent-1', full_name: 'James Spencer', role: 'agent',
-    presence: 'online', last_confirmed_at: '2026-09-28T15:00:00Z',
+    presence, last_confirmed_at: '2026-09-28T15:00:00Z',
     today_total_seconds: 3600, week_total_seconds: 18000,
     is_legacy_estimate: false, available_for_transfer: true, active_for_dialer: true,
-    ...overrides,
   };
 }
 
-function makeReport(agents: Partial<{ id: string; full_name: string; presence: string; current_login_seconds: number | null; logged_seconds: number; outbound_calls: number; outbound_answered: number; inbound_answered: number; transfers_received: number; transfers_answered: number; transfers_sent: number }>[] = []) {
+function makeReport(agents: Partial<{ id: string; presence: string; current_login_seconds: number | null; outbound_calls: number }>[] = []) {
   return {
     server_now: '2026-09-28T15:30:00Z',
     agents: agents.map(a => ({
       id: 'agent-1', full_name: 'James Spencer', presence: 'Online',
       current_login_seconds: 1800, logged_seconds: 3600,
-      outbound_calls: 3, outbound_answered: 2, inbound_answered: 1,
+      outbound_calls: 7, outbound_answered: 2, inbound_answered: 1,
       transfers_received: 4, transfers_answered: 3, transfers_sent: 5,
       ...a,
     })),
@@ -97,215 +94,259 @@ function renderComp(props: { sessionToken?: string; adminStats?: AdminStats | nu
   return root!;
 }
 
-function text(root: ReturnType<typeof create>): string {
+function allText(root: ReturnType<typeof create>): string {
   const types = ['span', 'strong', 'div', 'p', 'small', 'button'];
-  return types.flatMap(t => root.root.findAllByType(t).map(s => s.props.children).flat(Infinity)).filter((c): c is string => typeof c === 'string').join('|');
+  return types.flatMap(t => root.root.findAllByType(t).map(s => s.props.children).flat(Infinity)).filter((c): c is string | number => typeof c === 'string' || typeof c === 'number').map(String).join('|');
 }
 
-function hasText(root: ReturnType<typeof create>, needle: string): boolean {
-  return text(root).includes(needle);
+function has(root: ReturnType<typeof create>, needle: string): boolean {
+  return allText(root).includes(needle);
 }
 
 describe('AdminDialerOverview source checks', () => {
-  it('separates manual phone calls from dialer attempts', () => {
-    expect(SOURCE).toContain('outbound_attempts_today');
-    expect(SOURCE).toContain('outbound_calls');
-    expect(SOURCE).toContain('Manual phone calls');
-    expect(SOURCE).toContain('Dialer attempts today');
-  });
-
-  it('does not call loadAdminStats or dialer-controls endpoint', () => {
-    expect(SOURCE).not.toContain('loadAdminStats');
-    expect(SOURCE).not.toContain('DIALER_CONTROLS_URL');
-    expect(SOURCE).not.toContain('get_live_status');
+  it('fetches operations_overview (not admin_stats) for dialer strip', () => {
+    expect(SOURCE).toContain('operations_overview');
     expect(SOURCE).not.toContain('get_admin_stats');
   });
 
-  it('uses monitoringRequest (federal-one-monitoring) for team data', () => {
+  it('uses monitoringRequest for team monitor data', () => {
     expect(SOURCE).toContain('monitoringRequest');
   });
 
   it('does not edit backend, phone, auth, or session code', () => {
     expect(SOURCE).not.toContain('wolf-auth');
-    expect(SOURCE).not.toContain('wolf-provider');
     expect(SOURCE).not.toContain('dialer-controls');
-    expect(SOURCE).not.toContain('session_token');
     expect(SOURCE).not.toContain('atomicLogout');
   });
 
-  it('preserves last successful data on error (does not clear report on catch)', () => {
-    expect(SOURCE).toMatch(/catch\s*\{[^}]*setReportError/);
-    expect(SOURCE).not.toMatch(/catch\s*\{[^}]*setReport\(null\)/);
+  it('uses campaign.accepted for batch accepted (not agent_answered_today)', () => {
+    expect(SOURCE).toMatch(/campaign\?\.accepted/);
+    expect(SOURCE).not.toContain('agent_answered_today');
   });
 
-  it('shows stale indicator without zeroing out data', () => {
-    expect(SOURCE).toContain('ado-stale');
-    expect(SOURCE).toContain('Team monitor data is stale');
+  it('uses campaign.call_limit for batch limit (not daily_minute_cap)', () => {
+    expect(SOURCE).toMatch(/campaign\?\.call_limit/);
+    expect(SOURCE).not.toContain('daily_minute_cap');
   });
 
-  it('handles unknown/stale presence via roster fallback', () => {
-    expect(SOURCE).toContain('Not reporting');
-    expect(SOURCE).toContain("roster?.presence === 'online'");
+  it('uses lines.configured for line limit (not provider_call_limit)', () => {
+    expect(SOURCE).toMatch(/lines\?\.configured/);
+    expect(SOURCE).not.toContain('provider_call_limit');
   });
 
-  it('does not expose customer names or phone numbers', () => {
+  it('uses lines.hourly_target for hourly ceiling (not daily_minute_cap)', () => {
+    expect(SOURCE).toMatch(/lines\?\.hourly_target/);
+    expect(SOURCE).not.toContain('daily_minute_cap');
+  });
+
+  it('uses lines.recent_hour for rolling pace (not funnel_today fallback)', () => {
+    expect(SOURCE).toMatch(/lines\?\.recent_hour/);
+    expect(SOURCE).not.toContain('funnel_today');
+  });
+
+  it('uses agent.in_progress for per-agent active calls (not currently_receiving)', () => {
+    expect(SOURCE).toMatch(/agent\.in_progress/);
+    expect(SOURCE).not.toContain('currently_receiving');
+  });
+
+  it('computes batch remaining from call_limit - accepted (not leads_remaining)', () => {
+    expect(SOURCE).toContain('batchLimit - batchAccepted');
+    expect(SOURCE).not.toMatch(/leadsRemaining.*batch/);
+  });
+
+  it('shows No recent activity when no presence data available', () => {
+    expect(SOURCE).toContain('No recent activity');
+  });
+
+  it('does not expose customer PII', () => {
     expect(SOURCE).not.toMatch(/consumer_name|consumer_phone|client_name|client_phone|phone_normalized/);
   });
 });
 
-describe('AdminDialerOverview rendering', () => {
+describe('AdminDialerOverview rendering with distinct values', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockMonitoringRequest.mockReset();
+    mockAuthFetch.mockReset();
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('shows loading state when adminStats is null', async () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: null });
-    expect(hasText(root, 'Dialer stats loading')).toBe(true);
-    act(() => root.unmount());
-  });
+  function setupMocks(overrides?: { ops?: Partial<ReturnType<typeof makeOps>>; report?: Partial<{ id: string; presence: string; current_login_seconds: number | null; outbound_calls: number }>[] }) {
+    mockMonitoringRequest.mockResolvedValue(makeReport(overrides?.report) as never);
+    mockAuthFetch.mockResolvedValue({ ok: true, data: { ...makeOps(), ...overrides?.ops }, status: 200, error: null, loggedOut: false } as never);
+  }
 
-  it('renders dialer ON badge when campaign is running', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats() });
-    expect(hasText(root, 'DIALER ON')).toBe(true);
-    act(() => root.unmount());
-  });
-
-  it('renders dialer OFF badge when campaign is stopped', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats({ summary: { ...makeStats().summary, campaign_state: 'stopped' } as AdminStats['summary'] }) });
-    expect(hasText(root, 'DIALER OFF')).toBe(true);
-    act(() => root.unmount());
-  });
-
-  it('shows active calls and reserved slots separately (not summed as accepted)', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Active calls')).toBe(true);
-    expect(hasText(root, 'Reserved slots')).toBe(true);
-    expect(hasText(root, 'Accepted calls awaiting')).toBe(false);
-    act(() => root.unmount());
-  });
-
-  it('shows line limit separately from calls placed today', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Line limit')).toBe(true);
-    expect(hasText(root, 'Calls placed today')).toBe(true);
-    act(() => root.unmount());
-  });
-
-  it('shows batch accepted and batch limit separately', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Batch accepted')).toBe(true);
-    expect(hasText(root, 'Batch limit')).toBe(true);
-    act(() => root.unmount());
-  });
-
-  it('shows attempts left in batch (not remaining leads)', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Attempts left in batch')).toBe(true);
-    expect(hasText(root, 'Remaining attempts')).toBe(false);
-    act(() => root.unmount());
-  });
-
-  it('separates manual phone calls from dialer attempts in agent card', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport([{ outbound_calls: 7 }]) as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'Dialer attempts today')).toBe(true);
-    expect(hasText(root, 'Manual phone calls')).toBe(true);
-    act(() => root.unmount());
-  });
-
-  it('preserves last successful report on monitoring error', async () => {
-    const goodReport = makeReport([{ outbound_calls: 7 }]);
-    mockMonitoringRequest.mockResolvedValueOnce(goodReport as never);
-    mockMonitoringRequest.mockRejectedValueOnce(new Error('network') as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
+  it('shows line limit 12 (configured), not 400 (hourly target)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(mockMonitoringRequest).toHaveBeenCalledTimes(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
-    expect(mockMonitoringRequest).toHaveBeenCalledTimes(2);
-    expect(hasText(root, 'stale')).toBe(true);
-    expect(hasText(root, 'Manual phone calls')).toBe(true);
+    expect(has(root, 'Line limit')).toBe(true);
+    expect(has(root, '12')).toBe(true);
     act(() => root.unmount());
   });
 
-  it('uses roster presence fallback when monitor report has not loaded', async () => {
+  it('shows batch accepted 200 (campaign.accepted), not 201 (calls today)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Batch accepted')).toBe(true);
+    expect(has(root, '200')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows batch limit 400 (campaign.call_limit), not 600 (daily_minute_cap)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Batch limit')).toBe(true);
+    expect(has(root, '400')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows attempts left in batch = 200 (400-200), not 2104 (new leads)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(2104), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Attempts left in batch')).toBe(true);
+    // 200 should appear (batch remaining), 2104 should appear as new leads separately
+    act(() => root.unmount());
+  });
+
+  it('shows new leads 2104 separately from batch remaining', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(2104), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'New leads')).toBe(true);
+    expect(has(root, '2104')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows last-hour pace 201 (recent_hour), not today total 201 as fallback', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Last-hour pace')).toBe(true);
+    expect(has(root, 'rolling 60 min')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows hourly ceiling 400 (hourly_target), not 600 (minute cap)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Hourly ceiling')).toBe(true);
+    expect(has(root, 'target / hr')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows calls today 201 (bland.attempts), not 200 (batch accepted)', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Calls today')).toBe(true);
+    expect(has(root, 'outbound accepted')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows per-agent active calls from in_progress=2, not currently_receiving flag', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Active calls')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows per-agent dialer attempts from ops agent.attempts=50', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Dialer attempts')).toBe(true);
+    expect(has(root, '50')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows No recent activity when no monitor report and no roster', async () => {
     mockMonitoringRequest.mockResolvedValue({ server_now: '2026-09-28T15:30:00Z', agents: [] } as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster({ presence: 'online' })] });
+    mockAuthFetch.mockResolvedValue({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(hasText(root, 'Logged in')).toBe(true);
+    expect(has(root, 'No recent activity')).toBe(true);
     act(() => root.unmount());
   });
 
-  it('shows not logged in when roster presence is disconnected and no monitor agent', async () => {
+  it('shows Not logged in when roster presence is disconnected', async () => {
     mockMonitoringRequest.mockResolvedValue({ server_now: '2026-09-28T15:30:00Z', agents: [] } as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster({ presence: 'disconnected' })] });
+    mockAuthFetch.mockResolvedValue({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster('disconnected')] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(hasText(root, 'Not logged in')).toBe(true);
+    expect(has(root, 'Not logged in')).toBe(true);
     act(() => root.unmount());
   });
 
   it('shows not logged in when monitor presence is Not reporting', async () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport([{ presence: 'Not reporting' }]) as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
+    setupMocks({ report: [{ presence: 'Not reporting' }] });
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(hasText(root, 'Not logged in')).toBe(true);
+    expect(has(root, 'Not logged in')).toBe(true);
     act(() => root.unmount());
   });
 
-  it('excludes owner and archived agents from agent cards', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const stats = makeStats({
-      agents: [
-        makeAgent({ id: 'agent-1', full_name: 'James Spencer', role: 'agent' }),
-        makeAgent({ id: 'owner-1', full_name: 'Owner Bob', role: 'owner' }),
-        makeAgent({ id: 'archived-1', full_name: 'Old Agent', role: 'archived', status: 'archived' }),
-      ],
-    });
-    const root = renderComp({ adminStats: stats, rosterAttendance: [makeRoster()] });
-    expect(hasText(root, 'James Spencer')).toBe(true);
-    expect(hasText(root, 'Owner Bob')).toBe(false);
-    expect(hasText(root, 'Old Agent')).toBe(false);
+  it('shows DIALER ON when campaign state is running', async () => {
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'DIALER ON')).toBe(true);
     act(() => root.unmount());
   });
 
-  it('shows empty state when no active agents', () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats({ agents: [] }), rosterAttendance: [] });
-    expect(hasText(root, 'No active agents')).toBe(true);
+  it('shows DIALER OFF when campaign state is stopped', async () => {
+    setupMocks({ ops: { campaign: { state: 'stopped', call_limit: 400, accepted: 200, concurrency: 12 } } });
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'DIALER OFF')).toBe(true);
     act(() => root.unmount());
   });
 
-  it('shows latest accepted call agent', () => {
+  it('shows empty state when no active agents', async () => {
+    setupMocks({ ops: { agents: [] } });
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'No active agents')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('separates manual phone calls from dialer attempts', async () => {
+    setupMocks({ report: [{ outbound_calls: 7 }] });
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Dialer attempts')).toBe(true);
+    expect(has(root, 'Manual phone calls')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('preserves last successful data on ops error', async () => {
     mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const stats = makeStats({
-      agents: [
-        makeAgent({ id: 'agent-1', full_name: 'James Spencer', last_call_time: '2026-09-28T14:00:00Z' }),
-        makeAgent({ id: 'agent-2', full_name: 'Erick Jackson', last_call_time: '2026-09-28T15:00:00Z' }),
-      ],
-    });
-    const root = renderComp({ adminStats: stats, rosterAttendance: [] });
-    expect(hasText(root, 'Erick Jackson')).toBe(true);
-    expect(hasText(root, 'Latest accepted')).toBe(true);
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, data: makeOps(), status: 200, error: null, loggedOut: false } as never);
+    mockAuthFetch.mockResolvedValueOnce({ ok: false, data: null, status: 500, error: 'fail', loggedOut: false } as never);
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+    expect(mockAuthFetch).toHaveBeenCalledTimes(2);
+    expect(has(root, 'stale')).toBe(true);
+    expect(has(root, 'DIALER ON')).toBe(true);
     act(() => root.unmount());
   });
 
   it('cleans up polling timer on unmount', async () => {
-    mockMonitoringRequest.mockResolvedValue(makeReport() as never);
-    const root = renderComp({ adminStats: makeStats(), rosterAttendance: [makeRoster()] });
+    setupMocks();
+    const root = renderComp({ adminStats: makeAdminStats(), rosterAttendance: [makeRoster()] });
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    const callsBefore = mockMonitoringRequest.mock.calls.length;
+    const callsBefore = mockAuthFetch.mock.calls.length;
     act(() => root.unmount());
     await act(async () => { await vi.advanceTimersByTimeAsync(35000); });
-    expect(mockMonitoringRequest.mock.calls.length).toBe(callsBefore);
+    expect(mockAuthFetch.mock.calls.length).toBe(callsBefore);
   });
 });

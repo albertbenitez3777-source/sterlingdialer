@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { fmtDuration, fmtTime, initials, type AdminStats, type RosterAttendanceRow } from '@/app/shared';
+import { fmtDuration, fmtTime, initials, type AdminStats, type RosterAttendanceRow, PROVIDER_URL } from '@/app/shared';
 import { monitoringRequest, costaRicaDay } from '@/modules/monitoring/api';
+import { authFetch } from '@/utils/auth-fetch';
 
 type AgentMonitor = {
   id: string; full_name: string; presence: string;
@@ -12,6 +13,23 @@ type AgentMonitor = {
 
 type MonitorReport = {
   server_now: string; agents: AgentMonitor[];
+};
+
+type OpsAgent = {
+  id: string; full_name: string; status: string; selected: boolean;
+  phone_ready: boolean; route_ready: boolean; zadarma_number: string;
+  attempts: number; humans: number; transfers: number; incoming: number;
+  answered: number; transfer_answers: number; voicemail_reached: number;
+  messages: number; unheard: number; unheard_backlog: number; missed: number;
+  callbacks: number; in_progress: number;
+};
+
+type OperationsOverview = {
+  as_of: string;
+  campaign: { state?: string; call_limit?: number; accepted?: number; concurrency?: number; started_at?: string };
+  lines: { configured: number; effective: number; active: number; reserved: number; aged: number; hourly_target: number; minute_limit: number; recent_hour: number; recent_minute: number; pacing_allowance: number; available_slots: number; agent_slots: number; selected_agents: number; eligible_agents: number; blocking_reason: string | null };
+  bland: { attempts: number; humans: number; transfers: number; destination_dialed: number; bridge_confirmed: number; in_progress: number; no_answer: number; customer_voicemail: number; failures: number; minutes: number; linked_received: number; linked_answered: number; linked_voicemail: number };
+  agents: OpsAgent[];
 };
 
 type Props = {
@@ -43,18 +61,20 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
 export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance }: Props) {
   const [report, setReport] = useState<MonitorReport | null>(null);
   const [reportError, setReportError] = useState(false);
-  const [statsAsOf, setStatsAsOf] = useState<string | null>(null);
+  const [ops, setOps] = useState<OperationsOverview | null>(null);
+  const [opsError, setOpsError] = useState(false);
   const [monitorAsOf, setMonitorAsOf] = useState<string | null>(null);
   const abortedRef = useRef(false);
 
   useEffect(() => {
     abortedRef.current = false;
     let timer: ReturnType<typeof setTimeout>;
-    let pending = false;
+    let monPending = false;
+    let opsPending = false;
 
-    const poll = async () => {
-      if (abortedRef.current || pending) return;
-      pending = true;
+    const pollMon = async () => {
+      if (abortedRef.current || monPending) return;
+      monPending = true;
       try {
         const day = costaRicaDay();
         const data = await monitoringRequest(sessionToken, { action: 'report', day });
@@ -65,42 +85,61 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
       } catch {
         if (!abortedRef.current) setReportError(true);
       } finally {
-        pending = false;
+        monPending = false;
       }
-      if (!abortedRef.current) timer = setTimeout(poll, 30000);
     };
-    void poll();
+
+    const pollOps = async () => {
+      if (abortedRef.current || opsPending) return;
+      opsPending = true;
+      try {
+        const result = await authFetch<OperationsOverview>(PROVIDER_URL, {
+          body: { action: 'operations_overview', session_token: sessionToken, window: 'today' },
+        });
+        if (abortedRef.current) return;
+        if (result.ok && result.data?.lines) {
+          setOps(result.data);
+          setOpsError(false);
+        } else {
+          setOpsError(true);
+        }
+      } catch {
+        if (!abortedRef.current) setOpsError(true);
+      } finally {
+        opsPending = false;
+      }
+    };
+
+    const pollAll = async () => {
+      await Promise.all([pollMon(), pollOps()]);
+      if (!abortedRef.current) timer = setTimeout(pollAll, 30000);
+    };
+    void pollAll();
     return () => {
       abortedRef.current = true;
       clearTimeout(timer);
     };
   }, [sessionToken]);
 
-  useEffect(() => {
-    if (adminStats?.summary.as_of) setStatsAsOf(adminStats.summary.as_of);
-  }, [adminStats?.summary.as_of]);
+  const campaign = ops?.campaign;
+  const lines = ops?.lines;
+  const bland = ops?.bland;
+  const opsAgents = ops?.agents ?? [];
 
-  const summary = adminStats?.summary;
-  const agents = adminStats?.agents ?? [];
-  const activeAgents = agents.filter(a => a.status === 'active' && !a.role?.includes('owner') && !a.role?.includes('archived'));
+  const dialerOn = campaign?.state === 'running';
+  const activeCalls = lines?.active ?? 0;
+  const reservedSlots = lines?.reserved ?? 0;
+  const configuredLimit = lines?.configured;
+  const callsToday = bland?.attempts;
+  const batchAccepted = campaign?.accepted ?? 0;
+  const batchLimit = campaign?.call_limit;
+  const batchRemaining = batchLimit != null ? Math.max(0, batchLimit - batchAccepted) : null;
+  const recentHour = lines?.recent_hour;
+  const hourlyTarget = lines?.hourly_target;
+  const minuteLimit = lines?.minute_limit;
+  const newLeads = adminStats?.summary.leads_remaining;
 
-  const dialerOn = summary?.campaign_state === 'running';
-  const callsToday = summary?.calls_attempted_today;
-  const lineLimit = summary?.provider_call_limit;
-  const activeCalls = summary?.active_call_count;
-  const reservedCalls = summary?.reserved_call_count;
-  const leadsRemaining = summary?.leads_remaining;
-  const batchAccepted = summary?.agent_answered_today;
-  const batchLimit = summary?.daily_minute_cap;
-  const hourlyPace = summary?.funnel_today?.calls_attempted;
-  const hourlyCeiling = summary?.daily_minute_cap;
-
-  const lastAcceptedTime = agents
-    .map(a => a.last_call_time)
-    .filter((t): t is string => !!t)
-    .sort()
-    .slice(-1)[0];
-  const lastAcceptedAgent = agents.find(a => a.last_call_time === lastAcceptedTime)?.full_name;
+  const activeOpsAgents = opsAgents.filter(a => a.status === 'active');
 
   return (
     <section className="ado-overview" aria-label="Dialer overview">
@@ -112,50 +151,47 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
           </div>
         </div>
         <div className="ado-strip-section">
-          <Stat label="Active calls" value={activeCalls ?? '0'} sub="provider-accepted" />
-          <Stat label="Reserved slots" value={reservedCalls ?? '0'} sub="dispatch queue" />
-          <Stat label="Line limit" value={lineLimit ?? '—'} sub="configured" />
-          <Stat label="Calls placed today" value={callsToday ?? '—'} sub="Costa Rica day" />
+          <Stat label="Active calls" value={activeCalls} sub="provider-accepted" />
+          <Stat label="Reserved slots" value={reservedSlots} sub="not accepted" />
+          <Stat label="Line limit" value={configuredLimit ?? '—'} sub="configured" />
+          <Stat label="Calls today" value={callsToday ?? '—'} sub="outbound accepted" />
         </div>
         <div className="ado-strip-section">
-          <Stat label="Batch accepted" value={batchAccepted ?? '—'} />
-          <Stat label="Batch limit" value={batchLimit ? `${batchLimit} min` : '—'} sub="daily cap" />
-          <Stat label="Attempts left in batch" value={leadsRemaining ?? '—'} />
+          <Stat label="Batch accepted" value={batchAccepted} sub="this run" />
+          <Stat label="Batch limit" value={batchLimit ?? '—'} sub="call ceiling" />
+          <Stat label="Attempts left in batch" value={batchRemaining ?? '—'} />
         </div>
         <div className="ado-strip-section">
-          <Stat label="Last-hour pace" value={hourlyPace ?? '—'} sub="calls in funnel today" />
-          <Stat label="Hourly ceiling" value={hourlyCeiling ? `${hourlyCeiling} min` : '—'} sub="daily cap" />
+          <Stat label="Last-hour pace" value={recentHour ?? '—'} sub="rolling 60 min" />
+          <Stat label="Hourly ceiling" value={hourlyTarget ?? '—'} sub="target / hr" />
+          <Stat label="Minute limit" value={minuteLimit ?? '—'} sub="max new starts" />
         </div>
-        {(lastAcceptedTime || lastAcceptedAgent) && (
+        {newLeads != null && (
           <div className="ado-strip-section ado-latest">
-            <span className="ado-stat-label">Latest accepted</span>
-            <strong className="ado-stat-value">
-              {lastAcceptedAgent ?? '—'}
-              {lastAcceptedTime && ` · ${fmtTime(lastAcceptedTime)}`}
-            </strong>
+            <span className="ado-stat-label">New leads</span>
+            <strong className="ado-stat-value">{newLeads}</strong>
           </div>
         )}
       </div>
 
       <div className="ado-timestamps">
-        {statsAsOf && <span>Dialer stats updated {fmtTime(statsAsOf)}</span>}
+        {ops && <span>Operations updated {fmtTime(ops.as_of)}</span>}
         {monitorAsOf && <span>Team monitor updated {fmtTime(monitorAsOf)}</span>}
+        {opsError && <span className="ado-stale">Operations data is stale — retrying</span>}
         {reportError && <span className="ado-stale">Team monitor data is stale — retrying</span>}
-        {!adminStats && <span className="ado-stale">Dialer stats loading…</span>}
+        {!ops && !opsError && <span className="ado-stale">Operations data loading…</span>}
       </div>
 
       <div className="ado-agent-cards">
-        {activeAgents.map(agent => {
+        {activeOpsAgents.map(agent => {
           const monAgent = report?.agents.find(a => a.id === agent.id);
           const roster = rosterAttendance.find(r => r.agent_id === agent.id);
+          const hasPresence = monAgent || roster;
           const online = monAgent ? monAgent.presence !== 'Not reporting' : roster?.presence === 'online';
           const color = agentColor(agent.full_name);
           const sessionDur = monAgent?.current_login_seconds;
-          const transfersRequested = agent.transfers_requested_today ?? 0;
-          const transfersReached = agent.talkroute_leg_created_today ?? 0;
-          const transfersConfirmed = agent.bridge_confirmed_today ?? 0;
           const manualCalls = monAgent?.outbound_calls ?? 0;
-          const activeNow = agent.currently_receiving;
+          const activeNow = agent.in_progress;
 
           return (
             <div key={agent.id} className="ado-agent-card" style={{ borderTopColor: color }}>
@@ -166,34 +202,34 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
                 <div>
                   <strong className="ado-agent-name">{agent.full_name}</strong>
                   <span className={`ado-agent-login ${online ? 'online' : 'offline'}`}>
-                    {!report && !roster ? '—' : online ? '● Logged in' : '○ Not logged in'}
+                    {!hasPresence ? 'No recent activity' : online ? '● Logged in' : '○ Not logged in'}
                   </span>
                 </div>
               </div>
               <div className="ado-agent-session">
                 <span className="ado-stat-label">Session</span>
-                <strong>{report ? (online ? fmtDuration(sessionDur) : 'Not logged in') : '—'}</strong>
+                <strong>{report ? (online ? fmtDuration(sessionDur) : 'Not logged in') : 'Unknown'}</strong>
               </div>
               <div className="ado-agent-metrics">
                 <div className="ado-agent-metric">
-                  <span className="ado-stat-label">Dialer attempts today</span>
-                  <strong>{agent.outbound_attempts_today}</strong>
+                  <span className="ado-stat-label">Dialer attempts</span>
+                  <strong>{agent.attempts}</strong>
                 </div>
                 <div className="ado-agent-metric">
-                  <span className="ado-stat-label">Active call</span>
-                  <strong>{activeNow ? 'Yes' : 'No'}</strong>
+                  <span className="ado-stat-label">Active calls</span>
+                  <strong>{activeNow}</strong>
+                </div>
+                <div className="ado-agent-metric">
+                  <span className="ado-stat-label">Humans reached</span>
+                  <strong>{agent.humans}</strong>
                 </div>
                 <div className="ado-agent-metric">
                   <span className="ado-stat-label">Transfers requested</span>
-                  <strong>{transfersRequested}</strong>
+                  <strong>{agent.transfers}</strong>
                 </div>
                 <div className="ado-agent-metric">
-                  <span className="ado-stat-label">Transfers reached</span>
-                  <strong>{transfersReached}</strong>
-                </div>
-                <div className="ado-agent-metric">
-                  <span className="ado-stat-label">Confirmed pickups</span>
-                  <strong>{transfersConfirmed}</strong>
+                  <span className="ado-stat-label">Transfer answers</span>
+                  <strong>{agent.transfer_answers}</strong>
                 </div>
                 <div className="ado-agent-metric">
                   <span className="ado-stat-label">Manual phone calls</span>
@@ -203,7 +239,7 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
             </div>
           );
         })}
-        {activeAgents.length === 0 && (
+        {activeOpsAgents.length === 0 && (
           <div className="ado-empty">No active agents on the roster.</div>
         )}
       </div>
