@@ -63,6 +63,16 @@ test('a rejected PIN is still unauthorized', async () => {
   assert.equal(response.status, 401);
 });
 
+test('a retired PIN returns the offline notice without any session', async () => {
+  const result = { success: false, code: 'RETIRED_PIN_OFFLINE', error: 'System is offline permanently' };
+  const auth = authHandler(() => Response.json(result));
+  const response = await auth.run({ action: 'login', pin: '4826' });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), result);
+  assert.equal(auth.requests[0].url, 'synthetic-config/rest/v1/rpc/agent_login_with_retired_pin_notice');
+  assert.equal(Object.hasOwn(result, 'session_token'), false);
+});
+
 for (const action of ['login', 'verify']) {
   test(action + ' does not treat an empty database response as successful', async () => {
     const auth = authHandler(() => new Response(null, { status: 204 }));
