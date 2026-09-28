@@ -18,7 +18,6 @@ type Props = {
   sessionToken: string;
   adminStats: AdminStats | null;
   rosterAttendance: RosterAttendanceRow[];
-  onUnauthorized: () => void;
 };
 
 const AGENT_COLORS: Record<string, string> = {
@@ -41,7 +40,7 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   );
 }
 
-export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance, onUnauthorized }: Props) {
+export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance }: Props) {
   const [report, setReport] = useState<MonitorReport | null>(null);
   const [reportError, setReportError] = useState(false);
   const [statsAsOf, setStatsAsOf] = useState<string | null>(null);
@@ -94,7 +93,6 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
   const leadsRemaining = summary?.leads_remaining;
   const batchAccepted = summary?.agent_answered_today;
   const batchLimit = summary?.daily_minute_cap;
-  const remainingAttempts = leadsRemaining;
   const hourlyPace = summary?.funnel_today?.calls_attempted;
   const hourlyCeiling = summary?.daily_minute_cap;
 
@@ -122,7 +120,7 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
         <div className="ado-strip-section">
           <Stat label="Batch accepted" value={batchAccepted ?? '—'} />
           <Stat label="Batch limit" value={batchLimit ? `${batchLimit} min` : '—'} sub="daily cap" />
-          <Stat label="Remaining attempts" value={remainingAttempts ?? '—'} />
+          <Stat label="Remaining attempts" value={leadsRemaining ?? '—'} />
         </div>
         <div className="ado-strip-section">
           <Stat label="Last-hour pace" value={hourlyPace ?? '—'} sub="calls in funnel today" />
@@ -150,7 +148,7 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
         {activeAgents.map(agent => {
           const monAgent = report?.agents.find(a => a.id === agent.id);
           const roster = rosterAttendance.find(r => r.agent_id === agent.id);
-          const online = monAgent && monAgent.presence !== 'Not reporting';
+          const online = monAgent ? monAgent.presence !== 'Not reporting' : roster?.presence === 'online';
           const color = agentColor(agent.full_name);
           const sessionDur = monAgent?.current_login_seconds;
           const transfersRequested = agent.transfers_requested_today ?? 0;
@@ -168,7 +166,7 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
                 <div>
                   <strong className="ado-agent-name">{agent.full_name}</strong>
                   <span className={`ado-agent-login ${online ? 'online' : 'offline'}`}>
-                    {!report ? '—' : online ? '● Logged in' : '○ Not logged in'}
+                    {!report && !roster ? '—' : online ? '● Logged in' : '○ Not logged in'}
                   </span>
                 </div>
               </div>
