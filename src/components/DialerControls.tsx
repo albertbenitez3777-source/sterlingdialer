@@ -13,7 +13,7 @@ interface Props {
 export function DialerControls({ stale = false, activeCalls, reservedCalls, asOf, agents, lines, running, saving, changingAgent, starting, stopping, notice, onLines, onAgent, onStart, onStop }: Props) {
   const roster = agents.filter(a => a.status === 'active' && !['owner', 'administrator'].includes(a.role));
   const selected = roster.filter(a => a.active_for_dialer);
-  const capacity = Math.min(lines, selected.filter(a=>a.dialer_eligible).reduce((n, a) => n + Math.min(a.dialer_concurrency || 3, 7), 0));
+  const capacity = selected.some(a=>a.dialer_eligible) ? Math.min(lines, MAX_DIALER_LINES) : 0;
   const changing = stale || saving || changingAgent !== null || starting || stopping;
   return <section className="f1-dialer-controls" aria-label="Dialer controls">
     <header><div><span className="f1-control-eyebrow"><Zap size={13} /> {stale ? 'STATUS NEEDS A REFRESH' : running ? 'DIALER RUNNING' : 'DIALER STOPPED'}</span><h2>Call controls</h2></div>
@@ -24,7 +24,7 @@ export function DialerControls({ stale = false, activeCalls, reservedCalls, asOf
     {stale && <p role="status">These are the last recorded settings. Refresh the controls before starting calls or changing settings. Stop remains available if the last status was running.</p>}
     <div className="f1-control-settings">
       <div><label>Line presets</label><div className="f1-control-presets">{DIALER_LINE_PRESETS.map(n => <button key={n} disabled={changing} aria-pressed={lines === n} onClick={() => onLines(n)}>{n}<small>{n} lines</small></button>)}</div></div>
-      <div className="f1-control-line-choice"><label htmlFor="dialer-simultaneous-lines">Maximum simultaneous lines</label><select id="dialer-simultaneous-lines" value={lines} disabled={changing} onChange={e => onLines(Number(e.target.value))}>{Array.from({length:MAX_DIALER_LINES}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {n === 1 ? 'line' : 'lines'}</option>)}</select><small>Total across your selected agents</small></div>
+      <div className="f1-control-line-choice"><label htmlFor="dialer-simultaneous-lines">Maximum simultaneous lines</label><select id="dialer-simultaneous-lines" value={lines} disabled={changing} onChange={e => onLines(Number(e.target.value))}>{Array.from({length:MAX_DIALER_LINES}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {n === 1 ? 'line' : 'lines'}</option>)}</select><small>One shared pool, even with one selected agent</small></div>
       <div className="f1-control-summary"><strong>{lines}<span>simultaneous line limit</span></strong><small>{activeCalls ?? "—"} tracked active · {reservedCalls ?? "—"} reserved</small><small>{selected.length} of {roster.length} agents selected{capacity < lines ? ` · current capacity ${capacity} lines` : ''}</small></div>
     </div>
     <div className="f1-control-team-heading"><h3><Users size={16} /> Agents receiving dialer calls</h3><span>Changes save automatically</span></div>
@@ -35,7 +35,7 @@ export function DialerControls({ stale = false, activeCalls, reservedCalls, asOf
       {a.active_for_dialer && (!a.transfer_certified || !a.inbound_configured) && <small className="f1-control-warning">Route needs verification before dialing</small>}
     </article>)}</div>
     {!selected.length && <p className="f1-control-warning" role="status">Choose at least one agent to send new dialer calls.</p>}
-    <p className="f1-control-footnote">The line setting is a maximum, not a promise that every line stays occupied. Active records await provider completion; pacing and eligible agent capacity also limit new starts. Switching an agent off stops new dialer assignments.</p>
+    <p className="f1-control-footnote">All selected agents share the full line limit. Free lines refill on scheduled checks, subject to pacing, available leads and provider acceptance. Brief dips are normal as calls end. Switching an agent off stops new assignments to that agent.</p>
     {asOf && <small className="f1-control-footnote">Snapshot {new Date(asOf).toLocaleTimeString("en-US",{timeZone:"America/Costa_Rica",hour:"numeric",minute:"2-digit",second:"2-digit"})} Costa Rica time</small>}
     {notice && <p className="f1-control-feedback" role="status">{notice}</p>}
   </section>;

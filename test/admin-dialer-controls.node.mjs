@@ -266,7 +266,7 @@ test('start_campaign: rejects invalid concurrency without starting', async () =>
  assert.equal(status,400); assert.ok(!dbCalls.some(c=>c.rpc==='campaign_start'));
 });
 
-for(const lines of [1,2,4,7,11,12,13,16,20]) test(`line limit ${lines} is saved exactly without changing batch limit or campaign state`, async()=>{
+for(const lines of [1,2,4,7,11,12,13,16,20,21,24,25]) test(`line limit ${lines} is saved exactly without changing batch limit or campaign state`, async()=>{
  const {status,data,dbCalls}=await callAction({}, {action:'set_dialer_lines',session_token:'valid',concurrency:lines});
  assert.equal(status,200); assert.equal(data.concurrency,lines);
  const update=dbCalls.find(c=>c.table==='campaigns'&&c.op==='update');
@@ -274,7 +274,7 @@ for(const lines of [1,2,4,7,11,12,13,16,20]) test(`line limit ${lines} is saved 
  assert.equal(update.data.concurrency,lines);
  assert.ok(dbCalls.some(c=>c.table==='audit_logs'&&c.data.action==='set_dialer_lines'));
 });
-for(const lines of [0,21,-1,1.5,'7',true,null]) test(`invalid line limit ${JSON.stringify(lines)} is rejected`,async()=>{
+for(const lines of [0,26,-1,1.5,'7',true,null]) test(`invalid line limit ${JSON.stringify(lines)} is rejected`,async()=>{
  const {status,dbCalls}=await callAction({}, {action:'set_dialer_lines',session_token:'valid',concurrency:lines});
  assert.equal(status,400);assert.ok(!dbCalls.some(c=>c.op==='update'));
 });
@@ -301,8 +301,15 @@ test('twenty-line start forwards the exact setting and existing batch limit',asy
  assert.equal(dbCalls.find(c=>c.rpc==='campaign_start').params.p_concurrency,20);
  assert.equal(dbCalls.find(c=>c.rpc==='campaign_start').params.p_call_limit,400);
 });
-test('twenty-one-line start cannot reach campaign_start',async()=>{
- const {status,dbCalls}=await callAction({}, {action:'start_campaign',session_token:'valid',concurrency:21,call_limit:400});
+test('twenty-five-line continuous start preserves the null run limit',async()=>{
+ const {status,dbCalls}=await callAction({}, {action:'start_campaign',session_token:'valid',concurrency:25,call_limit:null});
+ assert.equal(status,200);
+ const call=dbCalls.find(c=>c.rpc==='campaign_start');
+ assert.equal(call.params.p_concurrency,25);
+ assert.equal(call.params.p_call_limit,null);
+});
+test('twenty-six-line start cannot reach campaign_start',async()=>{
+ const {status,dbCalls}=await callAction({}, {action:'start_campaign',session_token:'valid',concurrency:26,call_limit:400});
  assert.equal(status,400);assert.ok(!dbCalls.some(c=>c.rpc==='campaign_start'));
 });
 test('preserves the live admin-status endpoint without writes',async()=>{

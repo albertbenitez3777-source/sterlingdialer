@@ -4,7 +4,7 @@ BEGIN
   ASSERT public.dialer_run_remaining(NULL, 400, 20) = 20, 'continuous at former limit';
   ASSERT public.dialer_run_remaining(NULL, 100000, 20) = 20, 'continuous well beyond former limit';
   ASSERT public.dialer_run_remaining(NULL, 400, 6) = 6, 'preserve lower line setting';
-  ASSERT public.dialer_run_remaining(NULL, 400, 999) = 20, 'continuous reservation budget bounded';
+  ASSERT public.dialer_run_remaining(NULL, 400, 999) = 25, 'continuous reservation budget bounded';
   ASSERT public.dialer_run_remaining(NULL, 400, 0) = 0, 'no capacity';
   ASSERT public.dialer_run_remaining(400, 399, 20) = 1, 'finite last attempt';
   ASSERT public.dialer_run_remaining(400, 400, 20) = 0, 'finite cutoff preserved';
