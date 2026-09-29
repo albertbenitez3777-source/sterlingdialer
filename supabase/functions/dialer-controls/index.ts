@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
       return result.error ? reply({ error: 'Could not stop the dialer.' }, 503) : reply(result.data);
     }
     const lines = body.concurrency === undefined && action === 'start_campaign' ? 3 : body.concurrency;
-    if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 1 || lines > 20) return reply({ error: 'Choose between 1 and 20 simultaneous lines.' }, 400);
+    if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 1 || lines > 25) return reply({ error: 'Choose between 1 and 25 simultaneous lines.' }, 400);
     if (action === 'start_campaign') {
       const callLimit = body.call_limit == null ? null : body.call_limit;
       if (callLimit !== null && (!Number.isInteger(callLimit) || callLimit < 1 || callLimit > 2000)) return reply({ error: 'Choose continuous dialing or a call limit from 1 to 2000.' }, 400);

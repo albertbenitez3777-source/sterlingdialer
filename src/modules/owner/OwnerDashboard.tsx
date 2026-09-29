@@ -370,15 +370,7 @@ return (<>
                               </span>
                             </div>
                             <div className="concurrency-selector">
-                              <span className="concurrency-label">LINES:</span>
-                              {[2, 3, 5, 7].map(n => (
-                                <button key={n}
-                                  className={`conc-btn ${agent.dialer_concurrency === n ? 'active' : ''}`}
-                                  onClick={() => setConcurrency(agent.id, n)}
-                                  disabled={settingConcurrency === agent.id}>
-                                  {settingConcurrency === agent.id && agent.dialer_concurrency !== n ? '…' : n}
-                                </button>
-                              ))}
+                              <span className="concurrency-label">Shared {dialerLines}-line pool</span>
                             </div>
                             <button
                               className={`toggle-btn ${agent.active_for_dialer ? 'active' : ''}`}

@@ -22,17 +22,17 @@ it('blocks starts and settings from stale data, while keeping Stop available', (
   act(() => root.unmount());
 });
 
-it('offers 20 total lines and saves the selected value without starting or stopping the run', () => {
+it('offers 25 total lines and saves the selected value without starting or stopping the run', () => {
   const props = { agents: [agent], lines: 12, running: true, saving: false, changingAgent: null, starting: false, stopping: false, notice: null, onLines: vi.fn(), onAgent: vi.fn(), onStart: vi.fn(), onStop: vi.fn() };
   let root: ReturnType<typeof create>;
   act(() => { root = create(<DialerControls {...props} />); });
-  expect(root!.root.findAllByType('option').map(option => option.props.value)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
-  act(() => root!.root.findByType('select').props.onChange({ target: { value: '20' } }));
-  expect(props.onLines).toHaveBeenLastCalledWith(20);
-  act(() => root!.update(<DialerControls {...props} lines={20} />));
+  expect(root!.root.findAllByType('option').map(option => option.props.value)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+  act(() => root!.root.findByType('select').props.onChange({ target: { value: '25' } }));
+  expect(props.onLines).toHaveBeenLastCalledWith(25);
+  act(() => root!.update(<DialerControls {...props} lines={25} />));
   const preset = root!.root.findAllByType('button').find(button => button.props['aria-pressed'] === true)!;
   act(() => preset.props.onClick());
-  expect(props.onLines).toHaveBeenLastCalledWith(20);
+  expect(props.onLines).toHaveBeenLastCalledWith(25);
   expect(props.onStart).not.toHaveBeenCalled();
   expect(props.onStop).not.toHaveBeenCalled();
   expect(props.onAgent).not.toHaveBeenCalled();
@@ -40,6 +40,24 @@ it('offers 20 total lines and saves the selected value without starting or stopp
 });
 
 it('allows the new admin range and rejects out-of-range or malformed settings', () => {
-  for (const value of [1, 12, 13, 16, 20]) expect(isValidDialerLines(value)).toBe(true);
-  for (const value of [0, 21, 1.5, '20', true, null, undefined, NaN]) expect(isValidDialerLines(value)).toBe(false);
+  for (const value of [1, 12, 13, 16, 20, 21, 25]) expect(isValidDialerLines(value)).toBe(true);
+  for (const value of [0, 26, 1.5, '25', true, null, undefined, NaN]) expect(isValidDialerLines(value)).toBe(false);
+});
+
+for (const count of [1, 2, 3]) it(`${count} selected agents can use the full shared pool even with old small agent caps`, () => {
+  const props = { agents: Array.from({ length: count }, (_, i) => ({ ...agent, id: `agent-${i}`, dialer_eligible: true, dialer_concurrency: 3 })), lines: 25, running: true, saving: false, changingAgent: null, starting: false, stopping: false, notice: null, onLines: vi.fn(), onAgent: vi.fn(), onStart: vi.fn(), onStop: vi.fn() };
+  let root: ReturnType<typeof create>;
+  act(() => { root = create(<DialerControls {...props} />); });
+  const text = JSON.stringify(root!.toJSON());
+  expect(text).toContain('One shared pool, even with one selected agent');
+  expect(text).not.toContain('current capacity');
+  act(() => root!.unmount());
+});
+
+it('does not report usable capacity without an eligible selected route', () => {
+  const props = { agents: [{ ...agent, dialer_eligible: false }], lines: 25, running: true, saving: false, changingAgent: null, starting: false, stopping: false, notice: null, onLines: vi.fn(), onAgent: vi.fn(), onStart: vi.fn(), onStop: vi.fn() };
+  let root: ReturnType<typeof create>;
+  act(() => { root = create(<DialerControls {...props} />); });
+  expect(JSON.stringify(root!.toJSON())).toContain('current capacity 0 lines');
+  act(() => root!.unmount());
 });
