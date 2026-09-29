@@ -9,7 +9,7 @@
 .f1-control-stop {background:#33242b;border-color:#b66c79;}
 .f1-control-settings {display:grid;grid-template-columns:1.5fr 1fr 1fr;align-items:start;gap:24px;margin:25px 0;padding:23px 0;border-top:1px solid #ffffff0f;border-bottom:1px solid #ffffff0f;}
 .f1-control-settings label {display:block;font-size:12px;color:#d2c0c4;margin-bottom:10px;}
-.f1-control-presets {display:flex;gap:7px;}
+.f1-control-presets {display:flex;gap:7px;flex-wrap:wrap;}
 .f1-control-presets button {min-width:62px;min-height:61px;padding:9px 12px;background:#ffffff04;border:1px solid #57404b;border-radius:9px;font-size:16px;}
 .f1-control-presets button small {display:block;margin-top:3px;color:#b9aaaf;font-size:10px;}
 .f1-control-presets button[aria-pressed="true"] {background:#733044;border-color:#e68192;}
