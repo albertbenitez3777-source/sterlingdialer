@@ -19,6 +19,11 @@ Deno.serve(async (req: Request) => {
     if (!actor) return reply({ error: 'Invalid or expired session' }, 401);
     if (!['owner', 'administrator'].includes(actor.role)) return reply({ error: 'Administrator access required' }, 403);
     const action = body.action;
+    if (action === 'get_live_status') {
+      const result = await db.rpc('federal_one_admin_live_status');
+      if (result.error) return reply({ error: 'Live status is temporarily unavailable.' }, 503);
+      return reply(result.data);
+    }
     if (!['set_dialer_lines', 'set_agent_dialer_selection', 'start_campaign', 'stop_campaign'].includes(action)) return reply({ error: 'Unknown control' }, 400);
     if (action === 'set_agent_dialer_selection') {
       if (typeof body.selected !== 'boolean' || typeof body.agent_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.agent_id)) return reply({ error: 'Choose a valid agent and On or Off.' }, 400);
@@ -32,7 +37,7 @@ Deno.serve(async (req: Request) => {
       return result.error ? reply({ error: 'Could not stop the dialer.' }, 503) : reply(result.data);
     }
     const lines = body.concurrency === undefined && action === 'start_campaign' ? 3 : body.concurrency;
-    if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 1 || lines > 12) return reply({ error: 'Choose between 1 and 12 simultaneous lines.' }, 400);
+    if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 1 || lines > 20) return reply({ error: 'Choose between 1 and 20 simultaneous lines.' }, 400);
     if (action === 'start_campaign') {
       if (!Number.isInteger(body.call_limit) || body.call_limit < 1 || body.call_limit > 2000) return reply({ error: 'Choose a call limit from 1 to 2000.' }, 400);
       const result = await db.rpc('campaign_start', { p_concurrency: lines, p_call_limit: body.call_limit });

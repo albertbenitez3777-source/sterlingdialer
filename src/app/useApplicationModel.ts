@@ -1,4 +1,5 @@
 import { startSerialPoll } from '@/utils/serial-poll';
+import { isValidDialerLines } from '@/lib/dialerLimits';
 import { refreshWorkspace, workspaceReads } from '@/utils/workspace-refresh';
 import { canMonitor } from '@/modules/monitoring/api';
 import { AdminStats,ContactResult,DataHealth,DIALER_CONTROLS_URL,FEDERAL_ONE_V2_URL,getETTime,LeadPool,PROVIDER_URL,providerFetch,QueueRecord,RosterAttendanceRow,SavedTransfer,SecretaryCall,TeamHealth } from "@/app/shared";
@@ -956,7 +957,7 @@ const setConcurrency = async (agentId: string, concurrency: number) => {
   };
 
 const handleDialerLines = async (lines: number) => {
-    if (dialerControlsBusy.current || startCampaignInFlight.current || !Number.isInteger(lines) || lines < 1 || lines > 12) return;
+    if (dialerControlsBusy.current || startCampaignInFlight.current || !isValidDialerLines(lines)) return;
     dialerControlsBusy.current = true;
     setSavingSpeed(true);
     setSpeedNotice(null);

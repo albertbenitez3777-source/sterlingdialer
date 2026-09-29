@@ -52,6 +52,9 @@ function loadProvider(overrides = {}, controls = false) {
       if (name === 'campaign_start') {
         return Promise.resolve({ data: { success: true, ...params }, error: null });
       }
+      if (name === 'federal_one_admin_live_status') {
+        return Promise.resolve({ data: { campaign: { lines: 20, state: 'running' } }, error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
   };
@@ -234,7 +237,7 @@ test('start_campaign: rejects invalid concurrency without starting', async () =>
  assert.equal(status,400); assert.ok(!dbCalls.some(c=>c.rpc==='campaign_start'));
 });
 
-for(const lines of [1,2,4,7,11,12]) test(`line limit ${lines} is saved exactly without changing batch limit or campaign state`, async()=>{
+for(const lines of [1,2,4,7,11,12,13,16,20]) test(`line limit ${lines} is saved exactly without changing batch limit or campaign state`, async()=>{
  const {status,data,dbCalls}=await callAction({}, {action:'set_dialer_lines',session_token:'valid',concurrency:lines});
  assert.equal(status,200); assert.equal(data.concurrency,lines);
  const update=dbCalls.find(c=>c.table==='campaigns'&&c.op==='update');
@@ -242,7 +245,7 @@ for(const lines of [1,2,4,7,11,12]) test(`line limit ${lines} is saved exactly w
  assert.equal(update.data.concurrency,lines);
  assert.ok(dbCalls.some(c=>c.table==='audit_logs'&&c.data.action==='set_dialer_lines'));
 });
-for(const lines of [0,13,-1,1.5,'7',true,null]) test(`invalid line limit ${JSON.stringify(lines)} is rejected`,async()=>{
+for(const lines of [0,21,-1,1.5,'7',true,null]) test(`invalid line limit ${JSON.stringify(lines)} is rejected`,async()=>{
  const {status,dbCalls}=await callAction({}, {action:'set_dialer_lines',session_token:'valid',concurrency:lines});
  assert.equal(status,400);assert.ok(!dbCalls.some(c=>c.op==='update'));
 });
@@ -261,4 +264,24 @@ test('one-line start reaches the database unchanged',async()=>{
 test('agent selection rejects malformed boolean',async()=>{
  const {status,dbCalls}=await callAction({}, {action:'set_agent_dialer_selection',session_token:'valid',agent_id:'c242abef-c01e-490b-bab6-859cd89bd08a',selected:'false'});
  assert.equal(status,400);assert.ok(!dbCalls.some(c=>c.rpc==='set_agent_dialer_selection'));
+});
+
+test('twenty-line start forwards the exact setting and existing batch limit',async()=>{
+ const {status,dbCalls}=await callAction({}, {action:'start_campaign',session_token:'valid',concurrency:20,call_limit:400});
+ assert.equal(status,200);
+ assert.equal(dbCalls.find(c=>c.rpc==='campaign_start').params.p_concurrency,20);
+ assert.equal(dbCalls.find(c=>c.rpc==='campaign_start').params.p_call_limit,400);
+});
+test('twenty-one-line start cannot reach campaign_start',async()=>{
+ const {status,dbCalls}=await callAction({}, {action:'start_campaign',session_token:'valid',concurrency:21,call_limit:400});
+ assert.equal(status,400);assert.ok(!dbCalls.some(c=>c.rpc==='campaign_start'));
+});
+test('preserves the live admin-status endpoint without writes',async()=>{
+ const {status,data,dbCalls}=await callAction({}, {action:'get_live_status',session_token:'valid'});
+ assert.equal(status,200);assert.equal(data.campaign.lines,20);
+ assert.ok(!dbCalls.some(c=>c.op==='update'||c.op==='insert'));
+});
+for(const [overrides,status] of [[{_noSession:true},401],[{_sessionError:true},503]]) test(`line control rejects unverified access with ${status}`,async()=>{
+ const result=await callAction(overrides,{action:'set_dialer_lines',session_token:'invalid',concurrency:20});
+ assert.equal(result.status,status);assert.ok(!result.dbCalls.some(c=>c.op==='update'));
 });

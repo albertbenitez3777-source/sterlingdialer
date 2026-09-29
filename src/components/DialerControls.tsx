@@ -1,4 +1,5 @@
 import { Headphones, Pause, Play, Users, Voicemail, Zap } from 'lucide-react';
+import { DIALER_LINE_PRESETS, MAX_DIALER_LINES } from '../lib/dialerLimits';
 
 type Agent = { id: string; full_name: string; role: string; status: string; active_for_dialer: boolean; dialer_concurrency: number; phone_ready?: boolean; dialer_eligible?: boolean; transfer_certified: boolean; inbound_configured?: boolean };
 interface Props {
@@ -22,8 +23,8 @@ export function DialerControls({ stale = false, activeCalls, reservedCalls, asOf
     </header>
     {stale && <p role="status">These are the last recorded settings. Refresh the controls before starting calls or changing settings. Stop remains available if the last status was running.</p>}
     <div className="f1-control-settings">
-      <div><label>Line presets</label><div className="f1-control-presets">{[1, 2, 3, 4].map(m => <button key={m} disabled={changing} aria-pressed={lines === m * 3} onClick={() => onLines(m * 3)}>{m * 3}<small>{m * 3} lines</small></button>)}</div></div>
-      <div className="f1-control-line-choice"><label htmlFor="dialer-simultaneous-lines">Maximum simultaneous lines</label><select id="dialer-simultaneous-lines" value={lines} disabled={changing} onChange={e => onLines(Number(e.target.value))}>{Array.from({length:12}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {n === 1 ? 'line' : 'lines'}</option>)}</select><small>Total across your selected agents</small></div>
+      <div><label>Line presets</label><div className="f1-control-presets">{DIALER_LINE_PRESETS.map(n => <button key={n} disabled={changing} aria-pressed={lines === n} onClick={() => onLines(n)}>{n}<small>{n} lines</small></button>)}</div></div>
+      <div className="f1-control-line-choice"><label htmlFor="dialer-simultaneous-lines">Maximum simultaneous lines</label><select id="dialer-simultaneous-lines" value={lines} disabled={changing} onChange={e => onLines(Number(e.target.value))}>{Array.from({length:MAX_DIALER_LINES}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {n === 1 ? 'line' : 'lines'}</option>)}</select><small>Total across your selected agents</small></div>
       <div className="f1-control-summary"><strong>{lines}<span>simultaneous line limit</span></strong><small>{activeCalls ?? "—"} tracked active · {reservedCalls ?? "—"} reserved</small><small>{selected.length} of {roster.length} agents selected{capacity < lines ? ` · current capacity ${capacity} lines` : ''}</small></div>
     </div>
     <div className="f1-control-team-heading"><h3><Users size={16} /> Agents receiving dialer calls</h3><span>Changes save automatically</span></div>
