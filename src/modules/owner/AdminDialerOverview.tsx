@@ -56,6 +56,7 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
   const configuredLimit = dash(lines?.configured);
   const callsToday = dash(bland?.attempts);
   const batchAccepted = dash(campaign?.accepted);
+  const continuous = campaign?.call_limit === null;
   const batchLimit = dash(campaign?.call_limit);
   const batchRemaining = !opsLoaded || campaign?.call_limit == null ? '—' : Math.max(0, (campaign.call_limit ?? 0) - (campaign.accepted ?? 0));
   const recentHour = dash(lines?.recent_hour);
@@ -81,9 +82,9 @@ export function AdminDialerOverview({ sessionToken, adminStats, rosterAttendance
           <Stat label="Calls today" value={callsToday} sub="outbound accepted" />
         </div>
         <div className="ado-strip-section">
-          <Stat label="Batch accepted" value={batchAccepted} sub="this run" />
-          <Stat label="Batch limit" value={batchLimit} sub="call ceiling" />
-          <Stat label="Attempts left in batch" value={batchRemaining} />
+          <Stat label={continuous ? 'Calls this run' : 'Batch accepted'} value={batchAccepted} sub="outbound accepted" />
+          <Stat label={continuous ? 'Run mode' : 'Batch limit'} value={continuous ? 'Until stopped' : batchLimit} sub={continuous ? 'all eligible leads' : 'call ceiling'} />
+          {!continuous && <Stat label="Attempts left in batch" value={batchRemaining} />}
         </div>
         <div className="ado-strip-section">
           <Stat label="Last-hour pace" value={recentHour} sub="rolling 60 min" />

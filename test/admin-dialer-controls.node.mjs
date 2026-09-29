@@ -89,6 +89,35 @@ async function callAction(overrides, body) {
   return { status: response.status, data, dbCalls };
 }
 
+for (const callLimit of [null, undefined]) {
+  test(`continuous start (${String(callLimit)}) reaches campaign_start without a finite cutoff`, async () => {
+    const { status, dbCalls } = await callAction({}, { action: 'start_campaign', session_token: 'valid', concurrency: 20, call_limit: callLimit });
+    assert.equal(status, 200);
+    const start = dbCalls.find(c => c.rpc === 'campaign_start');
+    assert.equal(start.params.p_call_limit, null);
+    assert.equal(start.params.p_concurrency, 20);
+    assert.equal(dbCalls.some(c => c.table === 'calls' || c.table === 'agents'), false);
+  });
+}
+for (const callLimit of [0, -1, 2001, 1.5, '400', false]) {
+  test(`invalid finite call limit ${String(callLimit)} does not start`, async () => {
+    const { status, dbCalls } = await callAction({}, { action: 'start_campaign', session_token: 'valid', concurrency: 20, call_limit: callLimit });
+    assert.equal(status, 400);
+    assert.equal(dbCalls.some(c => c.rpc === 'campaign_start'), false);
+  });
+}
+test('Stop remains available without a batch limit or line count', async () => {
+  const { status, dbCalls } = await callAction({}, { action: 'stop_campaign', session_token: 'valid' });
+  assert.equal(status, 200);
+  assert.equal(dbCalls.filter(c => c.rpc === 'campaign_stop').length, 1);
+  assert.equal(dbCalls.some(c => c.rpc === 'campaign_start'), false);
+});
+test('continuous mode does not grant an agent control access', async () => {
+  const { status, dbCalls } = await callAction({ _sessionRole: 'agent' }, { action: 'start_campaign', session_token: 'valid', concurrency: 20, call_limit: null });
+  assert.equal(status, 403);
+  assert.equal(dbCalls.some(c => c.rpc === 'campaign_start'), false);
+});
+
 // ── Authorization tests ─────────────────────────────────────────────────────
 
 test('set_dialer_speed: owner can set speed', async () => {
