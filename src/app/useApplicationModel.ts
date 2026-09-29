@@ -35,7 +35,6 @@ const [teamHealth, setTeamHealth] = useState<TeamHealth | null>(null);
 
 const [, setLoadingAdmin] = useState(false);
 
-const [callLimit, setCallLimit] = useState(500);
 
 const [dialerLines, setDialerLines] = useState(3);
 
@@ -426,7 +425,6 @@ const loadAdminStats = useCallback(async (token: string, signal?: AbortSignal) =
         setAdminStats(stats as AdminStats);
         const s = stats as Record<string, unknown>;
         const loadedSummary = s.summary as Record<string, unknown> | undefined;
-        if (loadedSummary?.provider_call_limit) setCallLimit(loadedSummary.provider_call_limit as number);
         if (loadedSummary?.daily_minute_cap !== undefined) setMinuteCap(loadedSummary.daily_minute_cap as number);
         const conc = loadedSummary?.concurrency as number | undefined;
         if (conc && conc > 0) setDialerLines(conc);
@@ -870,10 +868,10 @@ const startCampaign = async () => {
     setDialerError('');
     try {
       const result = await authFetch<{ success?: boolean; error?: string; blocking_reason?: string }>(DIALER_CONTROLS_URL, {
-        body: { action: 'start_campaign', session_token: sessionToken, call_limit: callLimit, concurrency: dialerLines },
+        body: { action: 'start_campaign', session_token: sessionToken, call_limit: null, concurrency: dialerLines },
         timeoutMs: 45000, onUnauthorized: () => atomicLogoutRef.current?.(),
       });
-      // The server performs current readiness checks and protects the call limit.
+      // The server preserves readiness, concurrency, pacing and Stop checks.
       // Read the resulting state even after a timeout: do not retry a live action.
       await loadAdminStats(sessionToken);
       if (adminStatsRef.current?.summary.campaign_state === 'running') {
@@ -1217,6 +1215,6 @@ const navItems = isOwner
         { id: 'contacts', label: 'Find a Client', icon: Search },
       ];
 if (canMonitor(isOwner, session?.agent)) navItems.push({id:'monitoring',label:'Monitoring',icon:Users});
-return { restoringLogin:login.restoringLogin,loadAdminStats,session,ownerNeedsSetup,isOwner,isStrictOwner,sessionToken,atomicLogout,adminStats,dialerLines,savingSpeed,togglingAgent,startingCampaign,stoppingCampaign,notice,speedNotice,handleDialerLines,toggleAgent,startCampaign,stopCampaign,activeNav,setActiveNav,setExtraInfoPrefill,canControl,teamHealth,dashTab,setDashTab,transferProof,setTransferProofLoading,handleLogout,setTransferProof,perfView,setPerfView,displayPhone,togglePhoneReveal,rosterAttendance,rosterTimezone,revealedPhones,setConcurrency,settingConcurrency,liveActivity,redialProgresses,setRedialProgresses,removeRedialFromStorage,redialStats,redialStatsFilter,setRedialStatsFilter,redialTimeframe,setRedialTimeframe,redialingAgent,redialingHumans,redialSourceAgent,setRedialSourceAgent,dataHealth,openRedialModal,transferProofLoading,callLimit,setCallLimit,minuteCap,setMinuteCap,saveMinuteCap,savingCap,contactSearch,expandedContact,setExpandedContact,setPhoneAction,leadPool,handleUploadLeads,fileInputRef,importing,expandedCall,setExpandedCall,savedTransfers,allSavedTransfers,loadingAllSaved,loadAllSavedTransfers,allSavedTransfersError,isOnline,agentAvailable,handleToggleAvailability,togglingAvail,secretaryCalls,setSecretaryCalls,loadingSecretary,setLoadingSecretary,secClientName,setSecClientName,secClientPhone,setSecClientPhone,secMode,setSecMode,secCustomMsg,setSecCustomMsg,placingSecCall,setPlacingSecCall,expandedSecCall,setExpandedSecCall,setNotice,transferAlerts,handleAlertAcknowledge,handleAlertSchedule,handleAlertDismiss,activeTransfers,activeTransfersLoading,activeTransfersError,setDismissedTransferIds,queues,agentTodayStats,handleSaveTransfer,savingTransferIds,selectedRedialIds,toggleRedialSelect,handleAgentRedial,agentRedialing,agentRedialBatchId,redialTranscripts,redialPollTimer,setRedialPollTimer,setAgentRedialBatchId,setRedialTranscripts,loadingSaved,handleDeleteSavedTransfer,dialerError,setDialerError,availToast,setAvailToast,extraInfoPrefill,setupPin,setSetupPin,handleOwnerSetup,setupConfirm,setSetupConfirm,setupError,settingUp,loginError,pin,setPin,setLoginError,handleLogin,loggingIn,etClock,setMobileMenuOpen,mobileMenuOpen,navItems,myAttendance,attendanceError,phoneAction,placeQuickSecretaryCall,placingQuickSecretaryCall,showRedialModal,setShowRedialModal,setPendingRedialAction,setRedialModalError,redialPreview,confirmRedial,redialModalError,showOfflineModal,setShowOfflineModal };
+return { restoringLogin:login.restoringLogin,loadAdminStats,session,ownerNeedsSetup,isOwner,isStrictOwner,sessionToken,atomicLogout,adminStats,dialerLines,savingSpeed,togglingAgent,startingCampaign,stoppingCampaign,notice,speedNotice,handleDialerLines,toggleAgent,startCampaign,stopCampaign,activeNav,setActiveNav,setExtraInfoPrefill,canControl,teamHealth,dashTab,setDashTab,transferProof,setTransferProofLoading,handleLogout,setTransferProof,perfView,setPerfView,displayPhone,togglePhoneReveal,rosterAttendance,rosterTimezone,revealedPhones,setConcurrency,settingConcurrency,liveActivity,redialProgresses,setRedialProgresses,removeRedialFromStorage,redialStats,redialStatsFilter,setRedialStatsFilter,redialTimeframe,setRedialTimeframe,redialingAgent,redialingHumans,redialSourceAgent,setRedialSourceAgent,dataHealth,openRedialModal,transferProofLoading,minuteCap,setMinuteCap,saveMinuteCap,savingCap,contactSearch,expandedContact,setExpandedContact,setPhoneAction,leadPool,handleUploadLeads,fileInputRef,importing,expandedCall,setExpandedCall,savedTransfers,allSavedTransfers,loadingAllSaved,loadAllSavedTransfers,allSavedTransfersError,isOnline,agentAvailable,handleToggleAvailability,togglingAvail,secretaryCalls,setSecretaryCalls,loadingSecretary,setLoadingSecretary,secClientName,setSecClientName,secClientPhone,setSecClientPhone,secMode,setSecMode,secCustomMsg,setSecCustomMsg,placingSecCall,setPlacingSecCall,expandedSecCall,setExpandedSecCall,setNotice,transferAlerts,handleAlertAcknowledge,handleAlertSchedule,handleAlertDismiss,activeTransfers,activeTransfersLoading,activeTransfersError,setDismissedTransferIds,queues,agentTodayStats,handleSaveTransfer,savingTransferIds,selectedRedialIds,toggleRedialSelect,handleAgentRedial,agentRedialing,agentRedialBatchId,redialTranscripts,redialPollTimer,setRedialPollTimer,setAgentRedialBatchId,setRedialTranscripts,loadingSaved,handleDeleteSavedTransfer,dialerError,setDialerError,availToast,setAvailToast,extraInfoPrefill,setupPin,setSetupPin,handleOwnerSetup,setupConfirm,setSetupConfirm,setupError,settingUp,loginError,pin,setPin,setLoginError,handleLogin,loggingIn,etClock,setMobileMenuOpen,mobileMenuOpen,navItems,myAttendance,attendanceError,phoneAction,placeQuickSecretaryCall,placingQuickSecretaryCall,showRedialModal,setShowRedialModal,setPendingRedialAction,setRedialModalError,redialPreview,confirmRedial,redialModalError,showOfflineModal,setShowOfflineModal };
 }
 export type ApplicationModel = ReturnType<typeof useApplicationModel>;

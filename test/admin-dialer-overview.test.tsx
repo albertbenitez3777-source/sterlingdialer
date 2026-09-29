@@ -40,7 +40,7 @@ const mockAuthFetch = vi.mocked(authFetch);
 function makeOps() {
   return {
     as_of: '2026-09-28T15:30:00Z',
-    campaign: { state: 'running', call_limit: 400, accepted: 200, concurrency: 12, started_at: '2026-09-28T08:00:00Z' },
+    campaign: { state: 'running', call_limit: 400 as number | null | undefined, accepted: 200, concurrency: 12, started_at: '2026-09-28T08:00:00Z' },
     lines: { configured: 12, effective: 12, active: 3, reserved: 2, aged: 0, hourly_target: 400, minute_limit: 8, recent_hour: 201, recent_minute: 5, pacing_allowance: 1, available_slots: 7, agent_slots: 7, selected_agents: 3, eligible_agents: 3, blocking_reason: null },
     bland: { attempts: 201, humans: 80, transfers: 25, destination_dialed: 20, bridge_confirmed: 18, in_progress: 3, no_answer: 150, customer_voicemail: 40, failures: 2, minutes: 120, linked_received: 20, linked_answered: 18, linked_voicemail: 2 },
     agents: [
@@ -265,6 +265,27 @@ describe('AdminDialerOverview rendering with distinct values', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     expect(has(root, 'New leads')).toBe(true);
     expect(has(root, '2104')).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it('shows continuous mode past 400 without a finite remaining count', async () => {
+    setupMocks({ ops: { campaign: { ...makeOps().campaign, call_limit: null, accepted: 501 } } });
+    const root = renderComp({ adminStats: makeAdminStats() });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Until stopped')).toBe(true);
+    expect(has(root, 'Calls this run')).toBe(true);
+    expect(has(root, '501')).toBe(true);
+    expect(has(root, 'Attempts left in batch')).toBe(false);
+    expect(has(root, 'Batch limit')).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it('does not mistake an unavailable run limit for continuous mode', async () => {
+    setupMocks({ ops: { campaign: { ...makeOps().campaign, call_limit: undefined } } });
+    const root = renderComp({ adminStats: makeAdminStats() });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(has(root, 'Until stopped')).toBe(false);
+    expect(has(root, '—')).toBe(true);
     act(() => root.unmount());
   });
 

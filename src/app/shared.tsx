@@ -60,7 +60,7 @@ export type ErrorEntry = {
 
 export type CampaignSummary = TransferMetricSummary & {
   campaign_state: string; dialer_activated: boolean; concurrency: number;
-  as_of?: string; active_call_count?: number; reserved_call_count?: number; provider_call_limit: number; leads_remaining: number; calls_attempted_today: number;
+  as_of?: string; active_call_count?: number; reserved_call_count?: number; provider_call_limit: number | null; leads_remaining: number; calls_attempted_today: number;
   live_humans_today: number; human_drops_today: number; fire_transfers_today: number;
   no_answers_today: number; voice_messages_today: number; blocking_reason: string; campaign_started_at: string | null;
   calls_attempted_week: number; live_humans_week: number; human_drops_week: number;

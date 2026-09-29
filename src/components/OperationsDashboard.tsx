@@ -8,7 +8,7 @@ import { MAX_DIALER_LINES } from '@/lib/dialerLimits';
 type Agent = { id: string; full_name: string; status: string; selected: boolean; phone_ready: boolean; route_ready: boolean; zadarma_number: string; attempts: number; humans: number; transfers: number; incoming: number; answered: number; transfer_answers: number; voicemail_reached: number; messages: number; unheard: number; unheard_backlog: number; missed: number; callbacks: number; in_progress: number };
 export type OperationsOverview = {
   as_of: string; since: string | null; timezone: string; events_enabled: boolean; events_since: string | null; last_event_at: string | null; voicemail_import_configured: boolean;
-  campaign: {state?: string; call_limit?: number; accepted?: number; concurrency?: number; started_at?: string};
+  campaign: {state?: string; call_limit?: number | null; accepted?: number; concurrency?: number; started_at?: string};
   lines: {configured: number; effective: number; active: number; reserved: number; aged: number; hourly_target: number; minute_limit: number; recent_hour: number; recent_minute: number; pacing_allowance: number; available_slots: number; agent_slots: number; selected_agents: number; eligible_agents: number; blocking_reason: string | null};
   bland: {attempts: number; humans: number; transfers: number; destination_dialed: number; bridge_confirmed: number; in_progress: number; no_answer: number; customer_voicemail: number; failures: number; minutes: number; linked_received: number; linked_answered: number; linked_voicemail: number};
   zadarma: {incoming: number; outgoing: number; outgoing_answered: number; answered: number; voicemail_reached: number; missed: number; ringing: number; connected: number; unconfirmed: number; linked_transfers: number; unlinked_incoming: number};
@@ -60,7 +60,8 @@ export function OperationsView({data,windowName,busy,error,onWindow,onRefresh}: 
   const stale = !!error || data && clock-new Date(data.as_of).getTime()>60000;
   const hours = data?.hourly.map(h=>({...h,label:time(h.hour)})) || [];
   const l = data?.lines;
-  const remaining = Math.max(0,(data?.campaign.call_limit || 0)-(data?.campaign.accepted || 0));
+  const continuous = data?.campaign.call_limit === null;
+  const remaining = data?.campaign.call_limit == null ? null : Math.max(0,data.campaign.call_limit-(data.campaign.accepted || 0));
   const lineState = !data ? '' : data.campaign.state !== 'running' ? 'Dialer stopped' : remaining === 0 ? 'Batch limit reached' : !l?.effective ? 'No eligible agent routes' : !l.pacing_allowance ? 'Waiting for pacing allowance' : !l.available_slots || !l.agent_slots ? 'Available capacity occupied' : 'Slots open for the next dispatch';
   return <section className="ops-dashboard" aria-label="Call operations and agent delivery">
     <div className="ops-heading"><div><span className="ops-eyebrow"><Activity size={13}/> OPERATIONS / CALL DELIVERY</span><h2>Call Reports</h2><p>Today begins at midnight in Costa Rica · weeks begin Monday. These totals are separate from agent-made calls in Team Monitor.</p></div><div className="ops-tools"><div className="ops-range" aria-label="Statistics period">{['today','week','all'].map(w=><button key={w} onClick={()=>onWindow(w)} aria-pressed={windowName===w}>{w==='all'?'All time':w==='week'?'This week':'Today'}</button>)}</div><button className="ops-refresh" aria-label="Refresh call operations" disabled={busy} onClick={onRefresh}><RefreshCw size={16} className={busy?'search-spinner':''}/></button></div></div>
@@ -73,7 +74,7 @@ export function OperationsView({data,windowName,busy,error,onWindow,onRefresh}: 
       </article>
       {l.aged>0&&<p className="ops-notice">{l.aged} active record(s) are over 10 minutes old and need completion verification.</p>}
       {l.effective<l.configured&&<p className="ops-notice">The selected limit is {l.configured}, but the currently eligible agents support {l.effective} lines.</p>}
-      <div className="ops-batch"><span>Current batch · independent of the period above</span><strong>{number(data.campaign.accepted)} <small>/ {number(data.campaign.call_limit)} accepted</small></strong><div className="ops-progress" role="progressbar" aria-label="Current batch progress" aria-valuemin={0} aria-valuemax={data.campaign.call_limit || 1} aria-valuenow={data.campaign.accepted || 0}><span style={{width:`${Math.min(100,100*(data.campaign.accepted||0)/Math.max(1,data.campaign.call_limit||0))}%`}}/></div><span>{remaining} remaining</span></div>
+      <div className="ops-batch"><span>Current run · independent of the period above</span><strong>{number(data.campaign.accepted)} <small>{continuous ? 'accepted · Until stopped' : `/ ${number(data.campaign.call_limit)} accepted`}</small></strong>{data.campaign.call_limit != null && <div className="ops-progress" role="progressbar" aria-label="Current batch progress" aria-valuemin={0} aria-valuemax={data.campaign.call_limit || 1} aria-valuenow={data.campaign.accepted || 0}><span style={{width:`${Math.min(100,100*(data.campaign.accepted||0)/Math.max(1,data.campaign.call_limit||0))}%`}}/></div>}<span>{continuous ? 'Calls all eligible leads until you press Stop.' : remaining == null ? 'Run limit unavailable' : `${remaining} remaining`}</span></div>
       <div className="ops-kpis">{[
         ['Outbound calls accepted',data.bland.attempts,'Provider IDs received; excludes unsent reservations'],
         ['Human-classified calls',data.bland.humans,`${percent(data.bland.humans,data.bland.attempts)} of accepted calls`],

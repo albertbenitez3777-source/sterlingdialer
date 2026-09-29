@@ -26,7 +26,7 @@ export type OpsAgent = {
 
 export type OperationsOverview = {
   as_of: string;
-  campaign: { state?: string; call_limit?: number; accepted?: number; concurrency?: number; started_at?: string };
+  campaign: { state?: string; call_limit?: number | null; accepted?: number; concurrency?: number; started_at?: string };
   lines: { configured: number; effective: number; active: number; reserved: number; aged: number; hourly_target: number; minute_limit: number; recent_hour: number; recent_minute: number; pacing_allowance: number; available_slots: number; agent_slots: number; selected_agents: number; eligible_agents: number; blocking_reason: string | null };
   bland: { attempts: number; humans: number; transfers: number; destination_dialed: number; bridge_confirmed: number; in_progress: number; no_answer: number; customer_voicemail: number; failures: number; minutes: number; linked_received: number; linked_answered: number; linked_voicemail: number };
   agents: OpsAgent[];

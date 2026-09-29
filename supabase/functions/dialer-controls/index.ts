@@ -39,8 +39,9 @@ Deno.serve(async (req: Request) => {
     const lines = body.concurrency === undefined && action === 'start_campaign' ? 3 : body.concurrency;
     if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 1 || lines > 20) return reply({ error: 'Choose between 1 and 20 simultaneous lines.' }, 400);
     if (action === 'start_campaign') {
-      if (!Number.isInteger(body.call_limit) || body.call_limit < 1 || body.call_limit > 2000) return reply({ error: 'Choose a call limit from 1 to 2000.' }, 400);
-      const result = await db.rpc('campaign_start', { p_concurrency: lines, p_call_limit: body.call_limit });
+      const callLimit = body.call_limit == null ? null : body.call_limit;
+      if (callLimit !== null && (!Number.isInteger(callLimit) || callLimit < 1 || callLimit > 2000)) return reply({ error: 'Choose continuous dialing or a call limit from 1 to 2000.' }, 400);
+      const result = await db.rpc('campaign_start', { p_concurrency: lines, p_call_limit: callLimit });
       if (result.error) return reply({ error: 'Could not start the dialer. Check status before retrying.' }, 503);
       return reply(result.data, result.data?.success ? 200 : 409);
     }
