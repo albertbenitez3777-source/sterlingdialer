@@ -63,24 +63,6 @@ Deno.serve(async (req: Request) => {
       disposition: text(payload.disposition, 80), duration_seconds: Math.max(0, Math.min(86400, Math.floor(Number(payload.duration) || 0))),
       recording_id: (event === 'NOTIFY_RECORD' || ['1','true'].includes(String(payload.is_recorded))) ? text(payload.call_id_with_rec, 250) || null : null,
     };
-    // Diagnostic only: retain the provider's Q.931 ending code without phone numbers or raw payloads.
-    // Signature verification and assigned-route resolution above remain mandatory.
-    if (event === 'NOTIFY_END' || event === 'NOTIFY_OUT_END') {
-      try {
-        const rawCode = String(payload.status_code ?? '');
-        const code = /^[0-9]{1,3}$/.test(rawCode) && Number(rawCode) <= 127 ? Number(rawCode) : null;
-        const knownDispositions = new Set(['answered', 'busy', 'cancel', 'cancelled', 'no answer', 'failed', 'call failed', 'no money', 'unallocated number', 'no limit', 'no day limit', 'line limit', 'no money, no limit']);
-        console.info('zadarma_call_end_v1 ' + JSON.stringify({
-          call_ref: createHash('sha256').update(pbxId).digest('hex').slice(0, 16),
-          event,
-          extension: ['100', '101', '102'].includes(ownExtension || '') ? ownExtension : 'other',
-          direction: normalized.direction,
-          status_code: code,
-          disposition: knownDispositions.has(normalized.disposition) ? normalized.disposition : 'unknown',
-          duration_seconds: normalized.duration_seconds,
-        }));
-      } catch { /* Diagnostic logging must never interfere with saving a call event. */ }
-    }
     const { data, error } = await db.rpc('record_zadarma_call_event', { p_event: normalized });
     if (error) { console.error('Zadarma event save failed', error.code); return json({ error: 'Event could not be saved' }, 503); }
     return json(data);
