@@ -21,6 +21,18 @@ const agent = { id: 'agent-101', role: 'agent' };
 afterEach(() => vi.unstubAllGlobals());
 
 describe('phone backend boundaries', () => {
+  it.each(['+1 (202) 555-0100', '12025550100', '2025550100'])('sends the exact US destination once for %s', async (number) => {
+    vi.stubGlobal('Deno', { env: { get: () => undefined } });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const { db } = database();
+    const result = await zadarma(db, agent, { action: 'zadarma_callback', to: number });
+    expect(result.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetch.mock.calls[0][0]));
+    expect(url.pathname).toBe('/v1/request/callback/');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ from: '101', sip: '101', to: '12025550100' });
+  });
   it('issues only the signed-in agent extension key without loading SIP passwords', async () => {
     vi.stubGlobal('Deno', { env: { get: () => undefined } });
     const fetch = vi.fn(async () => new Response(JSON.stringify({ status: 'success', key: 'temporary-test-key' }), { status: 200 }));
