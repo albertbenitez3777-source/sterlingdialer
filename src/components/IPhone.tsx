@@ -49,7 +49,7 @@ function audioStatusMessage(status: AudioStatus): string {
 const HAS_SET_SINK_ID = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
 export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }: IPhoneProps) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [view, setView] = useState<'keypad' | 'voicemail' | 'activity'>('keypad');
   const unreadVoicemails = useVoicemailCount(sessionToken, providerUrl);
   const unreadActivity = usePhoneActivityCount(sessionToken, providerUrl);
@@ -264,13 +264,13 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
           clearTimeout(callbackTimerRef.current);
           const dialedNumber = callbackNumberRef.current || number;
           callRef.current = { number: dialedNumber, direction: 'outgoing', answered: false };
-          setCallNumber(dialedNumber); setOpen(true); setView('keypad');
+          setCallNumber(dialedNumber); setView('keypad');
           unlockAudio();
           clearTimeout(autoAnswerTimerRef.current);
           autoAnswerTimerRef.current = setTimeout(() => command('answer'), 800);
           return;
         }
-        setCallNumber(number); setCaller(name ? { name } : null); setOpen(true); setView('keypad');
+        setCallNumber(number); setCaller(name ? { name } : null); setView('keypad');
         void lookupCaller(number);
       }
       if (data.type === 'call-state') {
@@ -485,7 +485,7 @@ export function IPhone({ agentName, sessionToken, providerUrl, onUnauthorized }:
   return <>
     {frame}
     <aside className={`ip17-shell${!open ? ' ip17-closed' : ''}${callState === 'ringing-in' ? ' ip17-ringing' : ''}`} aria-label={`${agentName}'s Zadarma phone`}>
-      {!open ? <button className="ip17-trigger" aria-label="Open phone" onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} />{(unreadActivity + (unreadVoicemails || 0)) > 0 && <span className="ip17-vm-badge">{unreadActivity + (unreadVoicemails || 0)}</span>}</button> : <>
+      {!open ? <button className="ip17-trigger" aria-label={callState==='ringing-in'?'Open phone — incoming call':'Open phone'} title={callState==='ringing-in'?'Incoming call — click to answer':'Open phone'} onClick={() => { unlockAudio(); setOpen(true); }}><Phone size={26} /><span className={`ip17-trigger-sip-dot ${dot}`} />{(unreadActivity + (unreadVoicemails || 0)) > 0 && <span className="ip17-vm-badge">{unreadActivity + (unreadVoicemails || 0)}</span>}</button> : <>
         <div className="ip17-island"><div className="ip17-island-pill"><div className={`ip17-island-dot ${dot}`} /><span className="ip17-island-label">{agentName.split(' ')[0]}'s Phone</span><button className="ip17-island-close" aria-label="Minimize phone" onClick={() => setOpen(false)}><X size={16} /></button></div></div>
         <div className="ip17-body">
           <div className="ip17-statusbar"><span className={`ip17-sip-badge ${dot}`}>{status} · Phone 424</span><span className="ip17-my-line">{myNumber ? formatPhone(myNumber) : 'No line assigned'}</span></div>
