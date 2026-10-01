@@ -41,7 +41,7 @@ const TABS = [
   { id: 'active', label: 'Active' },
   { id: 'answered', label: 'Answered' },
   { id: 'missed', label: 'Missed' },
-  { id: 'callback_needed', label: 'Callbacks' },
+  { id: 'callbacks', label: 'Callbacks' },
   { id: 'completed', label: 'Completed' },
 ] as const;
 
@@ -189,7 +189,7 @@ function InboxItemCard({
 
           {item.recording_url && (
             <div className="inbox-recording">
-              <RecordingPlayer url={item.recording_url} />
+              <RecordingPlayer url={item.recording_url} callId={item.call_id} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
             </div>
           )}
 
@@ -269,7 +269,7 @@ export function AgentInbox({ sessionToken, onUnauthorized, providerUrl }: AgentI
     });
     if (result.ok && result.data) {
       const d = result.data as Record<string, unknown>;
-      setItems((d.items || d.inbox || []) as InboxItem[]);
+      setItems(((d.items || d.inbox || []) as (InboxItem & {agent_outcome?:string;agent_notes?:string;call_direction?:string})[]).map(item=>({...item,status:item.status||item.agent_outcome||'pending',notes:item.notes||item.agent_notes||'',direction:item.direction||item.call_direction||'outbound'})) as InboxItem[]);
     }
     setLoading(false);
   }, [providerUrl, sessionToken, tab, onUnauthorized]);
