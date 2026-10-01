@@ -1,6 +1,6 @@
 import { TeamSnapshotModule } from '@/modules/monitoring/SummaryModule';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, ArrowUpRight, CheckCircle2, Clock, FileText, Flame,
   Inbox, Pause, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
@@ -47,6 +47,7 @@ type V2Workspace = {
 };
 
 export interface AgentCockpitProps {
+  homePriority?: ReactNode;
   showTeamMonitor?: boolean;
   agentName: string;
   agentId?: string;
@@ -169,6 +170,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <span className="f1-overline">FEDERAL ONE 2.0</span>
         <h2>{firstName}'s Client Companion</h2>
         <p>Your phone follows the client open on your computer. Calling controls stay on your computer.</p>
+        {props.homePriority}
         {workspace?.active_client ? <div className="f1-mobile-active-client">
           <small>OPEN ON YOUR COMPUTER</small>
           <strong>{workspace.active_client.client_name}</strong>
@@ -200,6 +202,8 @@ export function AgentCockpit(props: AgentCockpitProps) {
           <div><small>WORK STATUS</small><strong>{togglingAvail ? 'Updating' : available ? 'Available' : 'Away'}</strong></div>
         </button>
       </section>}
+
+      {props.homePriority}
 
       <section className="f1-readiness-rail">
         <div className="f1-readiness-item"><span className="f1-readiness-icon"><Activity size={15} /></span><div><small>WORKSTATION</small><strong>Connected</strong></div></div>

@@ -1,3 +1,4 @@
+import { CallbackScheduleModule, JAMES_CALLBACK_ID } from "@/modules/callback-schedule/CallbackSchedule";
 import { OpportunitiesFeedModule } from '@/modules/callbacks/CallbacksModule';
 import { ExtraInfoModule } from '@/modules/research/ResearchModule';
 import type { ApplicationModel } from "@/app/useApplicationModel";
@@ -31,6 +32,7 @@ return (<>
 {((isOwner && ['dashboard', 'system'].includes(activeNav)) || (!isOwner && activeNav === 'dashboard')) && (
             <DataHealthBanner health={dataHealth} />
           )}
+{isOwner && activeNav === 'callbacks' && <CallbackScheduleModule sessionToken={sessionToken} agentId={JAMES_CALLBACK_ID} onUnauthorized={atomicLogout} />}
 {activeNav === 'opportunities' && (
             <OpportunitiesFeedModule
               sessionToken={sessionToken}

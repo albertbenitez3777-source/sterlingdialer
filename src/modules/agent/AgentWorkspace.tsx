@@ -1,3 +1,4 @@
+import { CallbackScheduleModule, JAMES_CALLBACK_ID } from "@/modules/callback-schedule/CallbackSchedule";
 import { ContactsViewModule } from '@/modules/contacts/ContactsModule';
 import { AgentInboxModule } from '@/modules/inbox/InboxModule';
 import { IncomingCallAlertModule } from '@/modules/transfers/TransfersModule';
@@ -22,6 +23,8 @@ export function AgentWorkspace({ model }: { model: Pick<ApplicationModel, "isOwn
 const { isOwner, activeNav, isOnline, agentAvailable, handleToggleAvailability, togglingAvail, contactSearch, expandedContact, setExpandedContact, sessionToken, setPhoneAction, atomicLogout, setActiveNav, setExtraInfoPrefill, secretaryCalls, setSecretaryCalls, loadingSecretary, setLoadingSecretary, secClientName, setSecClientName, secClientPhone, setSecClientPhone, secMode, setSecMode, secCustomMsg, setSecCustomMsg, placingSecCall, setPlacingSecCall, expandedSecCall, setExpandedSecCall, setNotice, transferAlerts, handleAlertAcknowledge, handleAlertSchedule, handleAlertDismiss, session, activeTransfers, activeTransfersLoading, activeTransfersError, setDismissedTransferIds, queues, agentTodayStats, expandedCall, setExpandedCall, handleSaveTransfer, savingTransferIds, selectedRedialIds, toggleRedialSelect, handleAgentRedial, agentRedialing, agentRedialBatchId, redialTranscripts, redialPollTimer, setRedialPollTimer, setAgentRedialBatchId, setRedialTranscripts, savedTransfers, loadingSaved, handleDeleteSavedTransfer } = model;
 if (!session?.valid) return null;
 return (<>
+{!isOwner && session.agent?.id === JAMES_CALLBACK_ID && activeNav === 'callbacks' && <CallbackScheduleModule sessionToken={sessionToken} agentId={session.agent.id} onUnauthorized={atomicLogout} onSecretary={()=>setActiveNav('secretary')} liveStats={agentTodayStats} />}
+
 {!isOwner && activeNav !== 'dashboard' && (
             <section className="agent-momentum-banner" aria-label="Agent momentum">
               <img src={CINEMATIC_HERO.agentMomentum} alt="" loading="eager" />
@@ -114,6 +117,7 @@ return (<>
           )}
 {!isOwner && activeNav === 'dashboard' && (
             <AgentCockpitModule
+              homePriority={session.agent?.id === JAMES_CALLBACK_ID ? <CallbackScheduleModule sessionToken={sessionToken} agentId={session.agent.id} onUnauthorized={atomicLogout} compact onOpenAll={()=>setActiveNav('callbacks')} onSecretary={()=>setActiveNav('secretary')} liveStats={agentTodayStats} /> : undefined}
               showTeamMonitor={canMonitor(false, session?.agent)}
               agentName={session?.agent?.full_name ?? 'Agent'}
               agentId={session?.agent?.id}

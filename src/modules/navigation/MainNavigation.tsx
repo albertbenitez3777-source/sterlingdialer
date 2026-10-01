@@ -16,7 +16,7 @@ const { setActiveNav, isOwner, etClock, setMobileMenuOpen, mobileMenuOpen, navIt
 const moreTools = useRef<HTMLDetailsElement>(null);
 if (!session?.valid) return null;
 const ordered = isOwner ? [...navItems].sort((a,b)=>adminSections.findIndex(s=>s.id===a.id)-adminSections.findIndex(s=>s.id===b.id)) : navItems;
-const primaryIds = new Set(['dashboard', 'calls', 'opportunities', 'inbox', 'contacts', 'monitoring']);
+const primaryIds = new Set(['dashboard', 'callbacks', 'calls', 'opportunities', 'inbox', 'contacts', 'monitoring']);
 const primary = ordered.filter(item => primaryIds.has(item.id));
 const secondary = ordered.filter(item => !primaryIds.has(item.id));
 const openSection = (id: string) => {
