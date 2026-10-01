@@ -6,6 +6,7 @@
  * - Loading is caller-managed; this function never throws.
  */
 import { verifySessionOnce } from './session-verification';
+import { providerGatewayHeaders } from './provider-gateway';
 
 export interface AuthFetchResult<T = unknown> {
   ok: boolean;
@@ -36,7 +37,7 @@ export async function authFetch<T = unknown>(
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: providerGatewayHeaders(url, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
       signal: controller.signal,
     });

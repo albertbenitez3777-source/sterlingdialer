@@ -1,4 +1,5 @@
 import { type TransferMetricSummary } from '@/utils/transfer-metrics';
+import { providerGatewayHeaders } from '@/utils/provider-gateway';
 export type AgentRole = 'owner' | 'administrator' | 'agent' | 'supervisor';
 
 export type SessionAgent = { id: string; full_name: string; role: AgentRole; status: string; is_owner?: boolean; available_for_transfer?: boolean; logged_in?: boolean };
@@ -272,7 +273,7 @@ export async function providerFetch(url: string, options: RequestInit, retries =
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
+      const res = await fetch(url, { ...options, headers: providerGatewayHeaders(url, options.headers), signal: controller.signal });
       clearTimeout(timeout);
       return res;
     } catch (err) {

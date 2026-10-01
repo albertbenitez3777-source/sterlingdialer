@@ -26,9 +26,18 @@ export function startSerialPoll(
       if (!stopped) schedule(Math.min(options.maxBackoffMs ?? 60000, intervalMs * 2 ** failures));
     }
   };
+  // A visible page should not wait out a hidden-tab timer or offline backoff.
+  // run() still prevents concurrent requests and respects the caller's pause gate.
+  const wake = () => { void run(); };
+  if (typeof document !== 'undefined') document.addEventListener?.('visibilitychange', wake);
+  if (typeof window !== 'undefined') window.addEventListener?.('online', wake);
   void run();
   return {
     refresh: () => { void run(); },
-    stop: () => { stopped = true; clearTimeout(timer); controller?.abort(); },
+    stop: () => {
+      stopped = true; clearTimeout(timer); controller?.abort();
+      if (typeof document !== 'undefined') document.removeEventListener?.('visibilitychange', wake);
+      if (typeof window !== 'undefined') window.removeEventListener?.('online', wake);
+    },
   };
 }
