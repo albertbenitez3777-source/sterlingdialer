@@ -1,3 +1,4 @@
+import { CallbackControlModule } from '@/modules/callback-control/CallbackControl';
 import { CallbackScheduleModule, JAMES_CALLBACK_ID } from '@/modules/callback-schedule/CallbackSchedule';
 import { ContactsViewModule } from '@/modules/contacts/ContactsModule';
 import { CallLogViewModule } from '@/modules/records/RecordsModule';
@@ -59,6 +60,7 @@ return (<>
             starting={startingCampaign} stopping={stoppingCampaign} notice={speedNotice}
             onLines={lines => void handleDialerLines(lines)} onAgent={(id, selected) => void toggleAgent(id, selected)}
             onStart={() => void startCampaign()} onStop={() => void stopCampaign()} />}
+{isOwner && ['dashboard','system'].includes(activeNav) && <CallbackControlModule sessionToken={sessionToken} onUnauthorized={atomicLogout}/>}
 {isOwner && adminStats && adminStats.summary.dialer_status === 'waiting_for_agents' && (
             <div className="dialer-gated-banner">
               <Pause size={16} /> <strong>Dialing paused</strong> — no verified agent routes are selected. Check the team routes below.
