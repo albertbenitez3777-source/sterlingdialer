@@ -1,0 +1,3 @@
+.ica-overlay.ica-overlay-collapsed{width:auto;overflow:visible}
+.ica-panel-toggle{pointer-events:auto;display:flex;align-items:center;gap:9px;margin:0 0 10px auto;padding:11px 15px;background:#172a36;color:#edf8ff;border:1px solid #477189;border-radius:12px;box-shadow:0 4px 18px #0005;cursor:pointer;font-size:14px;font-weight:700}
+.ica-panel-toggle:focus-visible{outline:3px solid #8ed9ff;outline-offset:3px}

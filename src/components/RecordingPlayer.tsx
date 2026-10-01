@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Volume2, VolumeX, RefreshCw } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
+import { recordingIdentity } from '@/modules/recordings/recording-identity';
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
 const PROVIDER_URL = `${SUPABASE_URL}/functions/v1/wolf-provider`;
@@ -13,7 +14,12 @@ interface RecordingPlayerProps {
   onUnauthorized?: () => void;
 }
 
-export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessionToken, onUnauthorized }: RecordingPlayerProps) {
+export function RecordingPlayer(props: RecordingPlayerProps) {
+  const identity=recordingIdentity(props.recordingSource||'calls',props.callId,props.url,props.sessionToken);
+  return <RecordingPlayback key={identity} {...props} />;
+}
+
+function RecordingPlayback({ url, callId, recordingSource = 'calls', sessionToken, onUnauthorized }: RecordingPlayerProps) {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recovering, setRecovering] = useState(false);
@@ -23,14 +29,21 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
   const [recoveryMessage, setRecoveryMessage] = useState('');
   const attemptedRecovery = useRef(false);
   const recoveryRequest = useRef<AbortController | null>(null);
-  const sourceKey = `${recordingSource}:${callId || ''}:${sessionToken || ''}:${url || ''}`;
+  const sourceKey = recordingIdentity(recordingSource,callId,url,sessionToken);
   const activeKey = useRef<string | null>(sourceKey);
   activeKey.current = sourceKey;
+  const audioRef = useRef<HTMLAudioElement|null>(null);
+  const resume = useRef<{time:number;playing:boolean}|null>(null);
 
   // Provider URLs require a server credential; the browser uses a short-lived
   // playback grant instead. Never send provider keys to the client.
-  const directUrl = /^https:\/\/api\.bland\.ai(?:\/|$)/i.test(url || '') ? null : url;
+  const incomingUrl = /^https:\/\/api\.bland\.ai(?:\/|$)/i.test(url || '') ? null : url;
+  const [directUrl,setDirectUrl] = useState(incomingUrl);
   const activeUrl = (recoveredKey === sourceKey ? recoveredUrl : null) || directUrl;
+
+  // Polling may renew a signed URL every few seconds. Keep the working source
+  // and browser playhead; only an actual load error or explicit Retry replaces it.
+  useEffect(()=>{if(!directUrl&&incomingUrl)setDirectUrl(incomingUrl);},[incomingUrl,directUrl]);
 
   useEffect(() => {
     activeKey.current = sourceKey;
@@ -93,13 +106,28 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
 
   const handleAudioError = useCallback(() => {
     if (recovering) return;
+    const audio=audioRef.current;
+    if(audio)resume.current={time:Number.isFinite(audio.currentTime)?audio.currentTime:0,playing:!audio.paused&&!audio.ended};
+    if(incomingUrl&&incomingUrl!==activeUrl){
+      setRecoveredUrl(null);setRecoveredKey(null);setDirectUrl(incomingUrl);
+      setError(false);setLoading(true);return;
+    }
     setLoading(false);
     if (!attemptedRecovery.current && callId && sessionToken) {
       attemptRecovery();
     } else {
       setError(true);
     }
-  }, [callId, sessionToken, attemptRecovery, recovering]);
+  }, [callId, sessionToken, attemptRecovery, recovering, incomingUrl, activeUrl]);
+
+  const handleMetadata = () => {
+    setLoading(false);
+    const position=resume.current,audio=audioRef.current;
+    if(!position||!audio)return;
+    resume.current=null;
+    try{audio.currentTime=Number.isFinite(audio.duration)?Math.min(position.time,Math.max(0,audio.duration-0.1)):position.time;}catch{/* Some streams cannot seek until buffered. */}
+    if(position.playing)void audio.play().catch(()=>{ /* Native Play remains available if browser activation is needed. */ });
+  };
 
   const handleManualRetry = useCallback(() => {
     attemptedRecovery.current = false;
@@ -155,12 +183,12 @@ export function RecordingPlayer({ url, callId, recordingSource = 'calls', sessio
           </div>
         )}
         <audio
-          key={activeUrl}
+          ref={audioRef}
           controls
           preload="metadata"
           src={activeUrl}
           className="recording-audio"
-          onLoadedMetadata={() => setLoading(false)}
+          onLoadedMetadata={handleMetadata}
           onCanPlay={() => setLoading(false)}
           onError={handleAudioError}
           style={{ width: '100%', display: 'block' }}
