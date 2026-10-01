@@ -46,15 +46,15 @@ beforeEach(() => {
   state.unmounted = { phone: 0, chat: 0, camera: 0 };
 });
 
-describe('persistent communication modules', () => {
-  it('keeps one phone, chat and camera mounted across page changes and token renewal', () => {
+describe('phone isolation after workspace cleanup', () => {
+  it('keeps one phone mounted and no chat or camera across page changes and token renewal', () => {
     let root: ReturnType<typeof create>;
     act(() => { root = create(<App />); });
     for (const activeNav of ['contacts', 'calls', 'saved', 'monitoring', 'inbox', 'dashboard']) {
       state.model = { ...state.model, activeNav, sessionToken: 'renewed-test-only' };
       act(() => root.update(<App />));
     }
-    expect(state.mounted).toEqual({ phone: 1, chat: 1, camera: 1 });
+    expect(state.mounted).toEqual({ phone: 1, chat: 0, camera: 0 });
     expect(state.unmounted).toEqual({ phone: 0, chat: 0, camera: 0 });
     act(() => root.unmount());
   });
@@ -75,14 +75,15 @@ describe('persistent communication modules', () => {
     consoleError.mockRestore();
   });
 
-  it('contains a chat failure without restarting phone or camera', () => {
+  it('never mounts the retired chat or camera, even when their code would fail', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     let root: ReturnType<typeof create>;
     act(() => { root = create(<App />); });
     state.crashChat = true;
     act(() => root.update(<App />));
     expect(state.unmounted.phone).toBe(0);
-    expect(state.unmounted.camera).toBe(0);
+    expect(state.mounted.chat).toBe(0);
+    expect(state.mounted.camera).toBe(0);
     act(() => root.unmount());
     consoleError.mockRestore();
   });
@@ -92,7 +93,7 @@ describe('persistent communication modules', () => {
     act(() => { root = create(<App />); });
     state.model = { ...state.model, session: null, sessionToken: '' };
     act(() => root.update(<App />));
-    expect(state.unmounted).toEqual({ phone: 1, chat: 1, camera: 1 });
+    expect(state.unmounted).toEqual({ phone: 1, chat: 0, camera: 0 });
     expect(root!.toJSON()).toEqual({ type: 'span', props: {}, children: ['Sign in'] });
     act(() => root.unmount());
   });
@@ -101,7 +102,7 @@ describe('persistent communication modules', () => {
     state.model = { ...state.model, isOwner: true, isStrictOwner: true };
     let root: ReturnType<typeof create>;
     act(() => { root = create(<App />); });
-    expect(state.mounted).toEqual({ phone: 0, chat: 1, camera: 1 });
+    expect(state.mounted).toEqual({ phone: 0, chat: 0, camera: 0 });
     act(() => root.unmount());
   });
 });

@@ -1,10 +1,10 @@
 import { TeamSnapshotModule } from '@/modules/monitoring/SummaryModule';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowUpRight, Camera, CameraOff, CheckCircle2, Clock, FileText, Flame,
-  Inbox, MessageSquare, Pause, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
-  Search, Send, ShieldCheck, Sparkles, Users, Video, XCircle,
+  Activity, ArrowUpRight, CheckCircle2, Clock, FileText, Flame,
+  Inbox, Pause, Phone, PhoneCall, PhoneForwarded, PhoneIncoming,
+  Search, Send, ShieldCheck, Sparkles, Users, XCircle,
 } from 'lucide-react';
 import { authFetch } from '@/utils/auth-fetch';
 import { startSerialPoll } from '@/utils/serial-poll';
@@ -31,12 +31,6 @@ export interface AgentTodayStats {
   completed_today?: number;
 }
 
-type V2Message = {
-  id: string; sender_agent_id: string | null; sender_name: string;
-  message_kind: 'agent' | 'system' | 'transfer' | 'callback';
-  body: string; created_at: string;
-};
-
 type V2Workspace = {
   route?: {
     bland_number?: string; talkroute_number?: string; transfer_certified?: boolean;
@@ -44,9 +38,7 @@ type V2Workspace = {
   };
   settings?: {
     personal_dialer_state?: string; number_certification_state?: string;
-    camera_state?: string; camera_verified_at?: string | null;
   };
-  messages?: V2Message[];
   active_client?: {
     contact_key: string; client_name: string; client_phone?: string;
     client_snapshot?: Record<string, unknown>; updated_at: string;
@@ -83,21 +75,15 @@ function routeState(workspace: V2Workspace | null) {
 
 export function AgentCockpit(props: AgentCockpitProps) {
   const {
-    agentName, agentId, available, togglingAvail, onToggleAvail, fireTransfers,
+    agentName, available, togglingAvail, onToggleAvail, fireTransfers,
     humanDrops, todayStats, onNavTo, providerUrl, sessionToken, onUnauthorized,
   } = props;
   const [workspace, setWorkspace] = useState<V2Workspace | null>(null);
-  const [chatText, setChatText] = useState('');
-  const [chatSending, setChatSending] = useState(false);
-  const [chatError, setChatError] = useState('');
-  const [cameraState, setCameraState] = useState<'idle' | 'requesting' | 'live' | 'blocked'>('idle');
   const [isMobile, setIsMobile] = useState(false);
   const [dialerChanging, setDialerChanging] = useState(false);
   const [dialerError, setDialerError] = useState('');
   const [clientNote, setClientNote] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const auth = useRef(onUnauthorized);
   auth.current = onUnauthorized;
 
@@ -162,24 +148,6 @@ export function AgentCockpit(props: AgentCockpitProps) {
     setNoteSaving(false);
   };
 
-  const sendMessage = async () => {
-    const message = chatText.trim();
-    if (!message || !providerUrl || !sessionToken || chatSending) return;
-    setChatSending(true);
-    setChatError('');
-    const result = await authFetch<{ message: V2Message }>(providerUrl, {
-      body: { action: 'send_federal_one_message', session_token: sessionToken, message },
-      onUnauthorized: () => onUnauthorized?.(),
-    });
-    if (result.ok && result.data?.message) {
-      setChatText('');
-      setWorkspace(current => ({ ...current, messages: [...(current?.messages || []), result.data!.message] }));
-    } else {
-      setChatError(result.error || 'Message could not be sent');
-    }
-    setChatSending(false);
-  };
-
   const pipeline = useMemo(() => [
     { label: 'Active now', value: todayStats?.active_calls_now ?? '—', icon: PhoneCall },
     { label: 'Live humans', value: todayStats?.live_humans ?? todayStats?.human_drops ?? '—', icon: Users },
@@ -192,7 +160,6 @@ export function AgentCockpit(props: AgentCockpitProps) {
   const firstName = agentName.split(' ')[0] || 'Agent';
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
   const route = routeState(workspace);
-  const messages = workspace?.messages || [];
   const recent = [...fireTransfers, ...humanDrops].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 4);
 
   if (isMobile) {
@@ -201,7 +168,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <div className="f1-mobile-orb"><ShieldCheck size={24} /></div>
         <span className="f1-overline">FEDERAL ONE 2.0</span>
         <h2>{firstName}'s Client Companion</h2>
-        <p>Your phone follows the client open on your computer. Calling and camera controls stay on your computer.</p>
+        <p>Your phone follows the client open on your computer. Calling controls stay on your computer.</p>
         {workspace?.active_client ? <div className="f1-mobile-active-client">
           <small>OPEN ON YOUR COMPUTER</small>
           <strong>{workspace.active_client.client_name}</strong>
@@ -226,7 +193,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
         <div className="f1-command-copy">
           <span className="f1-overline"><Sparkles size={12} /> MY WORKSPACE</span>
           <h2>{greeting}, <em>{firstName}</em></h2>
-          <p>Everything you need to find clients, make calls, and get help.</p>
+          <p>Your calls, callbacks, and client records in one place.</p>
         </div>
         <button className={`f1-availability ${available ? 'is-ready' : 'is-away'}`} onClick={onToggleAvail} disabled={togglingAvail}>
           <span />
@@ -248,8 +215,15 @@ export function AgentCockpit(props: AgentCockpitProps) {
       </button>
       {dialerError && <div className="f1-simple-error">{dialerError}</div>}
 
-      <div className="f1-command-grid">
+      <div className="f1-command-grid f1-calls-only-grid">
         <main className="f1-command-main">
+          <div className="f1-metric-panel">
+            <div className="f1-panel-heading"><div><small>TODAY</small><strong>Personal performance</strong></div><span>LIVE DATA</span></div>
+            <div className="f1-metric-grid">
+              {pipeline.map(({ label, value, icon: Icon }) => <div className="f1-metric" key={label}><Icon size={15} /><strong>{value}</strong><span>{label}</span></div>)}
+            </div>
+          </div>
+
           <div className="f1-primary-actions">
             <button className="f1-primary-action extra-info-cockpit" onClick={() => onNavTo('extra')}>
               <span className="f1-action-icon"><FileText size={24} /></span><div><small>RESEARCH</small><strong>Extra Info</strong><p>Find more on a live call</p></div><ArrowUpRight size={18} />
@@ -265,13 +239,6 @@ export function AgentCockpit(props: AgentCockpitProps) {
             </button>
           </div>
 
-          <div className="f1-metric-panel">
-            <div className="f1-panel-heading"><div><small>TODAY</small><strong>Personal performance</strong></div><span>LIVE DATA</span></div>
-            <div className="f1-metric-grid">
-              {pipeline.map(({ label, value, icon: Icon }) => <div className="f1-metric" key={label}><Icon size={15} /><strong>{value}</strong><span>{label}</span></div>)}
-            </div>
-          </div>
-
           <div className="f1-activity-panel">
             <div className="f1-panel-heading"><div><small>OPERATIONS PULSE</small><strong>Recent client activity</strong></div><button onClick={() => onNavTo('calls')}>View all <ArrowUpRight size={13} /></button></div>
             {recent.length === 0 ? <div className="f1-empty-pulse"><Activity size={19} /><span>New client activity will appear here in real time.</span></div> : recent.map(item => (
@@ -284,29 +251,7 @@ export function AgentCockpit(props: AgentCockpitProps) {
           </div>
         </main>
 
-        <aside className="f1-collaboration-rail">
-          <div className="f1-workroom-card">
-            <div className="f1-panel-heading"><div><small>FEDERAL ONE WORKROOM</small><strong>Camera verification</strong></div><Video size={16} /></div>
-            <p>Share your camera with the administrator and James Spencer. Camera sharing does not use your microphone.</p>
-            <button className="f1-camera-button" onClick={() => window.dispatchEvent(new Event('f1:camera:open'))}><Camera size={15} /> Open shared camera</button>
-          </div>
 
-          <div className="f1-team-card">
-            <div className="f1-panel-heading"><div><small>TEAM ROOM</small><strong>Federal One Chat</strong></div><MessageSquare size={16} /></div>
-            <div className="f1-chat-feed">
-              {messages.length === 0 ? <div className="f1-chat-empty">Team messages and system alerts will appear here.</div> : messages.slice(-8).map(message => (
-                <div className={`f1-chat-message ${message.sender_agent_id === agentId ? 'mine' : ''}`} key={message.id}>
-                  <div><strong>{message.sender_name}</strong><time>{fmtClock(message.created_at)}</time></div><p>{message.body}</p>
-                </div>
-              ))}
-            </div>
-            {chatError && <div className="f1-chat-error">{chatError}</div>}
-            <div className="f1-chat-compose">
-              <input value={chatText} onChange={event => setChatText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void sendMessage(); }} placeholder="Message the team..." maxLength={2000} />
-              <button onClick={sendMessage} disabled={!chatText.trim() || chatSending} aria-label="Send message"><Send size={15} /></button>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
   );

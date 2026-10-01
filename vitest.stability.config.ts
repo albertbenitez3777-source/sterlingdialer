@@ -5,6 +5,5 @@ export default defineConfig({
     '@': fileURLToPath(new URL('./src', import.meta.url)),
   } },
   esbuild: { jsx: 'automatic' },
-  test: { include: ['test/auth-stability.test.ts', 'test/workspace-refresh.test.ts', 'test/stability-login.test.tsx', 'test/stability-isolation.test.tsx', 'test/controls-freshness.test.tsx', 'test/section-isolation.test.tsx'], environment: 'node', maxWorkers: 1, minWorkers: 1 },
+  test: { include: ['test/auth-stability.test.ts', 'test/workspace-refresh.test.ts', 'test/stability-login.test.tsx', 'test/stability-isolation.test.tsx', 'test/controls-freshness.test.tsx', 'test/section-isolation.test.tsx', 'test/call-date.test.ts'], environment: 'node', maxWorkers: 1, minWorkers: 1 },
 });
-

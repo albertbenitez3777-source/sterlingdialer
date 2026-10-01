@@ -6,8 +6,6 @@ import { useApplicationModel } from '@/app/useApplicationModel';
 import { WorkspaceDialogs } from '@/app/WorkspaceDialogs';
 import { MatrixField } from '@/components/MatrixField';
 import { AgentWorkspace } from '@/modules/agent/AgentWorkspace';
-import { CameraModule } from '@/modules/camera/CameraModule';
-import { ChatModule } from '@/modules/chat/ChatModule';
 import { LoginScreen } from '@/modules/login/LoginScreen';
 import { MainNavigation } from '@/modules/navigation/MainNavigation';
 import { StatusBar } from '@/modules/navigation/StatusBar';
@@ -32,9 +30,7 @@ export default function App() {
     </div>
    </div>
    <ModuleBoundary name="Dialogs"><WorkspaceDialogs model={model} /></ModuleBoundary>
-   <ModuleBoundary name="Chat"><ChatModule model={model} /></ModuleBoundary>
    <ModuleBoundary name="Phone"><PhoneModule model={model} /></ModuleBoundary>
   </div>
-  <ModuleBoundary name="Camera"><CameraModule model={model} /></ModuleBoundary>
  </>;
 }

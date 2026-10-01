@@ -1,5 +1,6 @@
 import { PhoneNumber } from '@/modules/phone/PhoneNumber';
-import { fmtDateTime,fmtDuration,initials,queueLabel,QueueRecord } from "@/app/shared";
+import { fmtDuration,initials,queueLabel,QueueRecord } from "@/app/shared";
+import { callDateDetails } from '@/modules/records/call-date';
 import { queueToPillVariant,RecordingPlayer,StatusPill } from '@/components';
 import { formatPhone } from '@/utils/privacy';
 import {
@@ -32,6 +33,7 @@ export function CallList({ records, loading, expandedCall, setExpandedCall, onPh
       {records.map(call => {
         const isSelected = selectedIds?.has(call.id) ?? false;
         const isFireTransfer = call.queue === 'fire_transfer';
+        const callDate = callDateDetails(call.created_at);
         const isSaving = savingTransferIds?.has(call.id) ?? false;
         return (
         <div key={call.id} className={`queue-card ${isSelected ? 'selected-for-redial' : ''} ${isFireTransfer ? 'flame-card' : 'red-card'}`}>
@@ -52,14 +54,14 @@ export function CallList({ records, loading, expandedCall, setExpandedCall, onPh
                 <PhoneNumber phone={call.consumer_phone}><Phone size={11} /> {formatPhone(call.consumer_phone)}
                 </PhoneNumber>
                 <span className="card-address"> · {call.consumer_address || 'No address on file'}</span>
-                <span> · {fmtDateTime(call.created_at)}</span>
+                <span className="call-record-date"> · {callDate.label}</span>
               </div>
             </div>
             <div className="queue-card-right">
               <span className={`heat-status ${isFireTransfer ? 'hot' : 'warm'}`}>
-                <Flame size={12} /> {isFireTransfer ? 'HOT TRANSFER' : call.queue === 'human_drop' ? 'LIVE HUMAN' : 'CALL RECORD'}
+                <Flame size={12} /> {isFireTransfer ? (callDate.isToday ? 'TRANSFER TODAY' : 'TRANSFER RECORD') : call.queue === 'human_drop' ? 'HUMAN-CLASSIFIED' : 'CALL RECORD'}
               </span>
-              {isFireTransfer && (
+              {isFireTransfer && callDate.isToday && (
                 <span className="call-now-alert">
                   <Flame size={12} /> CALL NOW
                 </span>
@@ -98,7 +100,7 @@ export function CallList({ records, loading, expandedCall, setExpandedCall, onPh
               {call.agent_notes && call.agent_notes.trim() && <div className="detail-row"><span>Agent Notes:</span><strong>{call.agent_notes}</strong></div>}
               {call.agent_disposition && <div className="detail-row"><span>Agent Disposition:</span><strong>{call.agent_disposition}</strong></div>}
               {call.duration_seconds > 0 && <div className="detail-row"><span>Duration:</span><strong>{fmtDuration(call.duration_seconds)}</strong></div>}
-              <div className="detail-row"><span>Called:</span><strong>{fmtDateTime(call.created_at)}</strong></div>
+              <div className="detail-row"><span>Called:</span><strong>{callDate.label}</strong></div>
               {call.ai_summary && <div className="detail-section"><div className="detail-label">AI SUMMARY</div><p>{call.ai_summary}</p></div>}
               {call.transcript && (
                 <div className="detail-section">

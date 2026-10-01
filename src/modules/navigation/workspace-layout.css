@@ -1,0 +1,28 @@
+/* Workspace presentation only: phone positioning and lifecycle stay independent. */
+.f1-command-grid.f1-calls-only-grid { grid-template-columns: minmax(0, 1fr); }
+.f1-more-tools { position: relative; }
+.f1-more-tools > summary { list-style: none; white-space: nowrap; }
+.f1-more-tools > summary::-webkit-details-marker { display: none; }
+.f1-more-tools-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 100;
+  display: grid; gap: 4px; min-width: 220px; padding: 8px;
+  border: 1px solid #63404f; border-radius: 12px;
+  background: #1b1b22; box-shadow: 0 14px 32px #0008;
+}
+.f1-more-tools-panel .f1-command-link { width: 100%; justify-content: flex-start; }
+.f1-v2-shell .f1-more-tools-panel .f1-command-link span { display: inline; }
+.f1-more-tools > summary:focus-visible { outline: 2px solid #e0b5bf; outline-offset: 3px; }
+.admin-more-tools { margin-top: 18px; }
+.admin-more-tools > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.admin-more-tools > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+@media (max-width: 900px) {
+  .admin-more-tools > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .f1-more-tools { grid-column: 1 / -1; }
+  .f1-more-tools-panel { position: static; box-shadow: none; margin-top: 6px; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 540px) {
+  .admin-more-tools > div { grid-template-columns: 1fr; }
+  .f1-more-tools-panel { grid-template-columns: 1fr; }
+}
