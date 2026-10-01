@@ -2,6 +2,7 @@ import { PhoneNumber } from '@/modules/phone/PhoneNumber';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Phone, PhoneOff, Clock, Copy, X, Volume2, VolumeX, ChevronDown, ChevronUp, MapPin, DollarSign, Home, FileText, Check, AlertTriangle, RefreshCw, Calendar } from 'lucide-react';
 import { RecordingPlayer } from './RecordingPlayer';
+import '@/modules/transfers/manual-alerts.css';
 
 export type TransferAlert = {
   id: string;
@@ -68,13 +69,15 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 function AlertCard({
-  alert, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo,
+  alert, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo, sessionToken, onUnauthorized,
 }: {
   alert: TransferAlert;
   onAcknowledge: IncomingCallAlertProps['onAcknowledge'];
   onScheduleCallback: IncomingCallAlertProps['onScheduleCallback'];
   onDismiss: IncomingCallAlertProps['onDismiss'];
   onExtraInfo?: IncomingCallAlertProps['onExtraInfo'];
+  sessionToken: string;
+  onUnauthorized: () => void;
 }) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -192,9 +195,9 @@ function AlertCard({
             </div>
           </div>
 
-          {alert.recording_url && (
+          {(alert.recording_url || alert.call_id) && (
             <div className="ica-recording">
-              <RecordingPlayer url={alert.recording_url} />
+              <RecordingPlayer url={alert.recording_url} callId={alert.call_id} sessionToken={sessionToken} onUnauthorized={onUnauthorized} />
             </div>
           )}
 
@@ -276,8 +279,9 @@ function AlertCard({
 }
 
 export function IncomingCallAlert({
-  alerts, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo, agentName,
+  alerts, onAcknowledge, onScheduleCallback, onDismiss, onExtraInfo, agentName, sessionToken, onUnauthorized,
 }: IncomingCallAlertProps) {
+  const [panelOpen,setPanelOpen] = useState(false);
   const [audioOn, setAudioOn] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeAlerts = alerts.filter(a => a.status === 'active');
@@ -303,8 +307,9 @@ export function IncomingCallAlert({
   if (alerts.length === 0) return null;
 
   return (
-    <div className="ica-overlay">
-      <div className="ica-container">
+    <div className={`ica-overlay${panelOpen?'':' ica-overlay-collapsed'}`}>
+      <button type="button" className="ica-panel-toggle" aria-label={panelOpen?'Close leads':'Open leads'} aria-expanded={panelOpen} onClick={()=>setPanelOpen(value=>!value)}><FileText size={18}/>{panelOpen?'Close leads':'Leads'} <span className="ica-alert-count">{alerts.length}</span>{panelOpen&&<X size={16}/>}</button>
+      {panelOpen && <div className="ica-container">
         <div className="ica-top-bar">
           <div className="ica-top-left">
             <Phone size={14} />
@@ -330,9 +335,11 @@ export function IncomingCallAlert({
             onScheduleCallback={onScheduleCallback}
             onDismiss={onDismiss}
             onExtraInfo={onExtraInfo}
+            sessionToken={sessionToken}
+            onUnauthorized={onUnauthorized}
           />
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
