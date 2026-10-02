@@ -9,7 +9,7 @@ import {PhoneNumber} from '@/modules/phone/PhoneNumber';
 import './callback-control.css';
 
 type Item={id:string;source_call_id:string;source_at:string;consumer_name:string;phone:string;state:string;blocked_reason:string;result_code:string;appointment_saved:boolean;attempt_call_id:string|null;duration_seconds:number;transcript:string};
-export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;booking_block?:string;
+export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;booking_block?:string;booking_warning?:string;
  counts:{detected:number;ready:number;waiting:number;excluded:number;active:number;called:number;scheduled:number;needs_review:number};
  run:null|{id:string;state:string;work_day:string;lines:number;reason:string;last_tick_at:string|null;created_at:string};
  items:Item[];history:{week_start:string;contacts:number;called:number}[]};
@@ -63,6 +63,7 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
  {data?.main_running?<p className="f1-cc-message">The main dialer is running. Stop it above, then let its active calls finish before starting callbacks.</p>:data?.other_active?<p className="f1-cc-message">Waiting for {data.other_active} existing outbound calls to finish.</p>:null}
  {data?.run?.reason&&<p role="status" className="f1-cc-message">{data.run.reason}</p>}
  {data?.booking_block&&<p role="alert" className="f1-cc-error">Appointments need attention: {data.booking_block}</p>}
+ {data?.booking_warning&&!data?.booking_block&&<p role="status" className="f1-cc-message">{data.booking_warning}</p>}
  {error&&<p role="alert" className="f1-cc-error">{error} {data?'Showing the last saved list.':''}</p>}
  <p className="f1-cc-help">{data?`${data.counts.waiting} waiting · ${data.counts.excluded} excluded · `:''}One follow-up per contact each week. Saved appointments, opt-outs, wrong numbers and contact limits are respected. Stop prevents new calls; calls already connecting may finish.</p>
  <details className="f1-cc-script"><summary>What Elizabeth says on a callback</summary><p>After confirming the right person and giving the required disclosure:</p><blockquote>“I’m following up for Mr. James Spencer at Federal One. He would like to review the PCH account and explain the paperwork with you today.”</blockquote><p>After checking availability:</p><blockquote>“I can reserve a callback in five to thirty minutes. Will you be able to answer at this number?”</blockquote><p>After the appointment is saved, she confirms the agreed window, asks them to keep their phone nearby and gives reference 516221. No live transfer.</p></details>
