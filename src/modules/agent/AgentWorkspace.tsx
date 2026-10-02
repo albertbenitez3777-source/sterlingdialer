@@ -44,7 +44,7 @@ return (<>
                   <WifiOff size={28} className="conn-banner-icon" />
                   <div className="conn-banner-text">
                     <strong>DISCONNECTED</strong>
-                    <span>Reconnect to answer on this computer. Your assigned number still receives calls and voicemail.</span>
+                    <span>Check your connection. Calls and callbacks are handled through the assigned external number.</span>
                   </div>
                 </>
               ) : agentAvailable ? (
