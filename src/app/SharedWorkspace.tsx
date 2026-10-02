@@ -11,7 +11,7 @@ PhoneOff,
 X
 } from 'lucide-react';
 
-export function SharedWorkspace({ model }: { model: Pick<ApplicationModel, "dialerError" | "setDialerError" | "notice" | "setNotice" | "availToast" | "setAvailToast" | "isOwner" | "activeNav" | "dataHealth" | "sessionToken" | "atomicLogout" | "setSecClientName" | "setSecClientPhone" | "setActiveNav" | "extraInfoPrefill" > }) {
+export function SharedWorkspace({ model }: { model: Pick<ApplicationModel, "dialerError" | "setDialerError" | "notice" | "setNotice" | "availToast" | "setAvailToast" | "isOwner" | "activeNav" | "dataHealth" | "sessionToken" | "atomicLogout" | "setSecClientName" | "setSecClientPhone" | "setActiveNav" | "extraInfoPrefill" | "session" > }) {
 const { dialerError, setDialerError, notice, setNotice, availToast, setAvailToast, isOwner, activeNav, dataHealth, sessionToken, atomicLogout, setSecClientName, setSecClientPhone, setActiveNav, extraInfoPrefill } = model;
 return (<>
 {dialerError && <div className="toast" role="alert"><PhoneOff size={14} />{dialerError}<button aria-label="Dismiss dialer error" onClick={() => setDialerError('')}><X size={14} /></button></div>}
@@ -38,6 +38,7 @@ return (<>
               sessionToken={sessionToken}
               onUnauthorized={atomicLogout}
               isOwner={isOwner}
+              agentId={model.session?.agent?.id ?? ''}
               onCallback={(name, phone) => {
                 setSecClientName(name);
                 setSecClientPhone(phone);

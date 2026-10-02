@@ -49,6 +49,7 @@ export type OutcomeFilter = 'all' | 'transfers' | 'humans' | 'bridges' | 'callba
 export interface AgentWorkspaceViewProps {
   providerUrl: string;
   sessionToken: string;
+  agentId: string;
   onUnauthorized: () => void;
   expandedCall: string | null;
   setExpandedCall: (id: string | null) => void;
@@ -209,7 +210,7 @@ function BucketSection({ title, icon, calls, filter, defaultOpen, expandedCall, 
    AgentWorkspaceView — main export
    ═══════════════════════════════════════════════════════════════════ */
 export function AgentWorkspaceView({
-  providerUrl, sessionToken, onUnauthorized,
+  providerUrl, sessionToken, agentId, onUnauthorized,
   expandedCall, setExpandedCall, onPhoneClick,
   onSaveTransfer, savingTransferIds, selectedRedialIds, onToggleSelect,
   onRedial, redialing, redialBatchId, redialTranscripts, onCloseRedialPanel,
@@ -234,12 +235,18 @@ export function AgentWorkspaceView({
         onUnauthorized,
       });
       if (result.ok && result.data && mountedRef.current) {
-        setData(result.data as WorkspaceData);
+        const incoming = result.data as WorkspaceData;
+        const todayOnly = agentId === 'bf021c46-10ca-45a4-b800-08f5e181834e' || incoming.today_only;
+        setData(todayOnly ? { ...incoming,
+          live_now: incoming.live_now.filter(call => call.created_at >= incoming.boundaries.today_start),
+          today_completed: incoming.today_completed.filter(call => call.created_at >= incoming.boundaries.today_start),
+          yesterday: [], archive_page: [], archive_total: 0, today_only: true,
+        } : incoming);
         setLoading(false);
       }
     } catch { /* authFetch handles 401 */ }
     finally { ref.current = false; }
-  }, [providerUrl, sessionToken, onUnauthorized]);
+  }, [providerUrl, sessionToken, agentId, onUnauthorized]);
 
   // Live + today: 3s refresh
   useEffect(() => {

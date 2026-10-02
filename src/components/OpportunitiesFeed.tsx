@@ -59,6 +59,7 @@ interface OpportunitiesFeedProps {
   sessionToken: string;
   onUnauthorized: () => void;
   isOwner: boolean;
+  agentId: string;
   onCallback: (name: string, phone: string) => void;
 }
 
@@ -138,7 +139,7 @@ function DetailRow({ icon: Icon, label, value }: { icon: typeof MapPin; label: s
   );
 }
 
-export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCallback }: OpportunitiesFeedProps) {
+export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, agentId, onCallback }: OpportunitiesFeedProps) {
   const [tab, setTab] = useState<TabId>('today');
   const [rows, setRows] = useState<OpportunityRecord[]>([]);
   const [counts, setCounts] = useState({ today: 0, week: 0, all: 0 });
@@ -150,7 +151,8 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
   const [refreshing, setRefreshing] = useState(false);
   const [newCount, setNewCount] = useState(0);
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [todayOnly, setTodayOnly] = useState(false);
+  const [serverTodayOnly, setServerTodayOnly] = useState(false);
+  const todayOnly = agentId === 'bf021c46-10ca-45a4-b800-08f5e181834e' || serverTodayOnly;
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const lastFetchTs = useRef<string>('');
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -172,19 +174,21 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
         body: {
           action: 'get_agent_opportunities',
           session_token: sessionToken,
-          tab,
+          tab: todayOnly ? 'today' : tab,
           ...(isOwner && filterAgentId ? { filter_agent_id: filterAgentId } : {}),
           ...(silent && lastFetchTs.current ? { since_ts: lastFetchTs.current } : {}),
         },
       });
       if (res.ok && res.data) {
-        if (res.data.today_only) {
-          setTodayOnly(true);
+        if (res.data.today_only) setServerTodayOnly(true);
+        if (todayOnly || res.data.today_only) {
           if (tab !== 'today') setTab('today');
           setShowHistory(null);
         }
-        setRows(res.data.opportunities);
-        setCounts(res.data.counts);
+        const crStart = `${new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 10)}T06:00:00.000Z`;
+        const visibleRows = todayOnly ? res.data.opportunities.filter(r => r.created_at >= crStart) : res.data.opportunities;
+        setRows(visibleRows);
+        setCounts(todayOnly ? { today: visibleRows.length, week: 0, all: 0 } : res.data.counts);
         if (res.data.agents?.length) setAgents(res.data.agents);
         if (res.data.opportunities.length > 0) {
           lastFetchTs.current = res.data.opportunities[0].created_at;
@@ -208,7 +212,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
       setLoading(false);
       setRefreshing(false);
     }
-  }, [url, sessionToken, tab, filterAgentId, isOwner, onUnauthorized]);
+  }, [url, sessionToken, tab, filterAgentId, isOwner, agentId, todayOnly, onUnauthorized]);
 
   useEffect(() => {
     fetchOpportunities(false);

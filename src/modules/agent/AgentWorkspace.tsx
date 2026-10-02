@@ -139,6 +139,7 @@ return (<>
             <AgentWorkspaceView
               providerUrl={PROVIDER_URL}
               sessionToken={sessionToken}
+              agentId={session?.agent?.id ?? ''}
               onUnauthorized={atomicLogout}
               expandedCall={expandedCall}
               setExpandedCall={setExpandedCall}
