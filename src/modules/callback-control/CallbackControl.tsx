@@ -6,10 +6,11 @@ import {authFetch} from '@/utils/auth-fetch';
 import {startSerialPoll} from '@/utils/serial-poll';
 import {RecordingPlayer} from '@/components/RecordingPlayer';
 import {PhoneNumber} from '@/modules/phone/PhoneNumber';
+import {callbackStatus,CallbackWaitingReasons} from './callback-status';
 import './callback-control.css';
 
 type Item={id:string;source_call_id:string;source_at:string;consumer_name:string;phone:string;state:string;blocked_reason:string;result_code:string;appointment_saved:boolean;attempt_call_id:string|null;duration_seconds:number;transcript:string};
-export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;booking_block?:string;booking_warning?:string;
+export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;booking_block?:string;booking_warning?:string;waiting_reasons?:CallbackWaitingReasons;
  counts:{detected:number;ready:number;waiting:number;excluded:number;active:number;called:number;scheduled:number;needs_review:number};
  run:null|{id:string;state:string;work_day:string;lines:number;reason:string;last_tick_at:string|null;created_at:string};
  items:Item[];history:{week_start:string;contacts:number;called:number}[]};
@@ -43,6 +44,7 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
  const running=data?.run?.state==='running';
  const stale=!data||!!error||Date.now()-Date.parse(data.checked_at)>45000;
  const history=!!data&&data.day!==data.today;
+ const display=callbackStatus(data,stale);
  async function command(action:'start'|'stop'|'speed',speed=lines){
   if(busyRef.current)return;
   if(action==='start'&&(stale||history||data?.main_running||data?.other_active||data?.booking_block||running))return;
@@ -56,12 +58,12 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
  }
  const cannotStart=stale||history||!!running||!!busy||!!data?.main_running||!!data?.other_active||!!data?.booking_block||!!data?.counts.needs_review||!(data&&data.counts.ready+data.counts.waiting>0);
  return <section className="f1-callback-control" aria-label="Callback Control">
- <header><div className="f1-cc-title"><PhoneCall size={26}/><div><span>JAMES SPENCER · FOLLOW-UP CALLS</span><h2>Callback Control</h2><p>Call today’s human-detected contacts again to arrange an appointment.</p></div></div><span className={`f1-cc-status ${running?'running':''}`}>{running?'CALLING CALLBACKS':data?.run?.state==='attention'?'NEEDS REVIEW':'STOPPED'}</span></header>
+ <header><div className="f1-cc-title"><PhoneCall size={26}/><div><span>JAMES SPENCER · FOLLOW-UP CALLS</span><h2>Callback Control</h2><p>Call today’s human-detected contacts again to arrange an appointment.</p></div></div><span className={`f1-cc-status ${display.tone}`}>{display.label}</span></header>
  <div className="f1-cc-counts"><div><strong>{data?.counts.detected??'—'}</strong><span>Human-detected contacts</span></div><div className="ready"><strong>{data?.counts.ready??'—'}</strong><span>Ready to call</span></div><div><strong>{data?.counts.active??'—'}</strong><span>Calling now</span></div><div><strong>{data?.counts.called??'—'}</strong><span>Attempts finished</span></div><div className="booked"><strong>{data?.counts.scheduled??'—'}</strong><span>Appointments saved</span></div></div>
  <div className="f1-cc-controls"><div className="f1-cc-speed"><label htmlFor="callback-lines">Callback speed</label><div><select id="callback-lines" value={lines} disabled={!!busy||history} onChange={e=>{const next=Number(e.target.value);if(running)void command('speed',next);else setLines(next);}}>{[1,2,3,4,5,6,8,9,10,12,15,16,20,25].map(n=><option key={n} value={n}>{n} {n===1?'line':'lines'}</option>)}</select><span>Up to {lines} calls at once</span></div></div>
  <div className="f1-cc-buttons"><button type="button" className="start" disabled={cannotStart} onClick={()=>void command('start')}><Play size={19}/>{busy==='start'?'Starting…':'Start callbacks'}</button><button type="button" className="stop" disabled={!running||!!busy} onClick={()=>void command('stop')}><Square size={18}/>{busy==='stop'?'Stopping…':'Stop callbacks'}</button><button type="button" onClick={()=>refresh.current()} aria-label="Refresh Callback Control"><RefreshCw size={18}/></button></div></div>
  {data?.main_running?<p className="f1-cc-message">The main dialer is running. Stop it above, then let its active calls finish before starting callbacks.</p>:data?.other_active?<p className="f1-cc-message">Waiting for {data.other_active} existing outbound calls to finish.</p>:null}
- {data?.run?.reason&&<p role="status" className="f1-cc-message">{data.run.reason}</p>}
+ {display.message&&<p role="status" className="f1-cc-message">{display.message}</p>}
  {data?.booking_block&&<p role="alert" className="f1-cc-error">Appointments need attention: {data.booking_block}</p>}
  {data?.booking_warning&&!data?.booking_block&&<p role="status" className="f1-cc-message">{data.booking_warning}</p>}
  {error&&<p role="alert" className="f1-cc-error">{error} {data?'Showing the last saved list.':''}</p>}
