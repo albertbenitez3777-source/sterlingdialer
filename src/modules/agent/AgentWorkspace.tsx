@@ -52,7 +52,7 @@ return (<>
                   <span className="conn-pulse-dot" />
                   <div className="conn-banner-text">
                     <strong>AT DESK</strong>
-                    <span>Enable your desktop phone to answer calls. Unanswered calls go to your voicemail.</span>
+                    <span>Use your assigned external number for calls. New callbacks and call notes appear here.</span>
                   </div>
                 </>
               ) : (
