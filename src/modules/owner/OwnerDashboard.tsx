@@ -1,5 +1,5 @@
 import { CallbackControlModule } from '@/modules/callback-control/CallbackControl';
-import { CallbackScheduleModule, JAMES_CALLBACK_ID } from '@/modules/callback-schedule/CallbackSchedule';
+import { OwnerCallbackSchedule } from '@/modules/callback-schedule/OwnerCallbackSchedule';
 import { ContactsViewModule } from '@/modules/contacts/ContactsModule';
 import { CallLogViewModule } from '@/modules/records/RecordsModule';
 import { AdminSavedTransfersViewModule } from '@/modules/records/RecordsModule';
@@ -50,7 +50,7 @@ const { loadAdminStats,isOwner, adminStats, dialerLines, savingSpeed, togglingAg
 const controlsStale = dataHealth.status !== 'healthy' || !dataHealth.lastSuccess || Date.now() - dataHealth.lastSuccess > 90000;
 return (<>
 {isOwner && activeNav === 'dashboard' && <AdminDialerOverview sessionToken={sessionToken} adminStats={adminStats} rosterAttendance={rosterAttendance} />}
-{isOwner && activeNav === 'dashboard' && <CallbackScheduleModule sessionToken={sessionToken} agentId={JAMES_CALLBACK_ID} onUnauthorized={atomicLogout} ownerView compact />}
+{isOwner && activeNav === 'dashboard' && <OwnerCallbackSchedule sessionToken={sessionToken} onUnauthorized={atomicLogout} compact />}
 {isOwner && activeNav === 'dashboard' && <AdminLiveStatusModule token={sessionToken} onUnauthorized={atomicLogout}/>} 
 {isOwner && ['dashboard','system'].includes(activeNav) && !adminStats && <section className="f1-dialer-controls" aria-label="Dialer controls loading"><header><div><h2>Call controls</h2><p role="status">{dataHealth.status==='degraded'?'Call controls could not load. Your login is still open.':'Loading dialer status and agent switches…'}</p></div><button type="button" onClick={()=>void loadAdminStats(sessionToken)}>Retry loading controls</button></header><p>James Spencer · Erick Jackson · Mark Carlson</p><p>Start / Stop Dialer, agent On / Off switches, and line speed appear here after the current settings are verified.</p></section>}
 
@@ -387,7 +387,7 @@ return (<>
                         </div>
                       ))}
                       {adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).length === 0 && (
-                        <div className="empty-state">No active agents. Activate John or James to start dialing.</div>
+                        <div className="empty-state">No active agents. Select James or Erick to prepare dialing.</div>
                       )}
 
                       {/* Archived / Inactive agents */}
