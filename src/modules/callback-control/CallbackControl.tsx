@@ -9,7 +9,7 @@ import {PhoneNumber} from '@/modules/phone/PhoneNumber';
 import './callback-control.css';
 
 type Item={id:string;source_call_id:string;source_at:string;consumer_name:string;phone:string;state:string;blocked_reason:string;result_code:string;appointment_saved:boolean;attempt_call_id:string|null;duration_seconds:number;transcript:string};
-export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;
+export type CallbackControlData={success:boolean;day:string;today:string;week_start:string;checked_at:string;main_running:boolean;other_active:number;booking_block?:string;
  counts:{detected:number;ready:number;waiting:number;excluded:number;active:number;called:number;scheduled:number;needs_review:number};
  run:null|{id:string;state:string;work_day:string;lines:number;reason:string;last_tick_at:string|null;created_at:string};
  items:Item[];history:{week_start:string;contacts:number;called:number}[]};
@@ -45,7 +45,7 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
  const history=!!data&&data.day!==data.today;
  async function command(action:'start'|'stop'|'speed',speed=lines){
   if(busyRef.current)return;
-  if(action==='start'&&(stale||history||data?.main_running||data?.other_active||running))return;
+  if(action==='start'&&(stale||history||data?.main_running||data?.other_active||data?.booking_block||running))return;
   busyRef.current=true;setBusy(action);
   try{
    const res=await authFetch<{success:boolean}>(PROVIDER_URL,{body:{action:`callback_control_${action}`,session_token:sessionToken,lines:speed,day:data?.day},onUnauthorized:()=>unauthorized.current(),timeoutMs:20000});
@@ -54,7 +54,7 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
    else{setError('');setLines(speed);refresh.current();}
   }finally{busyRef.current=false;if(alive.current)setBusy('');}
  }
- const cannotStart=stale||history||!!running||!!busy||!!data?.main_running||!!data?.other_active||!!data?.counts.needs_review||!(data&&data.counts.ready+data.counts.waiting>0);
+ const cannotStart=stale||history||!!running||!!busy||!!data?.main_running||!!data?.other_active||!!data?.booking_block||!!data?.counts.needs_review||!(data&&data.counts.ready+data.counts.waiting>0);
  return <section className="f1-callback-control" aria-label="Callback Control">
  <header><div className="f1-cc-title"><PhoneCall size={26}/><div><span>JAMES SPENCER · FOLLOW-UP CALLS</span><h2>Callback Control</h2><p>Call today’s human-detected contacts again to arrange an appointment.</p></div></div><span className={`f1-cc-status ${running?'running':''}`}>{running?'CALLING CALLBACKS':data?.run?.state==='attention'?'NEEDS REVIEW':'STOPPED'}</span></header>
  <div className="f1-cc-counts"><div><strong>{data?.counts.detected??'—'}</strong><span>Human-detected contacts</span></div><div className="ready"><strong>{data?.counts.ready??'—'}</strong><span>Ready to call</span></div><div><strong>{data?.counts.active??'—'}</strong><span>Calling now</span></div><div><strong>{data?.counts.called??'—'}</strong><span>Attempts finished</span></div><div className="booked"><strong>{data?.counts.scheduled??'—'}</strong><span>Appointments saved</span></div></div>
@@ -62,6 +62,7 @@ export function CallbackControl({sessionToken,onUnauthorized}:Props){
  <div className="f1-cc-buttons"><button type="button" className="start" disabled={cannotStart} onClick={()=>void command('start')}><Play size={19}/>{busy==='start'?'Starting…':'Start callbacks'}</button><button type="button" className="stop" disabled={!running||!!busy} onClick={()=>void command('stop')}><Square size={18}/>{busy==='stop'?'Stopping…':'Stop callbacks'}</button><button type="button" onClick={()=>refresh.current()} aria-label="Refresh Callback Control"><RefreshCw size={18}/></button></div></div>
  {data?.main_running?<p className="f1-cc-message">The main dialer is running. Stop it above, then let its active calls finish before starting callbacks.</p>:data?.other_active?<p className="f1-cc-message">Waiting for {data.other_active} existing outbound calls to finish.</p>:null}
  {data?.run?.reason&&<p role="status" className="f1-cc-message">{data.run.reason}</p>}
+ {data?.booking_block&&<p role="alert" className="f1-cc-error">Appointments need attention: {data.booking_block}</p>}
  {error&&<p role="alert" className="f1-cc-error">{error} {data?'Showing the last saved list.':''}</p>}
  <p className="f1-cc-help">{data?`${data.counts.waiting} waiting · ${data.counts.excluded} excluded · `:''}One follow-up per contact each week. Saved appointments, opt-outs, wrong numbers and contact limits are respected. Stop prevents new calls; calls already connecting may finish.</p>
  <details className="f1-cc-script"><summary>What Elizabeth says on a callback</summary><p>After confirming the right person and giving the required disclosure:</p><blockquote>“I’m following up for Mr. James Spencer at Federal One. He would like to review the PCH account and explain the paperwork with you today.”</blockquote><p>After checking availability:</p><blockquote>“I can reserve a callback in five to thirty minutes. Will you be able to answer at this number?”</blockquote><p>After the appointment is saved, she confirms the agreed window, asks them to keep their phone nearby and gives reference 516221. No live transfer.</p></details>
