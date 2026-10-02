@@ -1,7 +1,8 @@
+import { callbackParticipant } from './callback-agents';
 import { useEffect, useRef, useState } from 'react';
 import { CalendarClock, Check, RefreshCw, Sparkles, ArrowUpRight, Headphones, Users } from 'lucide-react';
 import { ModuleBoundary } from '@/app/ModuleBoundary';
-import { PROVIDER_URL } from '@/app/shared';
+import { CALLBACK_WORKSPACE_URL } from '@/modules/callback-schedule/callback-api';
 import { authFetch } from '@/utils/auth-fetch';
 import { startSerialPoll } from '@/utils/serial-poll';
 import { PhoneNumber } from '@/modules/phone/PhoneNumber';
@@ -33,7 +34,7 @@ export function CallbackSchedule({sessionToken,agentId,onUnauthorized,compact=fa
   useEffect(()=>{
     setData(null);setError('');
     const poll=startSerialPoll(async signal=>{
-      const res=await authFetch<Schedule>(PROVIDER_URL,{body:{action:'get_callback_schedule',session_token:sessionToken,agent_id:agentId,offset:page*100},onUnauthorized:()=>unauthorized.current(),signal,timeoutMs:12000});
+      const res=await authFetch<Schedule>(CALLBACK_WORKSPACE_URL,{body:{action:'get_callback_schedule',session_token:sessionToken,agent_id:agentId,offset:page*100},onUnauthorized:()=>unauthorized.current(),signal,timeoutMs:12000});
       if(signal.aborted)return;
       if(!res.ok||!res.data?.success){setError(res.error||'Schedule could not refresh. Please retry.');return false;}
       setData(res.data);setError('');return true;
@@ -42,22 +43,23 @@ export function CallbackSchedule({sessionToken,agentId,onUnauthorized,compact=fa
   },[sessionToken,agentId,page]);
   async function complete(item:ScheduledCallback) {
     setBusy(item.id);
-    const res=await authFetch<{success:boolean}>(PROVIDER_URL,{body:{action:'complete_scheduled_callback',session_token:sessionToken,agent_id:agentId,source:item.source,id:item.id},onUnauthorized:()=>unauthorized.current()});
+    const res=await authFetch<{success:boolean}>(CALLBACK_WORKSPACE_URL,{body:{action:'complete_scheduled_callback',session_token:sessionToken,agent_id:agentId,source:item.source,id:item.id},onUnauthorized:()=>unauthorized.current()});
     if(!alive.current)return;
     setBusy('');
     if(!res.ok||!res.data?.success)setError(res.error||'Could not mark callback done. Please retry.');
     else{setError('');refresh.current();}
   }
+  const agent=callbackParticipant(agentId);
   const items=(data?.items||[]).slice(0,callbackLimit),humanCalls=data?.human_calls||[];
   const stats=data?.today_stats;
-  return <section className="f1-callback-schedule" aria-label="James callbacks and human-detected calls">
-    <header><div className="f1-callback-title"><CalendarClock size={28}/><div><span>JAMES SPENCER · LIVE WORKLIST</span><h2>{ownerView?"James’s callbacks & conversations":"Your callbacks & conversations"}</h2><p>Appointments and call recordings, right here. Times shown in Costa Rica.</p></div></div><button type="button" className="f1-callback-refresh" onClick={()=>refresh.current()} aria-label="Refresh callback schedule"><RefreshCw size={16}/> Refresh</button></header>
+  return <section className="f1-callback-schedule" aria-label={`${agent?.shortName||"Agent"} callbacks and human-detected calls`}>
+    <header><div className="f1-callback-title"><CalendarClock size={28}/><div><span>{agent?.name.toUpperCase()||"AGENT"} · LIVE WORKLIST</span><h2>{ownerView?`${agent?.shortName||"Agent"}’s callbacks & conversations`:"Your callbacks & conversations"}</h2><p>Appointments and call recordings, right here. Times shown in Costa Rica.</p></div></div><button type="button" className="f1-callback-refresh" onClick={()=>refresh.current()} aria-label="Refresh callback schedule"><RefreshCw size={16}/> Refresh</button></header>
     <div className="f1-callback-counts">
       <button type="button" className="scheduled" onClick={()=>scheduleRef.current?.scrollIntoView({behavior:'smooth',block:'nearest'})}><CalendarClock size={24}/><strong>{data?data.total:'—'}</strong><span>Scheduled callbacks</span><small>Still need a return call</small></button>
       <button type="button" className={data?.overdue?'late':''} onClick={()=>scheduleRef.current?.scrollIntoView({behavior:'smooth',block:'nearest'})}><strong>{data?data.overdue:'—'}</strong><span>Ready to call now</span><small>{data?`${data.due_soon} more in the next 30 minutes`:'Checking the schedule…'}</small></button>
       <button type="button" className="humans" onClick={()=>humansRef.current?.scrollIntoView({behavior:'smooth',block:'nearest'})}><Users size={24}/><strong>{data?.human_detected_today??'—'}</strong><span>Human-detected today</span><small>Review the recordings below</small></button>
     </div>
-    <div className="f1-callback-live" aria-label="Today's dialer statistics"><span>TODAY'S JAMES CALLS</span><div><strong>{stats?.accepted_outbound??liveStats?.today_total??'—'}</strong> Dialer attempts</div><div><strong>{stats?.active_outbound??liveStats?.active_calls_now??'—'}</strong> Active now</div><div><strong>{stats?.completed_outbound??liveStats?.completed_today??'—'}</strong> Completed</div></div>
+    <div className="f1-callback-live" aria-label="Today's dialer statistics"><span>TODAY’S {agent?.shortName.toUpperCase()||"AGENT"} CALLS</span><div><strong>{stats?.accepted_outbound??liveStats?.today_total??'—'}</strong> Dialer attempts</div><div><strong>{stats?.active_outbound??liveStats?.active_calls_now??'—'}</strong> Active now</div><div><strong>{stats?.completed_outbound??liveStats?.completed_today??'—'}</strong> Completed</div></div>
     {error&&<p role="alert" className="f1-callback-error">{error} {data?'Showing the last saved schedule.':''}</p>}
     <div ref={scheduleRef} className="f1-home-work-section"><div className="f1-work-heading"><h3><CalendarClock size={23}/> Scheduled callbacks</h3><span>Reference <b>516221</b></span></div><p className="f1-work-help">Call the earliest appointment first. Click a number to put it on the phone, then press Dial.</p>
       {!data&&!error&&<p role="status" className="f1-callback-empty">Loading appointments…</p>}
