@@ -33,6 +33,7 @@ export type WorkspaceData = {
   yesterday: WorkspaceCall[];
   archive_page: WorkspaceCall[];
   archive_total: number;
+  today_only?: boolean;
   alerts: {
     stale_in_live: number; phone_only_pct: number;
     no_recording_pct: number; talkroute_no_answer: number;
@@ -248,6 +249,13 @@ export function AgentWorkspaceView({
     return () => { mountedRef.current = false; clearInterval(fast); };
   }, [fetchWorkspace, archiveOffset]);
 
+  useEffect(() => {
+    if (data?.today_only) {
+      setActiveTab('today');
+      setArchiveOffset(0);
+    }
+  }, [data?.today_only]);
+
   const handleArchivePage = (newOffset: number) => {
     setArchiveOffset(newOffset);
     fetchWorkspace(newOffset, true);
@@ -266,8 +274,10 @@ export function AgentWorkspaceView({
 
   const tabs: { key: WorkspaceTab; label: string; count: number }[] = [
     { key: 'today', label: 'Today', count: data.live_now.length + data.today_completed.length },
-    { key: 'yesterday', label: 'Yesterday', count: data.yesterday.length },
-    { key: 'archive', label: 'Archive', count: data.archive_total },
+    ...(!data.today_only ? [
+      { key: 'yesterday' as const, label: 'Yesterday', count: data.yesterday.length },
+      { key: 'archive' as const, label: 'Archive', count: data.archive_total },
+    ] : []),
   ];
 
   const filters: { key: OutcomeFilter; label: string }[] = [

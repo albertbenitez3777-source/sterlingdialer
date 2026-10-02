@@ -150,6 +150,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
   const [refreshing, setRefreshing] = useState(false);
   const [newCount, setNewCount] = useState(0);
   const [showHistory, setShowHistory] = useState<string | null>(null);
+  const [todayOnly, setTodayOnly] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const lastFetchTs = useRef<string>('');
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -165,6 +166,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
         counts: { today: number; week: number; all: number };
         agents: { id: string; full_name: string }[];
         new_since_count?: number;
+        today_only?: boolean;
       }>(url, {
         onUnauthorized,
         body: {
@@ -176,6 +178,11 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
         },
       });
       if (res.ok && res.data) {
+        if (res.data.today_only) {
+          setTodayOnly(true);
+          if (tab !== 'today') setTab('today');
+          setShowHistory(null);
+        }
         setRows(res.data.opportunities);
         setCounts(res.data.counts);
         if (res.data.agents?.length) setAgents(res.data.agents);
@@ -213,8 +220,10 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
 
   const tabs: { id: TabId; label: string; count: number }[] = [
     { id: 'today', label: 'Today', count: counts.today },
-    { id: 'week', label: 'This Week', count: counts.week },
-    { id: 'all', label: 'All History', count: counts.all },
+    ...(!todayOnly ? [
+      { id: 'week' as const, label: 'This Week', count: counts.week },
+      { id: 'all' as const, label: 'All History', count: counts.all },
+    ] : []),
   ];
 
   return (
@@ -291,7 +300,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, onCal
         <div className="opp-list">
           {rows.map(r => {
             const isExpanded = expandedId === r.id;
-            const hasHistory = r.call_history && r.call_history.length > 1;
+            const hasHistory = !todayOnly && r.call_history && r.call_history.length > 1;
             return (
               <div key={r.id} className={`opp-card ${isExpanded ? 'expanded' : ''}`}>
                 <button className="opp-card-header" onClick={() => setExpandedId(isExpanded ? null : r.id)}>
