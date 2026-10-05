@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import postgres from "npm:postgres@3.4.4";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getBlandCallCompletion, detectLiveHuman, flattenTranscript, blandDurationToSeconds } from "../_shared/call-evidence.ts";
+import { buildCallScript, type CallMode } from "../_shared/appointment-script.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -142,58 +143,55 @@ async function placeBlandCall(
   consumerName: string,
   agentName: string,
   talkrouteNumber: string,
+  callMode: CallMode = "appointment",
 ): Promise<{ success: boolean; provider_call_id?: string; error?: string; transfer_route?: string }> {
   const transferNumber = normalizeToE164(talkrouteNumber);
-  const transferRoute = "hub";
+  const transferRoute = callMode === "appointment" ? "booking" : "hub";
   const webhookUrl = `${supabaseUrl}/functions/v1/wolf-webhook`;
+  const bookingToolUrl = `${supabaseUrl}/functions/v1/wolf-callback-booking`;
 
-  const firstSentence = `Hello, am I speaking with ${consumerName}?`;
+  const script = buildCallScript({
+    agentName,
+    consumerName,
+    mode: callMode,
+    bookingToolUrl: callMode === "appointment" ? bookingToolUrl : undefined,
+  });
 
-  const task = `You are Elizabeth, the AI assistant for ${agentName}, calling for ${consumerName}. Your job is to connect the intended person promptly to their assigned agent using the configured transfer tool. This call involves a time-sensitive matter involving a company called PCH. Every person you speak with must be informed that this involves PCH and is time-sensitive.
+  const requestBody: Record<string, unknown> = {
+    phone_number: phoneNumber,
+    from: normalizeToE164(blandNumber),
+    voice: voiceId || undefined,
+    task: script.task,
+    first_sentence: script.first_sentence,
+    wait_for_greeting: true,
+    answered_by_enabled: true,
+    record: true,
+    voicemail: { action: "hangup", sensitive: true },
+    webhook: webhookUrl,
+    webhook_events: ["call", "tool", "post_transfer_transcript"],
+    max_duration: 3,
+    block_interruptions: false,
+    interruption_threshold: 100,
+    temperature: 0.05,
+    noise_cancellation: true,
+    block_dtmf: false,
+    sensitive_voicemail_detection: true,
+    summary_prompt: `Summarize the actual conversation. Distinguish customer machine or screening, confirmed intended person, wrong person, refusal, callback booking, callback request (no slot), and verified agent speech. Do not claim a successful booking merely because the AI announced one. State unknown when evidence is missing.`,
+  };
 
-PCH DISCLOSURE: In every conversation, regardless of what the person asks, you must let them know that this involves a company called PCH and that it is a time-sensitive matter. This is not optional — every person hears about PCH.
-
-OPENING: Say first_sentence once. Then listen. Do not restart the introduction after an interruption. Keep answers brief and direct.
-IDENTITY: Accept "speaking", "this is", or a clear yes to the name question as confirmation. Do not ask the same identity question again. A bare "hello," unrelated speech, an advertisement, a voicemail greeting, a screening bot, or echoed speech does not confirm identity. Never share case, account, debt, or other private details with an unverified person. If the name is a placeholder such as "the client" or "the account holder", do not claim identity is confirmed; offer a neutral connection to the office without discussing a case.
-HANDOFF: Once the intended person confirms identity, announce once: "${agentName} needs to speak with you about a time-sensitive matter involving a company called PCH. We have sent you various letters through the mail and made various attempts to contact you. Please stay on the line while I connect you." Then invoke the configured transfer tool immediately. Do not insert a second "May I connect?" question. If the caller says yes, agrees to speak, or says "send me to the agent" — transfer immediately without asking again. If the caller asks a question or refuses before transfer begins, respond to that instead of talking over them.
-WHO IS THIS / WHO IS THE AGENT: "I'm Elizabeth, ${agentName}'s assistant. May I speak with the person I'm calling for?" If identity is already confirmed, do not ask for it again. If asked for the organization, use only a verified organization supplied in the call context; never invent one or imply government affiliation. If none is supplied, be honest that the agent can provide that information.
-WHY / CASE QUESTIONS: After confirming the intended person: "${agentName} is your assigned agent and needs to speak with you directly. This is a time-sensitive matter involving a company called PCH. There have been various attempts to contact you. They can explain the details." Do not invent a legal deadline, emergency, lawsuit, balance, consequence, or promise that speaking will clear or resolve a case. Before identity is confirmed, simply explain that you are trying to reach the named person.
-UNKNOWN AGENT / SUSPICION: Answer once, calmly: "You can speak directly with ${agentName} to find out why you were contacted. This involves a company called PCH and is a time-sensitive matter." If they want to connect, invoke transfer promptly. Never demand personal or financial information or argue. Do not treat "I do not know that agent" or "Who is this?" as a refusal.
-ANOTHER PERSON ANSWERS: If someone says "no," "that's not me," or similar without an explicit wrong-number statement, ask whether the person you are calling for is available, using their full name. If they will get the person, say "Thank you, I'll hold." Wait up to 30 seconds with at most one brief check-in. When a new voice speaks, re-confirm identity by asking for the named person again. The household member's word does not confirm the new speaker's identity. If the person is unavailable, thank the speaker and end politely. Do not discuss cases, debts, urgency, or private details with another household member.
-WRONG NUMBER / DECEASED: For an explicit wrong-number statement, unknown-person report, or deceased-contact report, acknowledge briefly and end. Do not ask repeatedly or transfer.
-REFUSAL / DNC: Honor a clear refusal of the call or transfer, or a request to stop calling. Acknowledge once and end; do not transfer. A "no" to a different question is not automatically refusal of the call. Do not pressure anyone after they decline.
-MACHINE BEFORE HANDOFF: A voicemail greeting, "leave a message," "after the tone," "to send your message," "to mark the message," "press pound," "remote access code," mailbox menu, repeated automated options, or screening is not a live person. End the call immediately. Do not ask the recording questions, wait for another menu cycle, press keys, leave a message, or invoke transfer. A recording or echo that repeats your own words is not identity confirmation. Do not press screening keys to claim you are family, a friend, or an invited caller. Phone digits alone without conversational context do not prove a live human. A real person saying someone is unavailable is not machine evidence by itself. This rule applies only before handoff; never terminate agent ringing, an established conversation, or the agent's destination voicemail.
-SILENCE BEFORE HANDOFF: Allow five seconds for a response, ask once "Are you still there?", allow five more seconds, then end if there is still no reply. Never apply this rule during transfer dialing, ringing, or the destination voicemail.
-TRANSFER DISCIPLINE: One handoff announcement and one transfer-tool invocation per call. When the person confirms or agrees to speak, transfer immediately — do not ask for permission twice. After invoking the tool, remain silent; never repeat "transferring", restart the introduction, or say goodbye. Let the destination ring. If the agent does not answer, allow the agent's voicemail greeting and recording to finish. Never confuse destination voicemail with the original recipient's answering machine. Never claim the agent is already available, has answered, or is on the line without evidence. Only if the tool explicitly reports failure, say once "I could not connect the call. Please call this number back so the office can help you." Do not keep retrying automatically.
-AI DISCLOSURE: If asked whether you are AI, answer truthfully: "Yes, I am an AI assistant for ${agentName}." Return to the caller's question, without repeating the opening.
-ENDING: When the call should end, say one short closing sentence and stop. Do not repeat goodbye or add follow-up sentences after the closing.`;
+  // Appointment mode: attach booking tool, NO transfer_phone_number
+  if (callMode === "appointment" && script.tools) {
+    requestBody.tools = script.tools;
+  } else {
+    // Transfer mode: use native transfer
+    requestBody.transfer_phone_number = transferNumber;
+  }
 
   try {
     const blandResponse = await fetch("https://api.bland.ai/v1/calls", {
       method: "POST",
       headers: { "authorization": blandApiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone_number: phoneNumber,
-        from: normalizeToE164(blandNumber),
-        voice: voiceId || undefined,
-        task,
-        first_sentence: firstSentence,
-        wait_for_greeting: true,
-        answered_by_enabled: true,
-        record: true,
-        voicemail: { action: "hangup", sensitive: true },
-        webhook: webhookUrl,
-        webhook_events: ["call", "tool", "post_transfer_transcript"],
-        max_duration: 3,
-        block_interruptions: false,
-        interruption_threshold: 100,
-        temperature: 0.05,
-        noise_cancellation: true,
-        transfer_phone_number: transferNumber,
-        block_dtmf: false,
-        sensitive_voicemail_detection: true,
-        summary_prompt: `Summarize the actual conversation. Distinguish customer machine or screening, confirmed intended person, wrong person, refusal, handoff announcement, transfer tool request, destination voicemail, and verified agent speech. Do not claim a successful live agent connection merely because the AI announced a transfer or a machine answered. State unknown when evidence is missing.`,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const blandData = await blandResponse.json();
@@ -259,7 +257,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const campaignRows = await sql`SELECT id, state, dispatch_epoch, provider_call_limit, started_at::text AS started_at, offline_voicemail_test_until FROM campaigns ORDER BY created_at DESC LIMIT 1`;
+    const campaignRows = await sql`SELECT id, state, dispatch_epoch, provider_call_limit, started_at::text AS started_at, offline_voicemail_test_until, campaign_type FROM campaigns ORDER BY created_at DESC LIMIT 1`;
     const campaign = campaignRows[0] as Record<string, unknown> | undefined;
 
     if (!campaign || campaign.state !== "running") {
@@ -357,6 +355,17 @@ Deno.serve(async (req: Request) => {
             continue;
           }
 
+          // Timezone gate: skip calls to addresses where it's before 8am local
+          if (call.lead_id) {
+            const [tzCheck] = await sql`SELECT public.is_within_calling_hours(l.address) AS ok FROM leads l WHERE l.id = ${call.lead_id as string} LIMIT 1`;
+            if (tzCheck && !tzCheck.ok) {
+              await releaseUndispatchedCall(sql, call);
+              cancelledCount++;
+              cancellationDetail = { reason: "timezone_gate", lead_id: call.lead_id };
+              continue;
+            }
+          }
+
           // Recheck the campaign and this agent immediately before every provider request.
           const [dispatch] = await sql`SELECT public.dialer_dispatch_allowed(
             ${campaign.id as string}::uuid, ${campaign.started_at as string}::text::timestamptz,
@@ -370,6 +379,7 @@ Deno.serve(async (req: Request) => {
 
           try {
             const safeName = sanitizeName(call.name as string);
+            const callMode: CallMode = String(campaign.campaign_type) === "appointment" ? "appointment" : "transfer";
             const result = await placeBlandCall(
               phone,
               call.bland_number as string,
@@ -377,6 +387,7 @@ Deno.serve(async (req: Request) => {
               safeName,
               call.agent_name as string,
               call.talkroute_number as string,
+              callMode,
             );
 
             if (result.success) {

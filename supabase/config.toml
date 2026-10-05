@@ -33,3 +33,15 @@ verify_jwt = false
 
 [functions.dialer-controls]
 verify_jwt = false
+
+[functions.wolf-callback-booking]
+verify_jwt = false
+
+[functions.voicemail-ingest]
+verify_jwt = false
+
+[functions.zadarma-events]
+verify_jwt = false
+
+[functions.zadarma-history]
+verify_jwt = false

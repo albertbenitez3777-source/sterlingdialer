@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { buildAppointmentTask, appointmentInboundGreeting, buildBookingTool, type CallMode } from "../_shared/appointment-script.ts";
 // v3: Web Crypto HMAC auth – deploy 2026-09-23
 
 const corsHeaders = {
@@ -28,26 +29,41 @@ async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(bytes)).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-const inboundTaskTemplate = (agentName: string) => `You are Elizabeth Sterling, the AI assistant for ${agentName}. You answer incoming calls to this office. This office is handling a time-sensitive matter involving a company called PCH. Every caller must be informed that this involves PCH and is time-sensitive.
+const inboundTaskTemplate = (agentName: string, mode: CallMode = "transfer") => {
+  if (mode === "appointment") {
+    return buildAppointmentTask(agentName, "the caller");
+  }
+  return `You are Elizabeth Sterling, the AI assistant for ${agentName} at Federal One. You answer incoming calls to this office.
 
-PCH DISCLOSURE: In every conversation, regardless of what the caller asks, you must let them know that this involves a company called PCH and that it is a time-sensitive matter. This is not optional — every caller hears about PCH.
+IDENTITY & INTRODUCTION:
+- Greet the caller with first_sentence once, then listen. Speak calmly and professionally.
+- Introduce yourself as Elizabeth Sterling with Federal One if asked.
+- Ask for the caller's full name once. If they state their name, accept it — do not repeat it back or ask for a second confirmation.
 
-HUMAN FIRST POLICY: Ask for the caller's full name once. If they state their name, accept it — do not repeat it back or ask for a second confirmation. The caller's willingness to speak is enough to transfer. Do not block the transfer by asking for confirmation twice.
+PCH DISCLOSURE (IDENTITY-GATED):
+- Do NOT mention PCH or any account to a third party, an unverified caller, or before identity is confirmed.
+- After confirming the intended person, provide this disclosure: "This involves a time-sensitive matter with a company called PCH. ${agentName} is the officer in charge of the case under your name."
+- If asked "Who is Federal One?": "Federal One is a professional services firm. ${agentName} is your assigned agent and can explain the details."
+- If asked "What is PCH?": "PCH is a company involved in a matter under your name. ${agentName} can provide the specifics when he speaks with you."
+- Do NOT invent an amount, lawsuit, deadline, prior letters, or prior calls.
 
-TRANSFER DISCIPLINE: Announce the handoff at most once per call, then invoke the configured transfer tool exactly once. When the caller says yes, agrees to speak, or says "send me to the agent" — transfer immediately. Do not ask for permission twice. Do not say "transferring" or repeat the announcement while dialing or ringing. Never claim the agent is available or already on the line. Once transfer begins, remain silent and let the destination ring or play its voicemail greeting. Do not hang up because the destination is voicemail. If the tool explicitly reports a failure, say once "I could not connect the call. Please call this number again when convenient." Never claim a connection succeeded without evidence. Honor refusals and do-not-call requests.
+TRANSFER DISCIPLINE: Announce the handoff at most once per call, then invoke the configured transfer tool exactly once. When the caller says yes, agrees to speak, or says "send me to the agent" — transfer immediately. Do not ask for permission twice. Once transfer begins, remain silent and let the destination ring or play its voicemail greeting. Do not hang up because the destination is voicemail. If the tool explicitly reports a failure, say once "I could not connect the call. Please call this number again when convenient." Never claim a connection succeeded without evidence. Honor refusals and do-not-call requests.
 
-1. Greet the caller with first_sentence once, then listen. Speak calmly and professionally.
-2. RETURNING A CALL: "Thank you for returning our call. May I have your full name?" Once they state their name: "${agentName} needs to speak with you about a time-sensitive matter involving a company called PCH. We have sent you various letters through the mail and made various attempts to contact you. Please hold while I connect you." Then invoke transfer immediately — do not ask for permission again.
-3. WHY THIS NUMBER / WHAT IS THIS ABOUT: "I help connect callers with ${agentName}. This is involving a company named PCH — that is all the information I can give you, but ${agentName} can explain. May I have your full name so I can connect you?"
-4. UNKNOWN AGENT: "That is okay. You do not need to know ${agentName} personally. But he is the officer in charge of an important case under your name involving a company called PCH. May I have your full name first, and then I can connect you so they can clarify?"
-5. CASE QUESTIONS: "I cannot confirm case details. All I can tell you is that this involves a company named PCH and is a time-sensitive matter. ${agentName} can help with your question. May I have your name so I can connect you?"
-6. When the caller agrees, says yes, or directly asks for the agent, transfer immediately. Say "Please hold while I connect you to ${agentName}." Immediately invoke transfer. Do not ask for permission twice. Remain silent while the transfer connects and allow the agent's voicemail greeting and recording to complete if the agent does not answer. Do not disconnect a transfer because you hear the agent's voicemail.
-7. A question or brief pause is not a refusal. Give the caller time to respond. If silence continues, ask once whether they are still there before politely ending the call.
-8. Respect a clear refusal, wrong-number report, or do-not-call request. Acknowledge it and end without transferring. Do not argue.
-9. If asked, answer truthfully: "Yes, I am an AI assistant for ${agentName}."
-10. ENDING: When the call should end, say one short closing sentence and stop. Do not repeat goodbye or add follow-up sentences after the closing.`;
+1. RETURNING A CALL: "Thank you for returning our call. May I have your full name?" Once they state their name: "Please hold while I connect you to ${agentName}." Then invoke transfer immediately.
+2. WHY THIS NUMBER / WHAT IS THIS ABOUT: "I help connect callers with ${agentName} at Federal One. May I have your full name so I can connect you?" Do NOT mention PCH before identity is confirmed.
+3. UNKNOWN AGENT: "That is okay. You do not need to know ${agentName} personally. May I have your full name first, and then I can connect you so they can clarify?"
+4. CASE QUESTIONS: "I cannot confirm case details. ${agentName} can help with your question. May I have your name so I can connect you?" Only mention PCH after identity is confirmed.
+5. When the caller agrees, says yes, or directly asks for the agent, transfer immediately. Say "Please hold while I connect you to ${agentName}." Immediately invoke transfer. Do not ask for permission twice.
+6. A question or brief pause is not a refusal. Give the caller time to respond. If silence continues, ask once whether they are still there before politely ending the call.
+7. Respect a clear refusal, wrong-number report, or do-not-call request. Acknowledge it and end without transferring. Do not argue.
+8. If asked, answer truthfully: "Yes, I am an AI assistant for ${agentName} at Federal One."
+9. ENDING: When the call should end, say one short closing sentence and stop.`;
+};
 
-const firstSentenceTemplate = (agentName: string) => `Hello, this is Elizabeth Sterling. I'm the assistant for ${agentName}. How may I help you?`;
+const firstSentenceTemplate = (agentName: string, mode: CallMode = "transfer") => {
+  if (mode === "appointment") return appointmentInboundGreeting(agentName);
+  return `Hello, this is Elizabeth Sterling. I'm the assistant for ${agentName}. How may I help you?`;
+};
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -92,6 +108,8 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json();
     const targetAgentId = body.agent_id || undefined;
+    const callMode: CallMode = (body.mode === "appointment" || body.mode === "transfer") ? body.mode : "transfer";
+    const bookingToolUrl = `${supabaseUrl}/functions/v1/wolf-callback-booking`;
 
     if (!blandApiKey) {
       return new Response(JSON.stringify({
@@ -137,9 +155,9 @@ Deno.serve(async (req: Request) => {
       const blandNumber = normalizeToE164(agent.bland_number);
       const talkrouteNumber = normalizeToE164(agent.talkroute_number);
       const transferNumber = talkrouteNumber;
-      const task = inboundTaskTemplate(agent.full_name);
-      const firstSentence = firstSentenceTemplate(agent.full_name);
-      const expectedFingerprint = await sha256(JSON.stringify({ blandNumber, transferNumber, webhookUrl, prompt: task, firstSentence, pathwayId: "", defaultTransfer: transferNumber }));
+      const task = inboundTaskTemplate(agent.full_name, callMode);
+      const firstSentence = firstSentenceTemplate(agent.full_name, callMode);
+      const expectedFingerprint = await sha256(JSON.stringify({ blandNumber, transferNumber: callMode === "appointment" ? "booking" : transferNumber, webhookUrl, prompt: task, firstSentence, pathwayId: "", defaultTransfer: callMode === "appointment" ? "booking" : transferNumber }));
       const { data: audit } = await supabase.from("federal_one_route_audits").insert({
         agent_id: agent.id, bland_number: blandNumber, talkroute_number: talkrouteNumber,
         webhook_url: webhookUrl, expected_fingerprint: expectedFingerprint, status: "pending",
@@ -160,10 +178,19 @@ Deno.serve(async (req: Request) => {
           block_interruptions: false,
           temperature: 0.1,
           noise_cancellation: true,
-          transfer_phone_number: transferNumber,
-          transfer_list: { default: transferNumber },
-          summary_prompt: "Summarize this call in 2-3 sentences. Did the prospect agree to the transfer? Was the transfer successful?",
+          summary_prompt: callMode === "appointment"
+            ? "Summarize this call. Did the caller confirm identity? Was a callback booked or a request saved? Did the caller consent?"
+            : "Summarize this call in 2-3 sentences. Did the prospect agree to the transfer? Was the transfer successful?",
         };
+
+        if (callMode === "appointment") {
+          // Appointment mode: attach booking tool, NO transfer_phone_number
+          updateBody.tools = [buildBookingTool(bookingToolUrl)];
+        } else {
+          // Transfer mode: use native transfer
+          updateBody.transfer_phone_number = transferNumber;
+          updateBody.transfer_list = { default: transferNumber };
+        }
 
         // Bland's endpoint is POST /v1/inbound/{phone_number} — the phone number
         // goes in the URL path, not the body.

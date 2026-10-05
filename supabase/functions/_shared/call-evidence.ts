@@ -203,28 +203,50 @@ export function detectLiveHuman(body: Record<string, unknown>, transcript?: stri
   if (direction === "inbound") return true;
 
   if (!transcript) return false;
-  // Inspect caller speech only. Script words and echoed assistant speech are
-  // not human evidence. Preserve explicit provider evidence above.
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const lines = transcript.split("\n");
   const assistant = lines.filter(line => /^\s*(assistant|ai):/i.test(line))
     .map(line => normalize(line.replace(/^\s*(assistant|ai):\s*/i, "")));
   const user = lines.filter(line => /^\s*(user|human):/i.test(line))
     .map(line => normalize(line.replace(/^\s*(user|human):\s*/i, "")));
-  const machine = /leave (?:us |me |your |a )?message|after the (?:tone|beep)|mailbox|to send your message|to mark (?:the |your )?message|remote access code|press (?:any key|pound|star|one|two|three|four|five|six|seven|eight|nine|zero|1|2|3|4|5|6|7|8|9|0)|key to continue|does not have voice|not accept solicitations|you have reached|you ve reached|calls to this number are being screened|smart call blocker|message sent/;
+  const machine = /leave (?:us |me |your |a )?message|after the (?:tone|beep)|mailbox|to send your message|to mark (?:the |your )?message|remote access code|press (?:any key|pound|star|one|two|three|four|five|six|seven|eight|nine|zero|1|2|3|4|5|6|7|8|9|0)|key to continue|does not have voice|not accept solicitations|you have reached|you ve reached|calls to this number are being screened|smart call blocker|message sent|robot|automated system|voice mail|voice message system|extension|directory|dial by name|for english press|para espanol|if you are calling from/;
   const hasMachine = user.some(text => machine.test(text)) ||
     transcript.toLowerCase().includes("call ended due to voicemail detection");
   const meaningful = user.filter(text => {
     if (text.length < 3 || machine.test(text) || /^(?:thank you )?goodbye$/.test(text)) return false;
+    // Filter echoed assistant speech (screening bots repeat back)
     if (text.length >= 12 && assistant.some(spoken =>
       spoken.length >= 12 && (spoken.includes(text) || text.includes(spoken)))) return false;
     return true;
   });
-  if (!hasMachine) return meaningful.length > 0;
-  // A greeting appended to a machine transcript is insufficient. A real
-  // conversational response may follow screening or a voicemail greeting.
-  return meaningful.some(text =>
-    /^(yes|yeah|yep|speaking|this is |who |what |why |no |not interested|stop calling|do not call|wrong number|i am |i m |he is |she is |he s |she s )/.test(text));
+  if (!hasMachine) {
+    // Even without explicit machine markers, require at least one meaningful
+    // user turn that looks like conversational speech, not just noise.
+    return meaningful.length > 0;
+  }
+  // A greeting appended to a machine transcript is insufficient.
+  // Require a clear conversational response AFTER machine markers.
+  const conversational = /^(yes|yeah|yep|speaking|this is |who |what |why |no |not interested|stop calling|do not call|wrong number|i am |i m |he is |she is |he s |she s )/;
+  const hasConversational = meaningful.some(text => conversational.test(text));
+  // If ALL user turns are machine markers or echoes, this is NOT a human
+  if (!hasConversational && user.length > 0 && user.every(text => machine.test(text) || text.length < 3)) {
+    return false;
+  }
+  return hasConversational;
+}
+
+/** Detect DNC/refusal phrases that should block further calls even without an explicit is_dnc flag. */
+export function detectDncFromTranscript(transcript: string): boolean {
+  if (!transcript || typeof transcript !== "string") return false;
+  const lower = transcript.toLowerCase();
+  const dncPhrases = [
+    "do not call", "don't call", "dont call", "stop calling",
+    "remove me from", "take me off", "remove this number",
+    "i said don't call", "do not call me", "don't call me",
+    "stop calling me", "i'm not interested don't call",
+    "put me on the do not call", "add me to the do not call",
+  ];
+  return dncPhrases.some(phrase => lower.includes(phrase));
 }
 
 // ── Voicemail detection ─────────────────────────────────────────────
