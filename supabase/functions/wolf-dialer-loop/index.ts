@@ -322,40 +322,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const twoMinAgo = new Date(Date.now() - 120_000).toISOString();
-    const recentCountRows = await sql`SELECT count(*)::int AS cnt FROM calls WHERE call_direction = 'outbound' AND created_at >= ${twoMinAgo}`;
-    const recentCallCount = recentCountRows[0]?.cnt ?? 0;
-
-    if (recentCallCount > 60) {
-      await recordCampaignStop(sql, campaign.id as string, `Runaway protection: ${recentCallCount} calls in 2 minutes`);
-      console.error(`[dialer] RUNAWAY GUARD: ${recentCallCount} calls in 2 minutes — campaign stopped`);
-      return new Response(JSON.stringify({
-        stopped: true, reason: `RUNAWAY GUARD: ${recentCallCount} calls in 2 minutes`,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── DAILY MINUTE CAP ────────────────────────────────────────────────
-    const capRows = await sql`SELECT check_daily_minute_cap() AS cap_reached`;
-    const capReached = capRows[0]?.cap_reached ?? false;
-    if (capReached) {
-      await sql`SELECT campaign_stop()`;
-      await sql`UPDATE campaigns SET blocking_reason = 'Daily minute cap reached', updated_at = now() WHERE id = (SELECT id FROM campaigns ORDER BY created_at DESC LIMIT 1)`;
-      console.log("[dialer] DAILY MINUTE CAP reached — campaign stopped");
-      return new Response(JSON.stringify({ stopped: true, reason: "Daily minute cap reached" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (Math.floor(Date.now() / 15000) % 4 === 0) {
-      const balanceCheck = await checkBlandBalance();
-      if (balanceCheck.ok && balanceCheck.balance < 20) {
-        await recordCampaignStop(sql, campaign.id as string, `Bland balance below $20 (${balanceCheck.balance.toFixed(2)})`);
-        return new Response(JSON.stringify({
-          stopped: true, reason: `Bland balance below $20 (${balanceCheck.balance.toFixed(2)})`,
-        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-
     const batchRows = await sql`SELECT * FROM dialer_next_batch()`;
     let dispatchedCount = 0;
     let cancelledCount = 0;
@@ -443,10 +409,8 @@ Deno.serve(async (req: Request) => {
         }
         console.log(`Dialer placed ${callsToDial.length} calls`);
       } else if (batchData.message === "Call limit reached") {
-        await recordCampaignStop(sql, campaign.id as string, "Call limit reached");
-        return new Response(JSON.stringify({ stopped: true, reason: "Call limit reached" }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        // No auto-stop on call limit — only stop when the user manually stops the campaign
+        console.log("[dialer] Call limit reached but auto-stop disabled — continuing");
       }
     }
 
