@@ -124,6 +124,15 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
+    // Fetch the booking token for the Bland tool's Authorization header
+    let bookingToken = "";
+    if (callMode === "appointment") {
+      try {
+        const { data: tokenRow } = await supabase.from("system_config").select("value").eq("key", "callback_booking_token").maybeSingle();
+        bookingToken = String(tokenRow?.value || "");
+      } catch { /* will fail gracefully */ }
+    }
+
     let agentQuery = supabase
       .from("agents")
       .select("id, full_name, bland_number, bland_phone_id, bland_voice_id, talkroute_number, agent_direct_number, inbound_configured")
@@ -185,7 +194,7 @@ Deno.serve(async (req: Request) => {
 
         if (callMode === "appointment") {
           // Appointment mode: attach booking tool, NO transfer_phone_number
-          updateBody.tools = [buildBookingTool(bookingToolUrl)];
+          updateBody.tools = [buildBookingTool(bookingToolUrl, bookingToken)];
         } else {
           // Transfer mode: use native transfer
           updateBody.transfer_phone_number = transferNumber;

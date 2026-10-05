@@ -150,11 +150,23 @@ async function placeBlandCall(
   const webhookUrl = `${supabaseUrl}/functions/v1/wolf-webhook`;
   const bookingToolUrl = `${supabaseUrl}/functions/v1/wolf-callback-booking`;
 
+  // Fetch the booking token for the Bland tool's Authorization header
+  let bookingToken = "";
+  if (callMode === "appointment") {
+    try {
+      const dbSql = getPool();
+      const [tokenRow] = await dbSql`SELECT value FROM system_config WHERE key = 'callback_booking_token'`;
+      bookingToken = String(tokenRow?.value || "");
+      await dbSql.end();
+    } catch { /* will fail gracefully — no token means no booking tool */ }
+  }
+
   const script = buildCallScript({
     agentName,
     consumerName,
     mode: callMode,
     bookingToolUrl: callMode === "appointment" ? bookingToolUrl : undefined,
+    bookingToolToken: bookingToken || undefined,
   });
 
   const requestBody: Record<string, unknown> = {

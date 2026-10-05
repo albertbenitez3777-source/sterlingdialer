@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import postgres from "npm:postgres@3.4.4";
 import { createDbClient } from "../_shared/db-client.ts";
 import { buildCallScript, type CallMode } from "../_shared/appointment-script.ts";
 
@@ -45,7 +46,7 @@ async function getCampaignMode(supabase: ReturnType<typeof createDbClient>): Pro
 }
 
 /** Shared Bland request body builder — used by ALL dispatch paths so they can't drift. */
-function buildBlandRequestBody(opts: {
+async function buildBlandRequestBody(opts: {
   phoneNumber: string;
   fromNumber: string;
   voiceId?: string;
@@ -56,16 +57,29 @@ function buildBlandRequestBody(opts: {
   metadata?: Record<string, unknown>;
   blockInterruptions?: boolean;
   interruptibility?: number;
-}): Record<string, unknown> {
+  bookingToken?: string;
+}): Promise<Record<string, unknown>> {
   const webhookUrl = `${supabaseUrl}/functions/v1/wolf-webhook`;
   const bookingToolUrl = `${supabaseUrl}/functions/v1/wolf-callback-booking`;
   const transferNumber = normalizeToE164(opts.talkrouteNumber);
+
+  // Fetch the booking token if in appointment mode and not already provided
+  let bookingToken = opts.bookingToken || "";
+  if (opts.mode === "appointment" && !bookingToken) {
+    try {
+      const tokenSql = postgres(dbUrl, { max: 1, idle_timeout: 3, ssl: { rejectUnauthorized: false } });
+      const [tokenRow] = await tokenSql`SELECT value FROM system_config WHERE key = 'callback_booking_token'`;
+      bookingToken = String(tokenRow?.value || "");
+      await tokenSql.end();
+    } catch { /* will fail gracefully */ }
+  }
 
   const script = buildCallScript({
     agentName: opts.agentName,
     consumerName: opts.consumerName,
     mode: opts.mode,
     bookingToolUrl: opts.mode === "appointment" ? bookingToolUrl : undefined,
+    bookingToolToken: bookingToken || undefined,
   });
 
   const requestBody: Record<string, unknown> = {
@@ -124,7 +138,7 @@ async function placeBlandCall(
 ): Promise<{ success: boolean; provider_call_id?: string; error?: string; transfer_route?: string }> {
   const transferRoute = mode === "appointment" ? "booking" : "hub";
 
-  const requestBody = buildBlandRequestBody({
+  const requestBody = await buildBlandRequestBody({
     phoneNumber,
     fromNumber: blandNumber,
     voiceId,
@@ -1271,11 +1285,20 @@ Deno.serve(async (req: Request) => {
         : `Hello, am I speaking with ${client_name}?`;
 
       const bookingToolUrl = `${supabaseUrl}/functions/v1/wolf-callback-booking`;
+      // Fetch the booking token for the Bland tool's Authorization header
+      let secBookingToken = "";
+      if (callMode === "appointment") {
+        try {
+          const { data: tokenRow } = await supabase.from("system_config").select("value").eq("key", "callback_booking_token").maybeSingle();
+          secBookingToken = String(tokenRow?.value || "");
+        } catch { /* will fail gracefully */ }
+      }
       const script = buildCallScript({
         agentName,
         consumerName: client_name,
         mode: callMode,
         bookingToolUrl: callMode === "appointment" ? bookingToolUrl : undefined,
+        bookingToolToken: secBookingToken || undefined,
         firstSentence: elizabethFirstSentence,
       });
 
@@ -1912,7 +1935,7 @@ Deno.serve(async (req: Request) => {
         const urgentFirstSentence = `Hello, am I speaking with ${contact.consumer_name || "the person returning our call"}?`;
 
         const campaignMode = await getCampaignMode(supabase);
-        const urgentBody = buildBlandRequestBody({
+        const urgentBody = await buildBlandRequestBody({
           phoneNumber: phone,
           fromNumber: agentRow.bland_number,
           voiceId: agentRow.bland_voice_id,
@@ -2119,7 +2142,7 @@ Deno.serve(async (req: Request) => {
         const pressureFirstSentence = `Hello, am I speaking with ${contact.consumer_name || "the person returning our call"}?`;
 
         const pressureCampaignMode = await getCampaignMode(supabase);
-        const pressureBody = buildBlandRequestBody({
+        const pressureBody = await buildBlandRequestBody({
           phoneNumber: phone,
           fromNumber: agentRow.bland_number,
           voiceId: agentRow.bland_voice_id,
@@ -2340,7 +2363,7 @@ Deno.serve(async (req: Request) => {
         const firstSentence = `Hello, am I speaking with ${contact.consumer_name || "the person returning our call"}?`;
 
         const agentCampaignMode = await getCampaignMode(supabase);
-        const agentRedialBody = buildBlandRequestBody({
+        const agentRedialBody = await buildBlandRequestBody({
           phoneNumber: phone,
           fromNumber: agentRow.bland_number,
           voiceId: agentRow.bland_voice_id,

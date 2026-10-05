@@ -20,11 +20,25 @@ export interface ScriptParams {
   consumerName: string;
   mode: CallMode;
   bookingToolUrl?: string;
+  bookingToolToken?: string;
   firstSentence?: string;
 }
 
-/** Bland custom-tool definition for callback booking. */
-export function buildBookingTool(bookingToolUrl: string) {
+/**
+ * Bland custom-tool definition for callback booking.
+ *
+ * Bland tools support:
+ * - headers: JSON with prompt variables (sent as HTTP headers)
+ * - body: JSON with prompt variables (sent as request body)
+ * - input_schema: JSON schema for AI-filled parameters
+ * - Built-in variables: {{call_id}}, {{phone_number}}, {{from_number}}
+ *
+ * Authentication: a static bearer token stored in system_config as
+ * 'callback_booking_token'. Bland sends it as an Authorization header.
+ * This is a documented Bland tool header — not HMAC, because Bland cannot
+ * compute HMAC, but the token is opaque to Bland and verified server-side.
+ */
+export function buildBookingTool(bookingToolUrl: string, authToken: string) {
   return {
     name: "book_callback",
     description:
@@ -32,8 +46,19 @@ export function buildBookingTool(bookingToolUrl: string) {
       "Returns available time slots. Only call this AFTER the intended person confirms identity " +
       "AND explicitly agrees to a callback. Pass the preferred time window (morning/afternoon/evening) " +
       "and set consent to true only when the caller has clearly agreed.",
-    type: "object",
-    parameters: {
+    url: bookingToolUrl,
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    },
+    body: {
+      "call_id": "{{call_id}}",
+      "phone_number": "{{phone_number}}",
+      "consent": "{{consent}}",
+      "preferred_window": "{{preferred_window}}",
+    },
+    input_schema: {
       type: "object",
       properties: {
         preferred_window: {
@@ -48,8 +73,6 @@ export function buildBookingTool(bookingToolUrl: string) {
       },
       required: ["consent"],
     },
-    url: bookingToolUrl,
-    method: "POST",
   };
 }
 
@@ -170,8 +193,8 @@ export function buildCallScript(params: ScriptParams): {
   if (params.mode === "appointment") {
     const task = buildAppointmentTask(params.agentName, params.consumerName);
     const first_sentence = params.firstSentence || appointmentFirstSentence(params.consumerName);
-    const tools = params.bookingToolUrl
-      ? [buildBookingTool(params.bookingToolUrl)]
+    const tools = params.bookingToolUrl && params.bookingToolToken
+      ? [buildBookingTool(params.bookingToolUrl, params.bookingToolToken)]
       : undefined;
     return { task, first_sentence, tools };
   }
