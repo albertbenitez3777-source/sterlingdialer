@@ -152,7 +152,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, agent
   const [newCount, setNewCount] = useState(0);
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [serverTodayOnly, setServerTodayOnly] = useState(false);
-  const todayOnly = agentId === 'bf021c46-10ca-45a4-b800-08f5e181834e' || serverTodayOnly;
+  const todayOnly = serverTodayOnly;
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const lastFetchTs = useRef<string>('');
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);

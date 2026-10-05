@@ -41,6 +41,7 @@ export type AdminAgentRow = {
   phone_ready?: boolean; dialer_eligible?: boolean;
   transfers_requested_today?: number; likely_real_conversation_today?: number;
   productive_minutes_today?: number; wasted_minutes_today?: number; total_minutes_today?: number;
+  appointments_booked_today?: number; appointments_upcoming?: number; callback_requests_today?: number;
 };
 
 export type FunnelStats = {

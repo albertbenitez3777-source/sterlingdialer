@@ -236,7 +236,7 @@ export function AgentWorkspaceView({
       });
       if (result.ok && result.data && mountedRef.current) {
         const incoming = result.data as WorkspaceData;
-        const todayOnly = agentId === 'bf021c46-10ca-45a4-b800-08f5e181834e' || incoming.today_only;
+        const todayOnly = incoming.today_only === true;
         setData(todayOnly ? { ...incoming,
           live_now: incoming.live_now.filter(call => call.created_at >= incoming.boundaries.today_start),
           today_completed: incoming.today_completed.filter(call => call.created_at >= incoming.boundaries.today_start),
@@ -247,6 +247,15 @@ export function AgentWorkspaceView({
     } catch { /* authFetch handles 401 */ }
     finally { ref.current = false; }
   }, [providerUrl, sessionToken, agentId, onUnauthorized]);
+
+  // Clear stale data on account/agent change to avoid transient render of previous agent's lists
+  useEffect(() => {
+    setData(null);
+    setLoading(true);
+    setArchiveOffset(0);
+    setActiveTab('today');
+    setOutcomeFilter('all');
+  }, [agentId, sessionToken]);
 
   // Live + today: 3s refresh
   useEffect(() => {

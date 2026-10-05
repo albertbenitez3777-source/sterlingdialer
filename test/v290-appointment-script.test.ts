@@ -16,13 +16,13 @@ describe("appointment-script", () => {
 
   describe("buildBookingTool", () => {
     it("creates a tool with the correct URL", () => {
-      const tool = buildBookingTool(bookingUrl);
+      const tool = buildBookingTool(bookingUrl, "test-token-1234567890abcdef1234567890abcdef");
       expect(tool.name).toBe("book_callback");
       expect(tool.url).toBe(bookingUrl);
       expect(tool.method).toBe("POST");
-      expect(tool.parameters.properties.consent).toBeDefined();
-      expect(tool.parameters.properties.preferred_window).toBeDefined();
-      expect(tool.parameters.required).toContain("consent");
+      expect(tool.input_schema.properties.consent).toBeDefined();
+      expect(tool.input_schema.properties.preferred_window).toBeDefined();
+      expect(tool.input_schema.required).toContain("consent");
     });
   });
 
@@ -85,6 +85,7 @@ describe("appointment-script", () => {
         consumerName,
         mode: "appointment",
         bookingToolUrl: bookingUrl,
+        bookingToolToken: "test-token-1234567890abcdef1234567890abcdef",
       });
       expect(script.tools).toBeDefined();
       expect(script.tools).toHaveLength(1);

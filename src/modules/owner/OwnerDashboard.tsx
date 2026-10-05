@@ -293,6 +293,67 @@ return (<>
                   </GlassCard>
                   </Reveal>
                   </details>
+
+                  {/* Per-agent appointment & callback summary */}
+                  <Reveal delay={375}>
+                  <GlassCard hoverLift className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <div className="eyebrow"><Calendar size={12} /> APPOINTMENTS &amp; CALLBACKS</div>
+                        <h3>Per-Agent Today</h3>
+                      </div>
+                    </div>
+                    {dataHealth.status === 'degraded' && !adminStats ? (
+                      <div className="empty-state" style={{ flexDirection: 'column', gap: '8px' }}>
+                        <span>Could not load appointment data.</span>
+                        <button type="button" className="btn-ghost" onClick={() => void loadAdminStats(sessionToken)}>
+                          <RefreshCw size={12} /> Retry
+                        </button>
+                      </div>
+                    ) : !adminStats ? (
+                      <div className="empty-state">Loading appointment summary…</div>
+                    ) : (
+                      <div className="agent-readiness-strip">
+                        {adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).map(agent => {
+                          const humans = agent.live_humans ?? 0;
+                          const apptsBooked = agent.appointments_booked_today ?? 0;
+                          const apptsUpcoming = agent.appointments_upcoming ?? 0;
+                          const callbackReqs = agent.callback_requests_today ?? 0;
+                          const hasApptData = agent.appointments_booked_today !== undefined || agent.appointments_upcoming !== undefined;
+                          return (
+                            <div key={agent.id} className="agent-readiness-card">
+                              <div className="avatar green">{initials(agent.full_name)}</div>
+                              <div className="agent-readiness-info">
+                                <strong>{agent.full_name}</strong>
+                                <span>{humans} human-detected{humans === 1 ? '' : 's'} today</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                  <strong style={{ display: 'block', fontSize: '16px', color: 'var(--sage-300)' }}>{apptsBooked}</strong>
+                                  <span style={{ opacity: 0.6 }}>Booked</span>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <strong style={{ display: 'block', fontSize: '16px', color: 'var(--gold-300)' }}>{apptsUpcoming}</strong>
+                                  <span style={{ opacity: 0.6 }}>Upcoming</span>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <strong style={{ display: 'block', fontSize: '16px' }}>{callbackReqs}</strong>
+                                  <span style={{ opacity: 0.6 }}>Requests</span>
+                                </div>
+                              </div>
+                              {!hasApptData && apptsBooked === 0 && (
+                                <span style={{ fontSize: '9px', opacity: 0.4, fontStyle: 'italic' }}>No appointments booked yet</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).length === 0 && (
+                          <div className="empty-state">No active agents to show.</div>
+                        )}
+                      </div>
+                    )}
+                  </GlassCard>
+                  </Reveal>
                 </>
               )}
 
@@ -387,7 +448,7 @@ return (<>
                         </div>
                       ))}
                       {adminStats.agents.filter(a => a.status === 'active' && !a.role?.includes('owner')).length === 0 && (
-                        <div className="empty-state">No active agents. Select James or Erick to prepare dialing.</div>
+                        <div className="empty-state">No active agents. Select James or Todd to prepare dialing.</div>
                       )}
 
                       {/* Archived / Inactive agents */}

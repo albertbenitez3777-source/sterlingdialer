@@ -16,11 +16,11 @@ describe("appointment-script — v291 fixes", () => {
 
   describe("buildBookingTool", () => {
     it("creates a tool with the correct URL and required consent", () => {
-      const tool = buildBookingTool(bookingUrl);
+      const tool = buildBookingTool(bookingUrl, "test-token-1234567890abcdef1234567890abcdef");
       expect(tool.name).toBe("book_callback");
       expect(tool.url).toBe(bookingUrl);
-      expect(tool.parameters.properties.consent).toBeDefined();
-      expect(tool.parameters.required).toContain("consent");
+      expect(tool.input_schema.properties.consent).toBeDefined();
+      expect(tool.input_schema.required).toContain("consent");
     });
   });
 
@@ -103,7 +103,7 @@ describe("appointment-script — v291 fixes", () => {
   describe("buildCallScript — appointment mode", () => {
     it("returns tools and no transfer_phone_number", () => {
       const script = buildCallScript({
-        agentName, consumerName, mode: "appointment", bookingToolUrl: bookingUrl,
+        agentName, consumerName, mode: "appointment", bookingToolUrl: bookingUrl, bookingToolToken: "test-token-1234567890abcdef1234567890abcdef",
       });
       expect(script.tools).toBeDefined();
       expect(script.tools).toHaveLength(1);
