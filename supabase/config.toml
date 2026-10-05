@@ -8,7 +8,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.wolf-dialer-loop]
-verify_jwt = true
+verify_jwt = false
 
 [functions.wolf-dialer-report]
 verify_jwt = false
