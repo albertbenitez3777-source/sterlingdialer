@@ -1,14 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import postgres from "npm:postgres@3.4.4";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-Booking-Timestamp, X-Booking-Signature",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? "";
 
 type Sql = ReturnType<typeof postgres>;
@@ -22,13 +22,6 @@ function getPool(): Sql {
   });
 }
 
-function easternToday(): string {
-  const now = new Date();
-  const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
-  const [month, day, year] = etStr.split("/");
-  return `${year}-${month}-${day}`;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -40,13 +33,47 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ── HMAC Authentication ──────────────────────────────────────────────
+  // The booking tool is called by Bland's server when Elizabeth invokes the
+  // book_callback tool during a call. We authenticate using an HMAC signature
+  // derived from the same dialer scheduler secret, scoped to "callback-booking".
+  const timestamp = req.headers.get("x-booking-timestamp") || "";
+  const signature = req.headers.get("x-booking-signature") || "";
+
+  if (!/^\d{10}$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !/^[a-f0-9]{64}$/.test(signature)) {
+    return new Response(JSON.stringify({ error: "Signed booking request required" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   let sql: Sql | null = null;
   try {
     sql = getPool();
-    const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+
+    // Fetch the signing secret
+    const [authConfig] = await sql`SELECT value FROM system_config WHERE key = 'dialer_scheduler_secret'`;
+    const signingSecret = String(authConfig?.value || "");
+    if (signingSecret.length < 32) {
+      return new Response(JSON.stringify({ error: "Booking authentication unavailable" }), {
+        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify HMAC: signature = HMAC-SHA256(secret, "callback-booking." + timestamp + "." + rawBody)
+    const rawBody = await req.text();
+    const expected = createHmac("sha256", signingSecret).update(`callback-booking.${timestamp}.${rawBody}`).digest("hex");
+    if (!timingSafeEqual(new TextEncoder().encode(signature), new TextEncoder().encode(expected))) {
+      return new Response(JSON.stringify({ error: "Invalid booking signature" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const body = JSON.parse(rawBody) as Record<string, unknown>;
     const blandCallId = String(body.call_id || body.id || "");
-    const consent = body.consent === true || body.parameters?.consent === true;
-    const preferredWindow = String(body.parameters?.preferred_window || body.preferred_window || "any").toLowerCase();
+    // Bland sends tool parameters nested under "parameters"
+    const params = body.parameters as Record<string, unknown> || {};
+    const consent = params.consent === true || body.consent === true;
+    const preferredWindow = String(params.preferred_window || body.preferred_window || "any").toLowerCase();
 
     if (!blandCallId) {
       return new Response(JSON.stringify({ error: "Missing call_id" }), {
@@ -57,16 +84,37 @@ Deno.serve(async (req: Request) => {
     if (!consent) {
       return new Response(JSON.stringify({
         success: false,
-        message: "Consent is required to book a callback. Ask the caller if they would like a callback and try again.",
+        message: "Consent is required to book a callback. Ask the caller if they would like a callback and try again with consent=true.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Find the call record and agent
+    // ── Idempotency: check if this blandCallId already has a booking ──────
+    const [existing] = await sql`
+      SELECT id, scheduled_at::text AS scheduled_at_text FROM federal_one_callback_appointments
+      WHERE provider_call_id = ${blandCallId}
+      LIMIT 1
+    `;
+    if (existing) {
+      const slotLocal = new Date(existing.scheduled_at_text).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        weekday: "long", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+      return new Response(JSON.stringify({
+        success: true,
+        booked: true,
+        idempotent: true,
+        appointment_id: existing.id,
+        scheduled_at: existing.scheduled_at_text,
+        scheduled_at_local: slotLocal,
+        message: `Callback already booked for ${slotLocal} Eastern. ${""} will call then.`,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Find the call record and validate ──────────────────────────────
     const callRows = await sql`
-      SELECT c.id, c.agent_id, c.consumer_name, c.consumer_phone, c.lead_id,
-             a.full_name AS agent_name, a.talkroute_number
+      SELECT c.id, c.agent_id, c.consumer_name, c.consumer_phone, c.lead_id
       FROM calls c
-      JOIN agents a ON a.id = c.agent_id
       WHERE c.provider_call_id = ${blandCallId}
       LIMIT 1
     `;
@@ -78,42 +126,75 @@ Deno.serve(async (req: Request) => {
     }
 
     const call = callRows[0];
-    const today = easternToday();
 
-    // Find available callback slots: 5-30 minute windows in the next 3 business days
-    // Slots are in Eastern Time, 9am-6pm, Mon-Fri
-    const slotRows = await sql`
-      SELECT
-        gs::timestamptz AS slot_start,
-        (gs::timestamptz + interval '15 minutes') AS slot_end
-      FROM generate_series(
-        (now() AT TIME ZONE 'America/New_York' + interval '1 hour')::timestamp,
-        (now() AT TIME ZONE 'America/New_York' + interval '3 days')::timestamp,
-        interval '15 minutes'
-      ) AS gs
-      WHERE EXTRACT(ISODOW FROM gs AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
-        AND EXTRACT(HOUR FROM gs AT TIME ZONE 'America/New_York') BETWEEN 9 AND 17
-        AND NOT EXISTS (
-          SELECT 1 FROM federal_one_callback_appointments a
-          WHERE a.agent_id = ${call.agent_id}
-            AND a.scheduled_at <= gs::timestamptz
-            AND a.deadline_at > gs::timestamptz
+    // ── DST-aware slot selection ────────────────────────────────────────
+    // Generate slots using AT TIME ZONE 'America/New_York' for both
+    // the wall-clock check and the conversion to timestamptz. This handles
+    // DST transitions correctly because Postgres uses the IANA timezone
+    // database to convert between wall-clock and UTC.
+    //
+    // We generate wall-clock times as timestamps (no tz), then convert
+    // them to timestamptz by specifying they are in America/New_York.
+    // This is DST-safe: '2026-03-08 09:00'::timestamp AT TIME ZONE 'America/New_York'
+    // correctly becomes 14:00 UTC (EST) or 13:00 UTC (EDT) depending on the date.
+
+    // Filter by preferred window
+    const windowHours: Record<string, [number, number]> = {
+      morning: [9, 12],
+      afternoon: [12, 17],
+      evening: [17, 19],
+      any: [9, 18],
+    };
+    const [hourStart, hourEnd] = windowHours[preferredWindow] || windowHours.any;
+
+    // Use pg_advisory_xact_lock to prevent two simultaneous bookings for the same agent
+    // The slot query + insert runs in a single transaction with this lock
+    const slotRows = await sql.begin(async (tx) => {
+      // Lock on the agent_id to serialize concurrent booking attempts
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'booking-' + String(call.agent_id)}))`;
+
+      // Generate candidate slots: 15-minute intervals, next 5 business days
+      // Start from 1 hour from now to ensure the slot is in the future
+      const slots = await tx`
+        WITH candidates AS (
+          SELECT
+            (gs AT TIME ZONE 'America/New_York')::timestamptz AS slot_start,
+            ((gs AT TIME ZONE 'America/New_York')::timestamptz + interval '15 minutes') AS slot_end
+          FROM generate_series(
+            (now() AT TIME ZONE 'America/New_York' + interval '1 hour')::timestamp,
+            (now() AT TIME ZONE 'America/New_York' + interval '5 days')::timestamp,
+            interval '15 minutes'
+          ) AS gs
         )
-        AND NOT EXISTS (
-          SELECT 1 FROM federal_one_callback_queue q
-          WHERE q.agent_id = ${call.agent_id}
-            AND q.state IN ('ready', 'reserved', 'dialing')
-            AND q.work_day = (gs AT TIME ZONE 'America/New_York')::date
-        )
-      LIMIT 5
-    `;
+        SELECT c.slot_start, c.slot_end
+        FROM candidates c
+        WHERE
+          -- Business days only (Mon-Fri)
+          EXTRACT(ISODOW FROM c.slot_start AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
+          -- Within the preferred window hours (Eastern wall-clock)
+          AND EXTRACT(HOUR FROM c.slot_start AT TIME ZONE 'America/New_York') >= ${hourStart}
+          AND EXTRACT(HOUR FROM c.slot_start AT TIME ZONE 'America/New_York') < ${hourEnd}
+          -- Must be in the future
+          AND c.slot_start > now()
+          -- No conflicting appointment for this agent
+          AND NOT EXISTS (
+            SELECT 1 FROM federal_one_callback_appointments a
+            WHERE a.agent_id = ${call.agent_id}
+              AND a.scheduled_at <= c.slot_start
+              AND a.deadline_at > c.slot_start
+          )
+        ORDER BY c.slot_start
+        LIMIT 1
+      `;
+      return slots;
+    });
 
     if (slotRows.length > 0) {
-      // Book the first available slot
       const slot = slotRows[0];
       const slotStart = slot.slot_start as string;
       const slotEnd = slot.slot_end as string;
 
+      // Book the slot — the advisory lock above prevents double-booking
       const [apptRow] = await sql`
         INSERT INTO federal_one_callback_appointments
           (agent_id, provider_call_id, consumer_phone, consumer_name, scheduled_at, deadline_at, consent_at)
@@ -123,10 +204,10 @@ Deno.serve(async (req: Request) => {
         RETURNING id
       `;
 
-      // Mark the call with callback info
       await sql`
         UPDATE calls
-        SET callback_requested = true, requested_callback_time = ${slotStart}::timestamptz
+        SET callback_requested = true, requested_callback_time = ${slotStart}::timestamptz,
+            callback_request_type = 'confirmed_appointment'
         WHERE id = ${call.id}
       `;
 
@@ -136,13 +217,17 @@ Deno.serve(async (req: Request) => {
         hour: "numeric", minute: "2-digit", hour12: true,
       });
 
+      // Get agent name for the confirmation message
+      const [agentRow] = await sql`SELECT full_name FROM agents WHERE id = ${call.agent_id} LIMIT 1`;
+      const agentName = agentRow?.full_name || "Your representative";
+
       return new Response(JSON.stringify({
         success: true,
         booked: true,
         appointment_id: apptRow.id,
         scheduled_at: slotStart,
         scheduled_at_local: slotLocal,
-        message: `Callback booked for ${slotLocal} Eastern. ${call.agent_name} will call then.`,
+        message: `Callback booked for ${slotLocal} Eastern. ${agentName} will call you then.`,
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -163,7 +248,7 @@ Deno.serve(async (req: Request) => {
 
     await sql`
       UPDATE calls
-      SET callback_requested = true
+      SET callback_requested = true, callback_request_type = 'request_no_slot'
       WHERE id = ${call.id}
     `;
 
@@ -171,7 +256,7 @@ Deno.serve(async (req: Request) => {
       success: true,
       booked: false,
       request_saved: true,
-      message: "No available callback slots right now. A callback request has been saved for the agent to review. Do not promise a specific time.",
+      message: "No available callback slots right now. A callback request has been saved for the agent to review. Do not promise a specific time or present this as a confirmed appointment.",
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {

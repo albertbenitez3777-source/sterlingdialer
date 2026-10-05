@@ -310,7 +310,7 @@ Deno.serve(async (req: Request) => {
       const configured = await fetch(`${supabaseUrl}/functions/v1/wolf-configure-inbound`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}` },
-        body: JSON.stringify({agent_id: route.id}), signal: AbortSignal.timeout(45000),
+        body: JSON.stringify({agent_id: route.id, mode: String(campaign.campaign_type) === "appointment" ? "appointment" : "transfer"}), signal: AbortSignal.timeout(45000),
       });
       const configResult = await configured.json().catch(() => ({})) as Record<string, unknown>;
       if (!configured.ok || configResult.success !== true) {

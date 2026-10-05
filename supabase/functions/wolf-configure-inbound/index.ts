@@ -221,7 +221,20 @@ Deno.serve(async (req: Request) => {
           const transferList = providerConfig.transfer_list && typeof providerConfig.transfer_list === "object"
             ? providerConfig.transfer_list as Record<string, unknown> : {};
           const providerDefault = normalizeToE164(String(transferList.default || ""));
-          const checks = {
+          const checks = callMode === "appointment" ? {
+            provider_read_ok: verifyRes.ok,
+            webhook_matches: providerWebhook === webhookUrl,
+            prompt_matches: providerPrompt === task.replace(/\r\n/g, "\n").trim(),
+            first_sentence_matches: providerFirstSentence === firstSentence,
+            pathway_cleared: providerPathway === "",
+            model_supports_transfer: !providerConfig.model || providerConfig.model === "base",
+            greeting_starts_immediately: providerConfig.wait_for_greeting !== true,
+            // Appointment mode: NO transfer_phone_number should be set
+            transfer_cleared: providerTransfer === "" || providerTransfer === normalizeToE164("0000000000"),
+            // Booking tool should be present
+            has_booking_tool: Array.isArray(providerConfig.tools) &&
+              providerConfig.tools.some((t: Record<string, unknown>) => t.name === "book_callback"),
+          } : {
             provider_read_ok: verifyRes.ok,
             transfer_matches: providerTransfer === transferNumber,
             default_transfer_matches: providerDefault === transferNumber,
@@ -232,6 +245,9 @@ Deno.serve(async (req: Request) => {
             pathway_cleared: providerPathway === "",
             model_supports_transfer: !providerConfig.model || providerConfig.model === "base",
             greeting_starts_immediately: providerConfig.wait_for_greeting !== true,
+            // Transfer mode: NO booking tool should be present
+            no_booking_tool: !(Array.isArray(providerConfig.tools) &&
+              providerConfig.tools.some((t: Record<string, unknown>) => t.name === "book_callback")),
           };
           const routeMatches = Object.values(checks).every(Boolean);
           const mismatch = Object.entries(checks).filter(([, passed]) => !passed).map(([key]) => key).join(", ");
