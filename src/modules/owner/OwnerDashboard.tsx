@@ -318,7 +318,7 @@ return (<>
                           const humans = agent.live_humans ?? 0;
                           const apptsBooked = agent.appointments_booked_today ?? 0;
                           const apptsUpcoming = agent.appointments_upcoming ?? 0;
-                          const callbackReqs = agent.callback_requests_today ?? 0;
+                          const callbackReqs = agent.callback_requests_today;
                           const hasApptData = agent.appointments_booked_today !== undefined || agent.appointments_upcoming !== undefined;
                           return (
                             <div key={agent.id} className="agent-readiness-card">
@@ -337,7 +337,7 @@ return (<>
                                   <span style={{ opacity: 0.6 }}>Upcoming</span>
                                 </div>
                                 <div style={{ textAlign: 'center' }}>
-                                  <strong style={{ display: 'block', fontSize: '16px' }}>{callbackReqs}</strong>
+                                  <strong style={{ display: 'block', fontSize: '16px' }}>{callbackReqs !== undefined ? callbackReqs : '—'}</strong>
                                   <span style={{ opacity: 0.6 }}>Requests</span>
                                 </div>
                               </div>

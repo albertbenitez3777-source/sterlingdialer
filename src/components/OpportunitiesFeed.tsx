@@ -8,6 +8,7 @@ import {
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { authFetch } from '@/utils/auth-fetch';
 import { formatPhone } from '@/utils/privacy';
+import { isRestrictedToddAgent } from '@/modules/callback-schedule/callback-agents';
 
 export type OpportunityRecord = {
   id: string;
@@ -152,7 +153,7 @@ export function OpportunitiesFeed({ sessionToken, onUnauthorized, isOwner, agent
   const [newCount, setNewCount] = useState(0);
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [serverTodayOnly, setServerTodayOnly] = useState(false);
-  const todayOnly = serverTodayOnly;
+  const todayOnly = serverTodayOnly || isRestrictedToddAgent(agentId);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const lastFetchTs = useRef<string>('');
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);

@@ -8,6 +8,7 @@ import { StatusPill, queueToPillVariant } from '@/components/StatusPill';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { formatPhone } from '@/utils/privacy';
 import { authFetch } from '@/utils/auth-fetch';
+import { isRestrictedToddAgent } from '@/modules/callback-schedule/callback-agents';
 
 // ── Types ──────────────────────────────────────────────────────────────
 export type WorkspaceCall = {
@@ -236,7 +237,7 @@ export function AgentWorkspaceView({
       });
       if (result.ok && result.data && mountedRef.current) {
         const incoming = result.data as WorkspaceData;
-        const todayOnly = incoming.today_only === true;
+        const todayOnly = incoming.today_only === true || isRestrictedToddAgent(agentId);
         setData(todayOnly ? { ...incoming,
           live_now: incoming.live_now.filter(call => call.created_at >= incoming.boundaries.today_start),
           today_completed: incoming.today_completed.filter(call => call.created_at >= incoming.boundaries.today_start),

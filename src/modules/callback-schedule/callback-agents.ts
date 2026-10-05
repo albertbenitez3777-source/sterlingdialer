@@ -4,3 +4,6 @@ export const CALLBACK_PARTICIPANTS = [
 ] as const;
 export const supportsCallbacks=(id?:string)=>CALLBACK_PARTICIPANTS.some(agent=>agent.id===id);
 export const callbackParticipant=(id:string)=>CALLBACK_PARTICIPANTS.find(agent=>agent.id===id);
+
+export const TODD_AGENT_ID='bf021c46-10ca-45a4-b800-08f5e181834e';
+export const isRestrictedToddAgent=(agentId:string)=>agentId===TODD_AGENT_ID;
