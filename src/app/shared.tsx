@@ -168,7 +168,7 @@ export function fmtDuration(seconds: number | null | undefined): string {
 
 export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
 
-export const FUNCTIONS_BASE = import.meta.env.DEV ? '' : SUPABASE_URL;
+export const FUNCTIONS_BASE = SUPABASE_URL;
 
 export const AUTH_URL = `${FUNCTIONS_BASE}/functions/v1/wolf-auth`;
 
