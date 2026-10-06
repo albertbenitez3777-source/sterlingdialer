@@ -398,7 +398,7 @@ useEffect(() => {
 const adminRequestRef = useRef<{token: string; signal?: AbortSignal} | null>(null);
 const loadAdminStats = useCallback(async (token: string, signal?: AbortSignal) => {
     const pending = adminRequestRef.current;
-    if (pending?.token === token && !pending.signal?.aborted) return false;
+    if (pending?.token === token && !pending.signal?.aborted) return true;
     const request = { token, signal };
     adminRequestRef.current = request;
     setLoadingAdmin(true);
