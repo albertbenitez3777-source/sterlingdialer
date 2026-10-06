@@ -16,7 +16,6 @@ type Props = {
 const AGENT_COLORS: Record<string, string> = {
   'James Spencer': '#3b82f6',
   'Todd Sloane': '#10b981',
-  'Mark Carlson': '#f59e0b',
 };
 
 function agentColor(name: string): string {
