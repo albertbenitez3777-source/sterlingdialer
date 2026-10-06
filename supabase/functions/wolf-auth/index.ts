@@ -15,7 +15,7 @@ let dbClient: SupabaseClient | null = null;
 
 type RpcSpec = { rpc: string; args: string[] };
 const RPC_ALLOWLIST: Record<string, RpcSpec> = {
-  login: { rpc: "agent_login_with_retired_pin_notice", args: ["p_pin", "p_ip"] },
+  login: { rpc: "agent_login", args: ["p_pin", "p_ip"] },
   login_by_token: { rpc: "agent_login_by_token", args: ["p_token", "p_ip"] },
   logout: { rpc: "agent_logout", args: ["p_session_token"] },
   verify: { rpc: "verify_session", args: ["p_session_token"] },
@@ -37,6 +37,13 @@ function safeLog(correlationId: string, action: string, message: string, extra?:
 
 function isAuthResult(data: unknown): data is Record<string, unknown> & { success: boolean } {
   return typeof data === "object" && data !== null && !Array.isArray(data) && typeof (data as Record<string, unknown>).success === "boolean";
+}
+
+function requestIp(req: Request): string {
+  const candidate = (req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "").split(",")[0].trim();
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(candidate)) return candidate;
+  if (/^[0-9a-fA-F:]+$/.test(candidate) && candidate.includes(":")) return candidate;
+  return "0.0.0.0";
 }
 
 async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationId: string, action: string): Promise<{ ok: boolean; status: number; data: unknown }> {
@@ -103,7 +110,7 @@ Deno.serve(async (req: Request) => {
       if (!pin || !/^\d{4}$/.test(pin)) {
         return jsonResponse({ success: false, error: "Invalid PIN format" }, 400);
       }
-      const ip = req.headers.get("x-forwarded-for") || "unknown";
+      const ip = requestIp(req);
       const spec = RPC_ALLOWLIST.login;
       const result = await callRpc(spec, { p_pin: pin, p_ip: ip }, correlationId, action);
 
@@ -127,7 +134,7 @@ Deno.serve(async (req: Request) => {
       if (!token || token.length < 30) {
         return jsonResponse({ success: false, error: "Invalid token" }, 400);
       }
-      const ip = req.headers.get("x-forwarded-for") || "unknown";
+      const ip = requestIp(req);
       const spec = RPC_ALLOWLIST.login_by_token;
       const result = await callRpc(spec, { p_token: token, p_ip: ip }, correlationId, action);
       if (!result.ok) {
