@@ -222,8 +222,13 @@ async function placeBlandCall(
 
 async function releaseUndispatchedCall(sql: Sql, call: Record<string, unknown>) {
   const removed = await sql`DELETE FROM calls WHERE id = ${call.call_id as string}
-    AND queue = 'pending' AND (provider_call_id IS NULL OR provider_call_id = '') RETURNING lead_id`;
-  if (removed.length === 0) return;
+    AND queue = 'pending' AND (provider_call_id IS NULL OR provider_call_id = '')
+    AND NOT EXISTS (SELECT 1 FROM federal_one_callback_queue cq WHERE cq.attempt_call_id = calls.id)
+    RETURNING lead_id`;
+  if (removed.length === 0) {
+    await sql`UPDATE calls SET queue = 'no_answer', is_completed = true WHERE id = ${call.call_id as string}
+      AND queue = 'pending' AND (provider_call_id IS NULL OR provider_call_id = '')`;
+  }
   if (call.lead_id) {
     await sql`UPDATE leads SET status = 'new', force_redial = force_redial OR ${call.force_redial === true}
       WHERE id = ${call.lead_id as string} AND status = 'in_progress'
