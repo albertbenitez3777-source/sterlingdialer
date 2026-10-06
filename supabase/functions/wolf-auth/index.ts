@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +11,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const UPSTREAM_TIMEOUT_MS = 30000;
+let dbClient: SupabaseClient | null = null;
 
 type RpcSpec = { rpc: string; args: string[] };
 const RPC_ALLOWLIST: Record<string, RpcSpec> = {
@@ -43,62 +45,38 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
     return { ok: false, status: 0, data: null };
   }
 
-  const endpoint = `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/rpc/${spec.rpc}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  const start = Date.now();
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        "Content-Type": "application/json",
+  if (!dbClient) {
+    dbClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: {
+        fetch: (input, init) => fetch(input, {
+          ...init,
+          signal: init?.signal ?? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        }),
       },
-      body: JSON.stringify(args),
-      signal: controller.signal,
     });
-    const responseText = await response.text();
-    let data: unknown = null;
-    if (responseText.trim()) {
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        safeLog(correlationId, action, "Supabase RPC returned invalid JSON", {
-          status: response.status,
-          elapsedMs: Date.now() - start,
-          bodySnippet: responseText.slice(0, 200),
-        });
-        return { ok: false, status: response.status, data: null };
-      }
-    }
-    if (!response.ok) {
+  }
+
+  const start = Date.now();
+  try {
+    const { data, error } = await dbClient.rpc(spec.rpc, args);
+    if (error) {
       safeLog(correlationId, action, "Supabase RPC failed", {
-        status: response.status,
+        status: error.code || "RPC_ERROR",
         elapsedMs: Date.now() - start,
-        bodySnippet: responseText.slice(0, 300),
       });
-      return { ok: false, status: response.status, data };
+      return { ok: false, status: 500, data: null };
     }
-    safeLog(correlationId, action, "Supabase RPC responded", {
-      status: response.status,
-      elapsedMs: Date.now() - start,
-    });
-    return { ok: true, status: response.status, data };
+    safeLog(correlationId, action, "Supabase RPC responded", { elapsedMs: Date.now() - start });
+    return { ok: true, status: 200, data };
   } catch (err) {
     const errorName = err instanceof Error ? err.name : "";
-    const errorMsg = err instanceof Error ? err.message : String(err);
     safeLog(correlationId, action, "Supabase RPC unavailable", {
       code: errorName === "AbortError" ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR",
       errorName,
-      errorMsg,
       elapsedMs: Date.now() - start,
     });
     return { ok: false, status: 0, data: null };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
