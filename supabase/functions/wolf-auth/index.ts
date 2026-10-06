@@ -11,8 +11,6 @@ const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const UPSTREAM_TIMEOUT_MS = 30000;
 
-// Fixed allowlist: action -> { rpc, args }
-// Only these RPCs can be called, only with these exact argument names.
 type RpcSpec = { rpc: string; args: string[] };
 const RPC_ALLOWLIST: Record<string, RpcSpec> = {
   login: { rpc: "agent_login_with_retired_pin_notice", args: ["p_pin", "p_ip"] },
@@ -41,7 +39,7 @@ function isAuthResult(data: unknown): data is Record<string, unknown> & { succes
 
 async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationId: string, action: string): Promise<{ ok: boolean; status: number; data: unknown }> {
   if (!supabaseUrl || !serviceRoleKey) {
-    safeLog(correlationId, action, "Supabase configuration missing");
+    safeLog(correlationId, action, "Supabase configuration missing", { hasUrl: !!supabaseUrl, hasKey: !!serviceRoleKey });
     return { ok: false, status: 0, data: null };
   }
 
@@ -71,6 +69,7 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
         safeLog(correlationId, action, "Supabase RPC returned invalid JSON", {
           status: response.status,
           elapsedMs: Date.now() - start,
+          bodySnippet: responseText.slice(0, 200),
         });
         return { ok: false, status: response.status, data: null };
       }
@@ -79,8 +78,9 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
       safeLog(correlationId, action, "Supabase RPC failed", {
         status: response.status,
         elapsedMs: Date.now() - start,
+        bodySnippet: responseText.slice(0, 300),
       });
-      return { ok: false, status: response.status, data: null };
+      return { ok: false, status: response.status, data };
     }
     safeLog(correlationId, action, "Supabase RPC responded", {
       status: response.status,
@@ -89,8 +89,11 @@ async function callRpc(spec: RpcSpec, args: Record<string, string>, correlationI
     return { ok: true, status: response.status, data };
   } catch (err) {
     const errorName = err instanceof Error ? err.name : "";
+    const errorMsg = err instanceof Error ? err.message : String(err);
     safeLog(correlationId, action, "Supabase RPC unavailable", {
       code: errorName === "AbortError" ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR",
+      errorName,
+      errorMsg,
       elapsedMs: Date.now() - start,
     });
     return { ok: false, status: 0, data: null };
@@ -115,6 +118,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     action = String(body.action || "");
 
+    safeLog(correlationId, action, "Request received", { hasUrl: !!supabaseUrl, hasKey: !!serviceRoleKey });
+
     if (action === "login") {
       const pin = String(body.pin || "");
       if (!pin || !/^\d{4}$/.test(pin)) {
@@ -125,9 +130,11 @@ Deno.serve(async (req: Request) => {
       const result = await callRpc(spec, { p_pin: pin, p_ip: ip }, correlationId, action);
 
       if (!result.ok) {
+        safeLog(correlationId, action, "RPC call failed", { status: result.status });
         return jsonResponse({ success: false, error: "Service temporarily unavailable. Please try again." }, 503);
       }
       if (!isAuthResult(result.data)) {
+        safeLog(correlationId, action, "Invalid auth result shape", { data: JSON.stringify(result.data).slice(0, 200) });
         return jsonResponse({ success: false, error: "Authentication service returned an invalid response" }, 503);
       }
       const data = result.data;
@@ -222,8 +229,9 @@ Deno.serve(async (req: Request) => {
     }
 
     return jsonResponse({ error: "Unknown action" }, 400);
-  } catch {
-    safeLog(correlationId, action, "handler error", { code: "HANDLER_ERROR" });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    safeLog(correlationId, action, "handler error", { code: "HANDLER_ERROR", error: errorMsg });
     return jsonResponse({ error: "Internal server error" }, 500);
   }
 });
