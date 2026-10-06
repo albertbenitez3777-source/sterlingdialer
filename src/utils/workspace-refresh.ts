@@ -25,15 +25,10 @@ export async function refreshWorkspace(
   signal: AbortSignal,
   stopOnFailure = true,
 ) {
-  // A slow secondary report cannot delay setting the essential data, and an
-  // unavailable backend does not receive the rest of the batch at once.
-  let healthy = true;
-  for (const read of reads) {
-    if (signal.aborted) return false;
-    if (await loaders[read](signal) === false) {
-      healthy = false;
-      if (stopOnFailure) return false;
-    }
-  }
+  if (signal.aborted) return false;
+  const results = await Promise.all(reads.map(read => loaders[read](signal)));
+  if (signal.aborted) return false;
+  const healthy = results.every(r => r !== false);
+  if (!healthy && stopOnFailure) return false;
   return healthy && !signal.aborted;
 }

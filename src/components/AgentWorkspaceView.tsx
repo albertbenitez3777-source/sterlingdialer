@@ -258,11 +258,11 @@ export function AgentWorkspaceView({
     setOutcomeFilter('all');
   }, [agentId, sessionToken]);
 
-  // Live + today: 3s refresh
+  // Live + today: 5s refresh
   useEffect(() => {
     mountedRef.current = true;
     fetchWorkspace(archiveOffset);
-    const fast = setInterval(() => fetchWorkspace(archiveOffset), 3000);
+    const fast = setInterval(() => fetchWorkspace(archiveOffset), 5000);
     return () => { mountedRef.current = false; clearInterval(fast); };
   }, [fetchWorkspace, archiveOffset]);
 
