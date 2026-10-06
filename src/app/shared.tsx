@@ -215,7 +215,7 @@ export function queueLabel(queue: string): string {
   return map[queue] || queue;
 }
 
-export type LoginErrorKind = 'network' | 'timeout' | 'unauthorized' | 'server_error' | 'unknown';
+export type LoginErrorKind = 'network' | 'timeout' | 'unauthorized' | 'server_error' | 'service_unavailable' | 'unknown';
 
 export function classifyFetchError(err: unknown): LoginErrorKind {
   if (err instanceof DOMException && err.name === 'AbortError') return 'timeout';
@@ -229,6 +229,7 @@ export function loginErrorMessage(kind: LoginErrorKind): string {
     case 'timeout': return 'Request timed out — the server may be waking up. Please try again.';
     case 'unauthorized': return 'Invalid PIN or credentials.';
     case 'server_error': return 'Server error. Please try again in a moment.';
+    case 'service_unavailable': return 'Service is temporarily unavailable due to platform limits. Please contact the account owner.';
     default: return 'Connection failed. Please try again.';
   }
 }
@@ -255,6 +256,9 @@ export async function fetchWithRetry(url: string, body: Record<string, unknown>,
       if ([502, 503, 504].includes(res.status) && attempt < attempts - 1) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         continue;
+      }
+      if (res.status === 503) {
+        return new Response(payload, { status: 503, statusText: 'Service Unavailable', headers: res.headers });
       }
       return new Response([204, 205, 304].includes(res.status) ? null : payload, {
         status: res.status, statusText: res.statusText, headers: res.headers,

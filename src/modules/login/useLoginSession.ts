@@ -44,6 +44,12 @@ useEffect(() => {
       setRestoringLogin(true);
       try {
         const response = await fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token }, 1, AUTH_TIMEOUT_MS);
+        if (response.status === 503) {
+          if (stillCurrent()) {
+            setLoginError('Service is temporarily unavailable due to platform limits. Please contact the account owner.');
+          }
+          return;
+        }
         if (!response.ok) throw new Error('Session verification unavailable');
         const data = await response.json();
         if (!stillCurrent()) return;
@@ -131,7 +137,7 @@ const handleLogin = async (completedPin = pin) => {
         if (data.agent.role !== 'owner' && data.agent.role !== 'administrator' && !data.agent.available_for_transfer) setShowOfflineModal(true);
         setPin('');
       } else {
-        const kind: LoginErrorKind = res.status === 401 ? 'unauthorized' : res.status >= 500 ? 'server_error' : 'unknown';
+        const kind: LoginErrorKind = res.status === 401 ? 'unauthorized' : res.status === 503 ? 'service_unavailable' : res.status >= 500 ? 'server_error' : 'unknown';
         setLoginError(data.error || loginErrorMessage(kind));
       }
     } catch (err) {
