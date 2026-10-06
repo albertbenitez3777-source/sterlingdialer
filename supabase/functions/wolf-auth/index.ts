@@ -9,7 +9,7 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-const UPSTREAM_TIMEOUT_MS = 20000;
+const UPSTREAM_TIMEOUT_MS = 30000;
 
 // Fixed allowlist: action -> { rpc, args }
 // Only these RPCs can be called, only with these exact argument names.

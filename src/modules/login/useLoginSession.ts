@@ -24,7 +24,7 @@ export function useLoginLifecycle({restoringLogin,setRestoringLogin,session,setS
 useEffect(() => {
     // A saved account does not need another setup query during sign-in.
     if (localStorage.getItem('sterling_session_token')) return;
-    fetchWithRetry(AUTH_URL, { action: 'owner_needs_setup' }, 1, AUTH_TIMEOUT_MS)
+    fetchWithRetry(AUTH_URL, { action: 'owner_needs_setup' }, 2, AUTH_TIMEOUT_MS)
       .then(r => r.json()).then(d => { if (d.needs_setup) setOwnerNeedsSetup(true); }).catch(() => {});
   }, []);
 useEffect(() => {
@@ -43,7 +43,7 @@ useEffect(() => {
       pending = true;
       setRestoringLogin(true);
       try {
-        const response = await fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token }, 1, AUTH_TIMEOUT_MS);
+        const response = await fetchWithRetry(AUTH_URL, { action: 'verify', session_token: token }, 3, AUTH_TIMEOUT_MS);
         if (response.status === 503) {
           if (stillCurrent()) {
             setLoginError('Service is temporarily unavailable due to platform limits. Please contact the account owner.');
@@ -101,7 +101,7 @@ useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetchWithRetry(AUTH_URL, { action: 'login_by_token', token }, 1, AUTH_TIMEOUT_MS);
+        const res = await fetchWithRetry(AUTH_URL, { action: 'login_by_token', token }, 3, AUTH_TIMEOUT_MS);
         const data = await res.json();
         if (cancelled) return;
         if (res.ok && data.success && data.session_token && data.agent) {
@@ -126,7 +126,7 @@ const handleLogin = async (completedPin = pin) => {
     loginInFlight.current = true;
     setLoggingIn(true); setLoginError('');
     try {
-      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin: completedPin }, 1, AUTH_TIMEOUT_MS);
+      const res = await fetchWithRetry(AUTH_URL, { action: 'login', pin: completedPin }, 3, AUTH_TIMEOUT_MS);
       const data = await res.json();
       if (res.ok && data.success && data.session_token && data.agent) {
         localStorage.setItem('sterling_session_token', data.session_token);
@@ -160,7 +160,7 @@ const handleOwnerSetup = async () => {
     if (!/^\d{4}$/.test(setupPin)) { setSetupError('PIN must be 4 digits'); return; }
     setSettingUp(true); setSetupError('');
     try {
-      const res = await fetchWithRetry(AUTH_URL, { action: 'owner_setup', pin: setupPin }, 1, AUTH_TIMEOUT_MS);
+      const res = await fetchWithRetry(AUTH_URL, { action: 'owner_setup', pin: setupPin }, 3, AUTH_TIMEOUT_MS);
       const data = await res.json();
       if (data.success) { setOwnerNeedsSetup(false); setSetupPin(''); setSetupConfirm(''); }
       else { setSetupError(data.error || 'Setup failed'); }
