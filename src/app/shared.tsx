@@ -167,6 +167,7 @@ export function fmtDuration(seconds: number | null | undefined): string {
 }
 
 export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
+export const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? '';
 
 export const FUNCTIONS_BASE = SUPABASE_URL;
 
@@ -244,7 +245,13 @@ export async function fetchWithRetry(url: string, body: Record<string, unknown>,
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(SUPABASE_ANON_KEY ? {
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            apikey: SUPABASE_ANON_KEY,
+          } : {}),
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
